@@ -32,6 +32,7 @@ struct TaskItem: Codable, FetchableRecord, MutablePersistableRecord {
     var completedAt: Date?
     var labels: String?
     var attachments: String?
+    var isGlobal: Bool
     static let databaseTableName = "taskItems"
 
     mutating func didInsert(_ inserted: InsertionSuccess) {
@@ -69,11 +70,21 @@ struct Note: Codable, FetchableRecord, MutablePersistableRecord {
     var sessionId: String?
     var createdAt: Date
     var updatedAt: Date
+    var isGlobal: Bool
     static let databaseTableName = "notes"
 
     mutating func didInsert(_ inserted: InsertionSuccess) {
         id = inserted.rowID
     }
+}
+
+struct Client: Codable, FetchableRecord, MutablePersistableRecord {
+    var id: String
+    var name: String
+    var color: String
+    var sortOrder: Int
+    var createdAt: Date
+    static let databaseTableName = "clients"
 }
 
 // MARK: - MCP Protocol Types
@@ -336,6 +347,7 @@ class MCPServer {
                     "properties": [
                         "project_id": ["type": "string", "description": "Project ID (auto-detected if omitted)"],
                         "status": ["type": "string", "description": "Filter by status: todo, in_progress, done. Omit for all.", "enum": ["todo", "in_progress", "done"]],
+                        "global": ["type": "boolean", "description": "Set true to list global planner tasks instead of project tasks"],
                     ]
                 ]
             ],
@@ -361,6 +373,7 @@ class MCPServer {
                         "description": ["type": "string", "description": "Task description (optional)"],
                         "priority": ["type": "integer", "description": "Priority: 0=none, 1=low, 2=medium, 3=high, 4=urgent"],
                         "labels": ["type": "array", "items": ["type": "string"], "description": "Labels (e.g. bug, feature, refactor)"],
+                        "global": ["type": "boolean", "description": "Set true to create a global planner task (visible on home board)"],
                     ],
                     "required": ["title"]
                 ]
@@ -413,6 +426,7 @@ class MCPServer {
                     "properties": [
                         "project_id": ["type": "string", "description": "Project ID (auto-detected if omitted)"],
                         "pinned_only": ["type": "boolean", "description": "If true, only return pinned notes"],
+                        "global": ["type": "boolean", "description": "Set true to list global planner notes instead of project notes"],
                     ]
                 ]
             ],
@@ -438,6 +452,7 @@ class MCPServer {
                         "content": ["type": "string", "description": "Note content (supports markdown)"],
                         "pinned": ["type": "boolean", "description": "Pin this note to the top (default: false)"],
                         "session_id": ["type": "string", "description": "Claude session ID that created this note (optional)"],
+                        "global": ["type": "boolean", "description": "Set true to create a global planner note"],
                     ],
                     "required": ["title"]
                 ]
@@ -475,9 +490,30 @@ class MCPServer {
                     "properties": [
                         "project_id": ["type": "string", "description": "Project ID (auto-detected if omitted)"],
                         "query": ["type": "string", "description": "Search query"],
+                        "global": ["type": "boolean", "description": "Set true to search global notes instead of project notes"],
                     ],
                     "required": ["query"]
                 ]
+            ],
+            [
+                "name": "list_clients",
+                "description": "List all clients (used for project grouping in the sidebar).",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [:] as [String: Any]
+                ]
+            ],
+            [
+                "name": "create_client",
+                "description": "Create a new client for grouping projects.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "name": ["type": "string", "description": "Client name"],
+                        "color": ["type": "string", "description": "Hex color (e.g. #3B82F6). Optional, defaults to blue."]
+                    ] as [String: Any],
+                    "required": ["name"]
+                ] as [String: Any]
             ],
         ]
     }
@@ -508,6 +544,8 @@ class MCPServer {
             case "update_note":      result = try updateNote(args)
             case "delete_note":      result = try deleteNote(args)
             case "search_notes":     result = try searchNotes(args)
+            case "list_clients":     result = try listClients()
+            case "create_client":    result = try createClient(args)
             default:
                 return errorResponse(id: req.id, code: -32602, message: "Unknown tool: \(toolName)")
             }
@@ -544,15 +582,27 @@ class MCPServer {
     }
 
     func listTasks(_ args: [String: Any]) throws -> String {
-        let projectId = try resolveProjectId(args)
-        let statusFilter = args["status"] as? String
+        let isGlobal = args["global"] as? Bool ?? false
 
-        let tasks = try db.read { db -> [TaskItem] in
-            var query = TaskItem.filter(Column("projectId") == projectId)
-            if let status = statusFilter {
-                query = query.filter(Column("status") == status)
+        let tasks: [TaskItem]
+        if isGlobal {
+            tasks = try db.read { db in
+                var query = TaskItem.filter(Column("isGlobal") == true)
+                if let status = args["status"] as? String {
+                    query = query.filter(Column("status") == status)
+                }
+                return try query.order(Column("priority").desc, Column("createdAt").desc).fetchAll(db)
             }
-            return try query.order(Column("priority").desc, Column("createdAt").desc).fetchAll(db)
+        } else {
+            let projectId = try resolveProjectId(args)
+            let statusFilter = args["status"] as? String
+            tasks = try db.read { db -> [TaskItem] in
+                var query = TaskItem.filter(Column("projectId") == projectId)
+                if let status = statusFilter {
+                    query = query.filter(Column("status") == status)
+                }
+                return try query.order(Column("priority").desc, Column("createdAt").desc).fetchAll(db)
+            }
         }
 
         if tasks.isEmpty {
@@ -620,7 +670,13 @@ class MCPServer {
     }
 
     func createTask(_ args: [String: Any]) throws -> String {
-        let projectId = try resolveProjectId(args)
+        let isGlobal = args["global"] as? Bool ?? false
+        let projectId: String
+        if isGlobal {
+            projectId = "__global__"
+        } else {
+            projectId = try resolveProjectId(args)
+        }
         guard let title = args["title"] as? String, !title.isEmpty else {
             throw MCPError(message: "title is required")
         }
@@ -648,7 +704,8 @@ class MCPServer {
             createdAt: Date(),
             completedAt: nil,
             labels: labelsJSON,
-            attachments: nil
+            attachments: nil,
+            isGlobal: isGlobal
         )
 
         try db.write { db in
@@ -770,15 +827,28 @@ class MCPServer {
     // MARK: - Project Notes
 
     func listNotes(_ args: [String: Any]) throws -> String {
-        let projectId = try resolveProjectId(args)
-        let pinnedOnly = args["pinned_only"] as? Bool ?? false
+        let isGlobal = args["global"] as? Bool ?? false
 
-        let notes = try db.read { db -> [Note] in
-            var query = Note.filter(Column("projectId") == projectId)
-            if pinnedOnly {
-                query = query.filter(Column("pinned") == true)
+        let notes: [Note]
+        if isGlobal {
+            let pinnedOnly = args["pinned_only"] as? Bool ?? false
+            notes = try db.read { db -> [Note] in
+                var query = Note.filter(Column("isGlobal") == true)
+                if pinnedOnly {
+                    query = query.filter(Column("pinned") == true)
+                }
+                return try query.order(Column("pinned").desc, Column("updatedAt").desc).fetchAll(db)
             }
-            return try query.order(Column("pinned").desc, Column("updatedAt").desc).fetchAll(db)
+        } else {
+            let projectId = try resolveProjectId(args)
+            let pinnedOnly = args["pinned_only"] as? Bool ?? false
+            notes = try db.read { db -> [Note] in
+                var query = Note.filter(Column("projectId") == projectId)
+                if pinnedOnly {
+                    query = query.filter(Column("pinned") == true)
+                }
+                return try query.order(Column("pinned").desc, Column("updatedAt").desc).fetchAll(db)
+            }
         }
 
         if notes.isEmpty {
@@ -825,7 +895,13 @@ class MCPServer {
     }
 
     func createNote(_ args: [String: Any]) throws -> String {
-        let projectId = try resolveProjectId(args)
+        let isGlobal = args["global"] as? Bool ?? false
+        let projectId: String
+        if isGlobal {
+            projectId = "__global__"
+        } else {
+            projectId = try resolveProjectId(args)
+        }
         guard let title = args["title"] as? String, !title.isEmpty else {
             throw MCPError(message: "title is required")
         }
@@ -843,7 +919,8 @@ class MCPServer {
             pinned: pinned,
             sessionId: sessionId,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            isGlobal: isGlobal
         )
 
         try db.write { db in
@@ -909,21 +986,37 @@ class MCPServer {
     }
 
     func searchNotes(_ args: [String: Any]) throws -> String {
-        let projectId = try resolveProjectId(args)
+        let isGlobal = args["global"] as? Bool ?? false
+
         guard let query = args["query"] as? String, !query.isEmpty else {
             throw MCPError(message: "query is required")
         }
 
-        // Use FTS5 search via raw SQL joining notesFts virtual table
-        let notes = try db.read { db in
-            let sql = """
-                SELECT notes.* FROM notes
-                JOIN notesFts ON notesFts.rowid = notes.id
-                WHERE notes.projectId = ?
-                AND notesFts MATCH ?
-                ORDER BY notes.updatedAt DESC
-                """
-            return try Note.fetchAll(db, sql: sql, arguments: [projectId, query])
+        let notes: [Note]
+        if isGlobal {
+            notes = try db.read { db in
+                let sql = """
+                    SELECT notes.* FROM notes
+                    JOIN notesFts ON notesFts.rowid = notes.id
+                    WHERE notes.isGlobal = 1
+                    AND notesFts MATCH ?
+                    ORDER BY notes.updatedAt DESC
+                    """
+                return try Note.fetchAll(db, sql: sql, arguments: [query])
+            }
+        } else {
+            let projectId = try resolveProjectId(args)
+            // Use FTS5 search via raw SQL joining notesFts virtual table
+            notes = try db.read { db in
+                let sql = """
+                    SELECT notes.* FROM notes
+                    JOIN notesFts ON notesFts.rowid = notes.id
+                    WHERE notes.projectId = ?
+                    AND notesFts MATCH ?
+                    ORDER BY notes.updatedAt DESC
+                    """
+                return try Note.fetchAll(db, sql: sql, arguments: [projectId, query])
+            }
         }
 
         if notes.isEmpty {
@@ -942,6 +1035,47 @@ class MCPServer {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Client Handlers
+
+    func listClients() throws -> String {
+        let clients = try db.read { db in
+            try Client.order(Column("sortOrder").asc, Column("name").asc).fetchAll(db)
+        }
+        if clients.isEmpty {
+            return "No clients found. Use create_client to add one."
+        }
+        var lines = ["Clients (\(clients.count)):"]
+        for c in clients {
+            lines.append("  [\(c.id)] \(c.name) (color: \(c.color))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func createClient(_ args: [String: Any]) throws -> String {
+        guard let name = args["name"] as? String, !name.isEmpty else {
+            throw MCPError(message: "name is required")
+        }
+        let color = args["color"] as? String ?? "#3B82F6"
+
+        let existingCount = try db.read { db in
+            try Client.fetchCount(db)
+        }
+
+        var client = Client(
+            id: UUID().uuidString,
+            name: name,
+            color: color,
+            sortOrder: existingCount,
+            createdAt: Date()
+        )
+
+        try db.write { db in
+            try client.insert(db)
+        }
+
+        return "Created client '\(name)' with ID \(client.id)"
     }
 
     // MARK: - JSON-RPC Helpers
