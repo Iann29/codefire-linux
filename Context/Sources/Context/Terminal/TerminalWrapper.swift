@@ -189,6 +189,10 @@ struct TerminalWrapper: NSViewRepresentable {
             var env = ProcessInfo.processInfo.environment
             env["TERM"] = "xterm-256color"
             env["COLORTERM"] = "truecolor"
+            // Remove Claude Code nesting guard so `claude` can be launched
+            // from the embedded terminal without "nested session" errors.
+            env.removeValue(forKey: "CLAUDECODE")
+            env.removeValue(forKey: "CLAUDE_CODE")
             let envStrings = env.map { "\($0.key)=\($0.value)" }
 
             // Use "-zsh" as execName for proper login shell convention.
