@@ -43,7 +43,7 @@ struct TerminalTabView: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
+            .background(Color(nsColor: .windowBackgroundColor))
 
             // Thin separator
             Rectangle()

@@ -106,7 +106,6 @@ struct GUIPanelView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
 
                 Divider()
 
@@ -118,7 +117,6 @@ struct GUIPanelView: View {
                 projectHeader
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
 
                 Divider()
 
@@ -151,7 +149,7 @@ struct GUIPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { mcpMonitor.startPolling() }
         .onDisappear { mcpMonitor.stopPolling() }
     }
@@ -226,8 +224,8 @@ struct TabButton: View {
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isSelected
-                          ? Color.accentColor.opacity(0.15)
-                          : isHovering ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                          ? Color.accentColor.opacity(0.12)
+                          : isHovering ? Color(nsColor: .separatorColor).opacity(0.15) : Color.clear)
             )
             .foregroundColor(isSelected ? .accentColor : .secondary)
         }
@@ -273,7 +271,7 @@ struct MCPIndicator: View {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                    .fill(Color(nsColor: .separatorColor).opacity(0.12))
             )
         } else {
             Menu {

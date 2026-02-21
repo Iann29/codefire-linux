@@ -74,8 +74,8 @@ struct ProjectTaskSummary: View {
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear { loadProjectTasks() }
         .onReceive(NotificationCenter.default.publisher(for: .tasksDidChange)) { _ in
             loadProjectTasks()

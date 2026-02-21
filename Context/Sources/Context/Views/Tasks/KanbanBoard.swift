@@ -326,17 +326,14 @@ struct KanbanColumn<MenuContent: View>: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10)
                 .fill(isDropTargeted
-                      ? color.opacity(0.08)
-                      : Color(nsColor: .controlBackgroundColor).opacity(0.4))
+                      ? color.opacity(0.06)
+                      : Color(nsColor: .underPageBackgroundColor).opacity(0.5))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isDropTargeted
-                        ? color.opacity(0.4)
-                        : Color(nsColor: .separatorColor).opacity(0.25),
-                        lineWidth: isDropTargeted ? 1.5 : 0.5)
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(isDropTargeted ? color.opacity(0.35) : Color.clear, lineWidth: 1.5)
         )
         .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
     }
@@ -372,12 +369,12 @@ struct NewTaskSheet: View {
                     .padding(6)
                     .frame(height: 80)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .textBackgroundColor).opacity(0.5))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.2), lineWidth: 0.5)
                     )
 
                 // Priority

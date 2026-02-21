@@ -152,7 +152,7 @@ struct SessionRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected
                       ? Color.accentColor.opacity(0.15)
-                      : isHovering ? Color(nsColor: .controlBackgroundColor).opacity(0.5) : Color.clear)
+                      : isHovering ? Color(nsColor: .separatorColor).opacity(0.15) : Color.clear)
         )
         .contentShape(Rectangle())
         .onHover { hovering in

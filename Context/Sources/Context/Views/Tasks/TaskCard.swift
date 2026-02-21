@@ -77,15 +77,13 @@ struct TaskCardView: View {
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 1 : 0.8))
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: .black.opacity(isHovering ? 0.15 : 0.08), radius: isHovering ? 4 : 2, y: isHovering ? 2 : 1)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(isHovering
-                        ? Color.accentColor.opacity(0.3)
-                        : Color(nsColor: .separatorColor).opacity(0.25),
-                        lineWidth: isHovering ? 1 : 0.5)
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isHovering ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {

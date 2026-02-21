@@ -41,6 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Belt-and-suspenders: kill any remaining child processes
         TerminalTracker.shared.terminateAll()
     }
+
 }
 
 @main
@@ -92,7 +93,7 @@ struct ContextApp: App {
                     }
                 }
         }
-        .windowStyle(.automatic)
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1400, height: 900)
 
         Settings {
