@@ -68,6 +68,24 @@ struct TaskDetailView: View {
                             .font(.system(size: 13))
                     }
 
+                    // Project assignment
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Project")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+
+                        Picker("Project", selection: $selectedProjectId) {
+                            Text("None (Global only)")
+                                .tag("__global__")
+                            ForEach(appState.projects) { project in
+                                Text(projectPickerLabel(project))
+                                    .tag(project.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+
                     // Description
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
@@ -164,26 +182,6 @@ struct TaskDetailView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                        }
-                    }
-
-                    // Project assignment (global tasks only)
-                    if task.isGlobal {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Project")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.secondary)
-
-                            Picker("Project", selection: $selectedProjectId) {
-                                Text("None (Global only)")
-                                    .tag("__global__")
-                                ForEach(appState.projects) { project in
-                                    Text(project.name)
-                                        .tag(project.id)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
                         }
                     }
 
@@ -594,6 +592,12 @@ struct TaskDetailView: View {
         updated.setAttachments(attachedImages)
         onSave(updated)
         dismiss()
+    }
+
+    private func projectPickerLabel(_ project: Project) -> String {
+        let tags = project.tagsArray
+        if tags.isEmpty { return project.name }
+        return "\(project.name) (\(tags.joined(separator: ", ")))"
     }
 
     private func addCustomLabel() {
