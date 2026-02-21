@@ -80,38 +80,44 @@ class MCPConnectionMonitor: ObservableObject {
 struct GUIPanelView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var mcpMonitor = MCPConnectionMonitor()
+    @StateObject private var browserViewModel = BrowserViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
             if appState.isHomeView {
-                // Home view header
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.accentColor.gradient)
-                        .frame(width: 28, height: 28)
-                        .overlay(
-                            Image(systemName: "house.fill")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white)
-                        )
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Planner")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Global tasks & notes")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                if appState.selectedTab == .browser {
+                    BrowserView(viewModel: browserViewModel)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    // Home view header
+                    HStack(spacing: 10) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.accentColor.gradient)
+                            .frame(width: 28, height: 28)
+                            .overlay(
+                                Image(systemName: "house.fill")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white)
+                            )
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Planner")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Global tasks & emails")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        MCPIndicator(connections: mcpMonitor.connections, currentProjectId: nil)
                     }
-                    Spacer()
-                    MCPIndicator(connections: mcpMonitor.connections, currentProjectId: nil)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
+                    Divider()
+
+                    // Home content
+                    HomeView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                Divider()
-
-                // Home content
-                HomeView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Project header (simplified — no dropdown picker)
                 projectHeader
@@ -127,23 +133,35 @@ struct GUIPanelView: View {
 
                 Divider()
 
-                // Tab content
-                Group {
-                    switch appState.selectedTab {
-                    case .dashboard:
-                        DashboardView()
-                    case .sessions:
-                        SessionListView()
-                    case .tasks:
-                        KanbanBoard()
-                    case .notes:
-                        NoteListView()
-                    case .memory:
-                        MemoryEditorView()
-                    case .rules:
-                        ClaudeMdEditorView()
-                    case .visualize:
-                        VisualizerView()
+                // Tab content — browser persists via ZStack, others switch normally
+                ZStack {
+                    // Browser always exists in the ZStack (hidden when not selected)
+                    BrowserView(viewModel: browserViewModel)
+                        .opacity(appState.selectedTab == .browser ? 1 : 0)
+                        .allowsHitTesting(appState.selectedTab == .browser)
+
+                    // Other tabs render on demand
+                    if appState.selectedTab != .browser {
+                        Group {
+                            switch appState.selectedTab {
+                            case .dashboard:
+                                DashboardView()
+                            case .sessions:
+                                SessionListView()
+                            case .tasks:
+                                KanbanBoard()
+                            case .notes:
+                                NoteListView()
+                            case .memory:
+                                MemoryEditorView()
+                            case .rules:
+                                ClaudeMdEditorView()
+                            case .visualize:
+                                VisualizerView()
+                            case .browser:
+                                EmptyView() // Handled above in ZStack
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
