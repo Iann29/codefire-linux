@@ -220,6 +220,10 @@ struct GUIPanelView: View {
             Spacer()
 
             chatButton
+            ProfileIndicator(
+                isGenerating: appState.isProfileGenerating,
+                hasProfile: appState.projectProfile != nil
+            )
             MCPIndicator(connections: mcpMonitor.connections, currentProjectId: appState.currentProject?.id)
         }
     }
@@ -385,5 +389,60 @@ struct MCPIndicator: View {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+}
+
+// MARK: - Profile Indicator
+
+struct ProfileIndicator: View {
+    let isGenerating: Bool
+    let hasProfile: Bool
+
+    private var statusColor: Color {
+        if isGenerating { return .orange }
+        if hasProfile { return .green }
+        return .secondary.opacity(0.5)
+    }
+
+    private var label: String {
+        if isGenerating { return "Indexing" }
+        if hasProfile { return "Indexed" }
+        return "Profile"
+    }
+
+    private var icon: String {
+        if isGenerating { return "arrow.triangle.2.circlepath" }
+        if hasProfile { return "doc.text.magnifyingglass" }
+        return "doc.text.magnifyingglass"
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if isGenerating {
+                ProgressView()
+                    .controlSize(.mini)
+                    .scaleEffect(0.6)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: hasProfile ? .semibold : .regular))
+                    .foregroundColor(statusColor)
+            }
+            Text(label)
+                .font(.system(size: 10, weight: hasProfile || isGenerating ? .semibold : .medium))
+                .foregroundColor(statusColor)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(statusColor.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(
+                            hasProfile || isGenerating ? statusColor.opacity(0.3) : Color.clear,
+                            lineWidth: 1
+                        )
+                )
+        )
     }
 }

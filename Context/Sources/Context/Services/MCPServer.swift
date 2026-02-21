@@ -300,6 +300,9 @@ class MCPServer {
         if let keySymbols = snapshot.keySymbols {
             dict["key_symbols"] = keySymbols
         }
+        if let profileText = snapshot.profileText {
+            dict["project_profile"] = profileText
+        }
         return dict
     }
 

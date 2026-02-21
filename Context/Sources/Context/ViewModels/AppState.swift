@@ -9,6 +9,8 @@ class AppState: ObservableObject {
     @Published var selectedTab: GUITab = .tasks
     @Published var isHomeView: Bool = true
     @Published var clients: [Client] = []
+    @Published var projectProfile: String?
+    @Published var isProfileGenerating = false
 
     enum GUITab: String, CaseIterable {
         case tasks = "Tasks"
@@ -70,11 +72,32 @@ class AppState: ObservableObject {
         } catch {
             print("Failed to update project: \(error)")
         }
+
+        // Generate project profile asynchronously
+        generateProjectProfile(for: project)
+    }
+
+    private func generateProjectProfile(for project: Project) {
+        // Load cached profile immediately for instant availability
+        projectProfile = ProjectProfileGenerator.loadCached(projectId: project.id)
+        isProfileGenerating = true
+
+        // Then regenerate in background
+        Task {
+            let profile = await ProjectProfileGenerator.generate(
+                projectId: project.id,
+                projectPath: project.path
+            )
+            self.projectProfile = profile
+            self.isProfileGenerating = false
+        }
     }
 
     func selectHome() {
         isHomeView = true
         currentProject = nil
+        projectProfile = nil
+        isProfileGenerating = false
     }
 
     func loadClients() {

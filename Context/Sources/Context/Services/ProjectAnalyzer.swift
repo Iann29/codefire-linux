@@ -97,7 +97,7 @@ class ProjectAnalyzer: ObservableObject {
 
     // MARK: - Architecture Scanner
 
-    private nonisolated static func performArchScan(at path: String) -> (nodes: [ArchNode], edges: [ArchEdge]) {
+    nonisolated static func performArchScan(at path: String) -> (nodes: [ArchNode], edges: [ArchEdge]) {
         let fm = FileManager.default
         let extensions = ["swift", "ts", "tsx", "js", "jsx", "dart", "py", "rs", "go"]
         let rootURL = URL(fileURLWithPath: path)
@@ -241,7 +241,7 @@ class ProjectAnalyzer: ObservableObject {
 
     // MARK: - Schema Scanner
 
-    private nonisolated static func performSchemaScan(at path: String) -> [SchemaTable] {
+    nonisolated static func performSchemaScan(at path: String) -> [SchemaTable] {
         let fm = FileManager.default
         var tables: [SchemaTable] = []
 
@@ -449,7 +449,7 @@ class ProjectAnalyzer: ObservableObject {
 
     // MARK: - File Tree Scanner
 
-    private nonisolated static func performFileTreeScan(at path: String) -> [FileNode] {
+    nonisolated static func performFileTreeScan(at path: String) -> [FileNode] {
         let fm = FileManager.default
         let rootURL = URL(fileURLWithPath: path)
         var nodes: [FileNode] = []
@@ -491,7 +491,7 @@ class ProjectAnalyzer: ObservableObject {
 
     // MARK: - Git History Scanner
 
-    private nonisolated static func performGitHistoryScan(at path: String) -> [GitCommit] {
+    nonisolated static func performGitHistoryScan(at path: String) -> [GitCommit] {
         let process = Process()
         let pipe = Pipe()
 

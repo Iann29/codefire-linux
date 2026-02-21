@@ -10,6 +10,7 @@ struct ChatDrawerView: View {
     @State private var currentConversation: ChatConversation?
     @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
+    @State private var showSettings = false
     @FocusState private var isInputFocused: Bool
 
     private var projectId: String? {
@@ -137,6 +138,21 @@ struct ChatDrawerView: View {
             }
             .buttonStyle(.plain)
             .help("New conversation")
+
+            Button {
+                showSettings.toggle()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .help("Chat settings")
+            .popover(isPresented: $showSettings) {
+                ChatSettingsPopover()
+            }
 
             Button {
                 isOpen = false
@@ -308,7 +324,8 @@ struct ChatDrawerView: View {
                 context = ContextAssembler.projectContext(
                     projectId: project.id,
                     projectName: project.name,
-                    projectPath: project.path
+                    projectPath: project.path,
+                    projectProfile: appState.projectProfile
                 )
             } else {
                 context = ContextAssembler.globalContext()
@@ -417,6 +434,78 @@ struct ChatDrawerView: View {
             object: nil,
             userInfo: ["text": content]
         )
+    }
+}
+
+// MARK: - Chat Settings Popover
+
+private struct ChatSettingsPopover: View {
+    @State private var apiKey: String = ClaudeService.openRouterAPIKey ?? ""
+    @State private var selectedModel: String = ClaudeService.openRouterModel
+
+    private let models = [
+        ("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro"),
+        ("google/gemini-3-flash-preview", "Gemini 3 Flash"),
+        ("qwen/qwen3.5-plus-02-15", "Qwen 3.5 Plus"),
+        ("qwen/qwen3-coder-next", "Qwen3 Coder Next"),
+        ("deepseek/deepseek-v3.2", "DeepSeek V3.2"),
+        ("minimax/minimax-m2.5", "MiniMax M2.5"),
+        ("z-ai/glm-5", "GLM-5"),
+        ("moonshotai/kimi-k2.5", "Kimi K2.5"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Chat Settings")
+                .font(.system(size: 13, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("OpenRouter API Key")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                SecureField("sk-or-...", text: $apiKey)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .padding(6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+                    )
+                    .onChange(of: apiKey) { _, newValue in
+                        ClaudeService.openRouterAPIKey = newValue.isEmpty ? nil : newValue
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Model")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Picker("", selection: $selectedModel) {
+                    ForEach(models, id: \.0) { id, label in
+                        Text(label).tag(id)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: selectedModel) { _, newValue in
+                    ClaudeService.openRouterModel = newValue
+                }
+            }
+
+            HStack {
+                Circle()
+                    .fill(apiKey.isEmpty ? Color.red : Color.green)
+                    .frame(width: 6, height: 6)
+                Text(apiKey.isEmpty ? "No API key set" : "API key configured")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
     }
 }
 

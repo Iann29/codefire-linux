@@ -8,6 +8,7 @@ struct CodebaseSnapshot: Codable, Identifiable, FetchableRecord, MutablePersista
     var fileTree: String? // JSON
     var schemaHash: String?
     var keySymbols: String? // JSON
+    var profileText: String?
 
     static let databaseTableName = "codebaseSnapshots"
 

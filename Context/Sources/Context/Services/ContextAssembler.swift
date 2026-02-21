@@ -3,10 +3,11 @@ import GRDB
 
 struct ContextAssembler {
     /// Assemble context for a specific project. Returns a text preamble.
-    static func projectContext(projectId: String, projectName: String, projectPath: String) -> String {
+    /// If `projectProfile` is provided, it's prepended as codebase context.
+    static func projectContext(projectId: String, projectName: String, projectPath: String, projectProfile: String? = nil) -> String {
         var parts: [String] = []
         var totalChars = 0
-        let maxChars = 8_000
+        let maxChars = projectProfile != nil ? 12_000 : 8_000
 
         parts.append("""
         You are a helpful assistant with deep context about the "\(projectName)" project.
@@ -16,6 +17,12 @@ struct ContextAssembler {
         When referencing tasks, include their status and priority. Be concise and specific.
         """)
         totalChars += parts.last!.count
+
+        // Project profile (codebase structure, tech stack, architecture)
+        if let profile = projectProfile, !profile.isEmpty {
+            parts.append(profile)
+            totalChars += profile.count
+        }
 
         // Active tasks
         if let tasks = try? DatabaseService.shared.dbQueue.read({ db in

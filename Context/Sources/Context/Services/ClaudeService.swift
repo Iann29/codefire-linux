@@ -126,46 +126,135 @@ class ClaudeService: ObservableObject {
         return await generate(prompt: prompt)
     }
 
-    // MARK: - Chat
+    // MARK: - Chat (OpenRouter)
 
-    /// Multi-turn chat with assembled project context.
-    /// Sends context + conversation history to Claude via CLI.
+    /// Multi-turn chat via OpenRouter API with assembled project context.
     func chat(
         messages: [(role: String, content: String)],
         context: String
     ) async -> String? {
-        var prompt = "<context>\n\(context)\n</context>\n\n"
+        isGenerating = true
+        lastError = nil
+        defer { isGenerating = false }
 
-        // Include conversation history (cap at ~25K chars)
+        guard let apiKey = Self.openRouterAPIKey, !apiKey.isEmpty else {
+            lastError = "OpenRouter API key not configured. Tap the gear icon to set it up."
+            return nil
+        }
+
+        // Build chat messages array for OpenRouter
+        var chatMessages: [[String: String]] = [
+            [
+                "role": "system",
+                "content": """
+                \(context)
+
+                Respond helpfully and concisely. Reference specific tasks, sessions, files, or notes when relevant. Use markdown formatting.
+                """
+            ]
+        ]
+
+        // Add conversation history (cap at ~25K chars)
         var historyChars = 0
         let maxHistory = 25_000
-        var historyLines: [String] = []
-
         for msg in messages {
-            let line: String
-            if msg.role == "user" {
-                line = "User: \(msg.content)"
+            if historyChars + msg.content.count > maxHistory { break }
+            chatMessages.append(["role": msg.role, "content": msg.content])
+            historyChars += msg.content.count
+        }
+
+        let model = Self.openRouterModel
+        let result = await Task.detached {
+            Self.callOpenRouter(apiKey: apiKey, messages: chatMessages, model: model)
+        }.value
+
+        if let error = result.error {
+            lastError = error
+            return nil
+        }
+        return result.response
+    }
+
+    // MARK: - OpenRouter Settings
+
+    static var openRouterAPIKey: String? {
+        get { UserDefaults.standard.string(forKey: "openRouterAPIKey") }
+        set { UserDefaults.standard.set(newValue, forKey: "openRouterAPIKey") }
+    }
+
+    static var openRouterModel: String {
+        get { UserDefaults.standard.string(forKey: "openRouterModel") ?? "google/gemini-3.1-pro-preview" }
+        set { UserDefaults.standard.set(newValue, forKey: "openRouterModel") }
+    }
+
+    // MARK: - OpenRouter HTTP Call
+
+    private nonisolated static func callOpenRouter(
+        apiKey: String,
+        messages: [[String: String]],
+        model: String
+    ) -> (response: String?, error: String?) {
+        let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Context App", forHTTPHeaderField: "X-Title")
+        request.timeoutInterval = 60
+
+        let body: [String: Any] = [
+            "model": model,
+            "messages": messages,
+            "max_tokens": 4096
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            return (nil, "Failed to encode request")
+        }
+        request.httpBody = bodyData
+
+        var result: (String?, String?) = (nil, nil)
+        let semaphore = DispatchSemaphore(value: 0)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+
+            if let error = error {
+                result = (nil, error.localizedDescription)
+                return
+            }
+
+            guard let data = data else {
+                result = (nil, "No data received")
+                return
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                let raw = String(data: data, encoding: .utf8) ?? "Unknown"
+                result = (nil, "Invalid response: \(String(raw.prefix(200)))")
+                return
+            }
+
+            // Check for API errors
+            if let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                result = (nil, message)
+                return
+            }
+
+            // Extract the assistant's response
+            if let choices = json["choices"] as? [[String: Any]],
+               let first = choices.first,
+               let message = first["message"] as? [String: Any],
+               let content = message["content"] as? String {
+                result = (content.trimmingCharacters(in: .whitespacesAndNewlines), nil)
             } else {
-                line = "Assistant: \(msg.content)"
+                result = (nil, "Unexpected response format")
             }
-            if historyChars + line.count > maxHistory { break }
-            historyLines.append(line)
-            historyChars += line.count
-        }
+        }.resume()
 
-        if historyLines.count > 1 {
-            prompt += "Conversation so far:\n"
-            for line in historyLines.dropLast() {
-                prompt += line + "\n\n"
-            }
-            prompt += "\nLatest message:\n\(historyLines.last ?? "")\n"
-        } else if let last = historyLines.last {
-            prompt += last + "\n"
-        }
-
-        prompt += "\nRespond helpfully and concisely. Reference specific tasks, sessions, files, or notes when relevant. Use markdown formatting."
-
-        return await generate(prompt: prompt)
+        semaphore.wait()
+        return result
     }
 
     // MARK: - Extract Tasks from Session

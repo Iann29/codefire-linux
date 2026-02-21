@@ -272,6 +272,12 @@ class DatabaseService {
             }
         }
 
+        migrator.registerMigration("v13_addProfileText") { db in
+            try db.alter(table: "codebaseSnapshots") { t in
+                t.add(column: "profileText", .text)
+            }
+        }
+
         return migrator
     }
 }
