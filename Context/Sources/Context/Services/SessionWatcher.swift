@@ -4,6 +4,8 @@ import GRDB
 extension Notification.Name {
     /// Posted when session data has been updated in the database.
     static let sessionsDidChange = Notification.Name("sessionsDidChange")
+    /// Posted when task data has been updated in the database.
+    static let tasksDidChange = Notification.Name("tasksDidChange")
 }
 
 @MainActor

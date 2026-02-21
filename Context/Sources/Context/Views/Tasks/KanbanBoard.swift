@@ -194,6 +194,7 @@ struct KanbanBoard: View {
                 try newTask.insert(db)
             }
             loadTasks()
+            NotificationCenter.default.post(name: .tasksDidChange, object: nil)
         } catch {
             print("KanbanBoard: failed to create task: \(error)")
         }
@@ -205,6 +206,7 @@ struct KanbanBoard: View {
                 try task.update(db)
             }
             loadTasks()
+            NotificationCenter.default.post(name: .tasksDidChange, object: nil)
         } catch {
             print("KanbanBoard: failed to save task: \(error)")
         }
@@ -216,6 +218,7 @@ struct KanbanBoard: View {
                 try task.delete(db)
             }
             loadTasks()
+            NotificationCenter.default.post(name: .tasksDidChange, object: nil)
         } catch {
             print("KanbanBoard: failed to delete task: \(error)")
         }
