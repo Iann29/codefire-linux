@@ -18,6 +18,7 @@ struct TerminalTabView: View {
     @State private var tabs: [TerminalTab] = []
     @State private var selectedTabId: UUID?
     @State private var commandToSend: String?
+    @StateObject private var agentMonitor = AgentMonitor()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,30 +50,58 @@ struct TerminalTabView: View {
                 .fill(Color(nsColor: .separatorColor).opacity(0.5))
                 .frame(height: 1)
 
-            // Terminal content
-            if let selected = tabs.first(where: { $0.id == selectedTabId }) {
-                TerminalWrapper(
-                    initialDirectory: selected.initialDirectory,
-                    initialCommand: selected.initialCommand,
-                    sendCommand: $commandToSend
-                )
-                .id(selected.id) // force new view per tab
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.tertiary)
-                    Text("No terminal open")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
+            // Agent status bar (visible when Claude Code is running)
+            AgentStatusBar(monitor: agentMonitor)
+
+            // Terminal content — all tabs stay alive in a ZStack,
+            // only the selected tab is visible and interactive.
+            ZStack {
+                ForEach(tabs) { tab in
+                    let isActive = tab.id == selectedTabId
+                    TerminalWrapper(
+                        initialDirectory: tab.initialDirectory,
+                        initialCommand: tab.initialCommand,
+                        isActive: isActive,
+                        sendCommand: isActive ? $commandToSend : .constant(nil),
+                        onShellStarted: { [weak agentMonitor] pid in
+                            tab.shellPid = pid
+                            // Start monitoring if this is the active tab
+                            if tab.id == selectedTabId {
+                                agentMonitor?.start(shellPid: pid)
+                            }
+                        }
+                    )
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.1))
+            }
+            .overlay {
+                if tabs.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.tertiary)
+                        Text("No terminal open")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
             }
         }
         .onAppear {
             if tabs.isEmpty {
                 addTab()
+            }
+        }
+        .onDisappear {
+            agentMonitor.stop()
+        }
+        .onChange(of: selectedTabId) { _, newId in
+            // Switch agent monitor to the newly selected tab's shell
+            if let tab = tabs.first(where: { $0.id == newId }), tab.shellPid > 0 {
+                agentMonitor.start(shellPid: tab.shellPid)
+            } else {
+                agentMonitor.stop()
             }
         }
         .onChange(of: projectPath) { _, newPath in

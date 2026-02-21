@@ -9,6 +9,7 @@ class TerminalTab: Identifiable, ObservableObject {
     @Published var title: String
     let initialDirectory: String
     let initialCommand: String?
+    var shellPid: pid_t = 0
 
     init(title: String = "Terminal", initialDirectory: String, initialCommand: String? = nil) {
         self.title = title

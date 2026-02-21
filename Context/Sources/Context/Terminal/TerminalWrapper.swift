@@ -8,6 +8,10 @@ import AppKit
 /// adds file drag-and-drop (inserts path as text), and Cmd+V image paste.
 final class FocusableTerminalView: LocalProcessTerminalView {
 
+    /// Whether this terminal is the currently visible/active tab.
+    /// Guards focus-claiming so hidden terminals in a ZStack don't steal input.
+    var isActiveTab: Bool = true
+
     // MARK: - Lifecycle
 
     override func viewDidMoveToWindow() {
@@ -17,8 +21,9 @@ final class FocusableTerminalView: LocalProcessTerminalView {
         // Register for file drag-and-drop (matches Terminal.app / iTerm2)
         registerForDraggedTypes([.fileURL])
 
+        guard isActiveTab else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.isActiveTab else { return }
             window.makeFirstResponder(self)
         }
     }
@@ -125,7 +130,9 @@ struct TerminalWrapper: NSViewRepresentable {
 
     let initialDirectory: String
     let initialCommand: String?
+    let isActive: Bool
     @Binding var sendCommand: String?
+    var onShellStarted: ((pid_t) -> Void)?
 
     // MARK: - Coordinator
 
@@ -155,9 +162,10 @@ struct TerminalWrapper: NSViewRepresentable {
 
         /// Re-claim focus when clicking the terminal after SwiftUI
         /// steals it (e.g. user clicked a GUI button then clicks back).
-        func installClickFocusMonitor(for terminal: NSView) {
+        func installClickFocusMonitor(for terminal: FocusableTerminalView) {
             mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak terminal] event in
                 guard let terminal = terminal,
+                      terminal.isActiveTab,
                       let window = terminal.window,
                       event.window === window else {
                     return event
@@ -193,6 +201,12 @@ struct TerminalWrapper: NSViewRepresentable {
                 execName: execName,
                 currentDirectory: directory?.isEmpty == false ? directory : nil
             )
+
+            // Report the shell PID so the agent monitor can track child processes
+            let pid = terminalView.process.shellPid
+            if pid > 0 {
+                parent.onShellStarted?(pid)
+            }
         }
 
         func sendText(_ text: String) {
@@ -214,6 +228,7 @@ struct TerminalWrapper: NSViewRepresentable {
 
         context.coordinator.startShell(in: initialDirectory)
         context.coordinator.installClickFocusMonitor(for: terminal)
+        TerminalTracker.shared.register(terminal)
 
         // Send initial command after shell has time to initialize
         if let command = initialCommand, !command.isEmpty {
@@ -225,9 +240,17 @@ struct TerminalWrapper: NSViewRepresentable {
         return terminal
     }
 
-    /// IMPORTANT: Do NOT call makeFirstResponder here — this is called on
-    /// every SwiftUI state update and would cause a focus reset loop.
     func updateNSView(_ nsView: FocusableTerminalView, context: NSViewRepresentableContext<TerminalWrapper>) {
+        let wasActive = nsView.isActiveTab
+        nsView.isActiveTab = isActive
+
+        // Claim focus when this tab becomes active
+        if isActive && !wasActive, let window = nsView.window {
+            DispatchQueue.main.async {
+                window.makeFirstResponder(nsView)
+            }
+        }
+
         if let command = sendCommand {
             context.coordinator.sendText(command + "\n")
             DispatchQueue.main.async {
