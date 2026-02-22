@@ -151,6 +151,222 @@ class BrowserTab: NSObject, Identifiable, ObservableObject, WKScriptMessageHandl
         webView.load(URLRequest(url: url))
     }
 
+    // MARK: - Automation Methods
+
+    /// Serialize the page's accessibility tree into compact structured text for LLM consumption.
+    /// Runs in .defaultClient content world (invisible to page JS, bypasses CSP).
+    @MainActor
+    func snapshotAccessibilityTree() async throws -> String {
+        let js = "try { return " + Self.accessibilityTreeJS + " } catch(e) { return 'ERROR: ' + e.message; }"
+        return try await withCheckedThrowingContinuation { continuation in
+            webView.callAsyncJavaScript(
+                js,
+                arguments: [:],
+                in: nil,
+                in: .defaultClient
+            ) { result in
+                switch result {
+                case .success(let value):
+                    continuation.resume(returning: value as? String ?? "- document\n  (empty page)")
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Extract text content from an element by CSS selector.
+    @MainActor
+    func extractText(selector: String) async throws -> (text: String?, found: Bool) {
+        let js = """
+            const el = document.querySelector(selector);
+            if (!el) return { found: false, text: null };
+            return { found: true, text: el.textContent.trim() };
+        """
+        return try await withCheckedThrowingContinuation { continuation in
+            webView.callAsyncJavaScript(
+                js,
+                arguments: ["selector": selector],
+                in: nil,
+                in: .defaultClient
+            ) { result in
+                switch result {
+                case .success(let value):
+                    if let dict = value as? [String: Any] {
+                        let found = dict["found"] as? Bool ?? false
+                        let text = dict["text"] as? String
+                        continuation.resume(returning: (text, found))
+                    } else {
+                        continuation.resume(returning: (nil, false))
+                    }
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Take a snapshot screenshot and return the saved file path.
+    @MainActor
+    func takeScreenshot() async throws -> (path: String, width: Int, height: Int) {
+        let config = WKSnapshotConfiguration()
+        let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSImage, Error>) in
+            webView.takeSnapshot(with: config) { image, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let image = image {
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(throwing: NSError(domain: "BrowserTab", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Screenshot returned nil"]))
+                }
+            }
+        }
+
+        // Render NSImage into a fresh bitmap to get reliable PNG export.
+        // WKWebView.takeSnapshot returns images with opaque backing representations
+        // that don't convert directly via tiffRepresentation or cgImage().
+        let pixelWidth = Int(image.size.width * (NSScreen.main?.backingScaleFactor ?? 2.0))
+        let pixelHeight = Int(image.size.height * (NSScreen.main?.backingScaleFactor ?? 2.0))
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelWidth,
+            pixelsHigh: pixelHeight,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            throw NSError(domain: "BrowserTab", code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create bitmap for screenshot"])
+        }
+        bitmap.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        image.draw(in: NSRect(origin: .zero, size: image.size),
+                   from: .zero, operation: .copy, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw NSError(domain: "BrowserTab", code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to convert screenshot to PNG"])
+        }
+
+        let dir = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!.appendingPathComponent("Context/browser-screenshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let filename = "screenshot-\(ISO8601DateFormatter().string(from: Date())).png"
+            .replacingOccurrences(of: ":", with: "-")
+        let fileURL = dir.appendingPathComponent(filename)
+        try pngData.write(to: fileURL)
+
+        return (fileURL.path, Int(image.size.width), Int(image.size.height))
+    }
+
+    // MARK: - Accessibility Tree JS
+
+    private static let accessibilityTreeJS = """
+    (function() {
+        let rc = 1;
+        const rm = new WeakMap();
+        const ir = {
+            'A': (e) => e.href ? 'link' : null,
+            'BUTTON': () => 'button',
+            'INPUT': (e) => {
+                const m = {'checkbox':'checkbox','radio':'radio','range':'slider',
+                    'number':'spinbutton','search':'searchbox','submit':'button',
+                    'reset':'button','button':'button'};
+                return m[e.type.toLowerCase()] || 'textbox';
+            },
+            'SELECT': () => 'combobox', 'TEXTAREA': () => 'textbox',
+            'NAV': () => 'navigation', 'MAIN': () => 'main',
+            'HEADER': () => 'banner', 'FOOTER': () => 'contentinfo',
+            'ASIDE': () => 'complementary', 'SECTION': () => 'region',
+            'ARTICLE': () => 'article', 'FORM': () => 'form',
+            'TABLE': () => 'table', 'UL': () => 'list', 'OL': () => 'list',
+            'LI': () => 'listitem',
+            'H1':()=>'heading','H2':()=>'heading','H3':()=>'heading',
+            'H4':()=>'heading','H5':()=>'heading','H6':()=>'heading',
+            'IMG': () => 'img', 'DIALOG': () => 'dialog'
+        };
+        const ia = new Set(['button','link','textbox','searchbox','checkbox','radio',
+            'combobox','listbox','slider','spinbutton','switch','tab',
+            'menuitem','option','treeitem']);
+        const sa = new Set(['banner','navigation','main','contentinfo','complementary',
+            'region','form','dialog','heading','list','listitem','table','row','cell',
+            'article','group','img']);
+        function gr(e) {
+            const x = e.getAttribute('role');
+            if (x) return x;
+            const f = ir[e.tagName];
+            return f ? f(e) : null;
+        }
+        function gn(e) {
+            const lb = e.getAttribute('aria-labelledby');
+            if (lb) {
+                const n = lb.split(' ').map(i => document.getElementById(i)?.textContent?.trim()).filter(Boolean);
+                if (n.length) return n.join(' ');
+            }
+            const al = e.getAttribute('aria-label');
+            if (al) return al.trim();
+            if (e.id) { const l = document.querySelector('label[for="'+e.id+'"]'); if (l) return l.textContent.trim(); }
+            if (e.title) return e.title.trim();
+            if (e.alt) return e.alt.trim();
+            if (e.placeholder) return e.placeholder.trim();
+            const t = e.textContent?.trim().replace(/\\s+/g, ' ') ?? '';
+            return t.length > 80 ? t.slice(0, 77) + '...' : t;
+        }
+        function ih(e) {
+            if (e.getAttribute('aria-hidden') === 'true') return true;
+            const s = window.getComputedStyle(e);
+            return s.display === 'none' || s.visibility === 'hidden' || e.hidden;
+        }
+        function grf(e) {
+            if (!rm.has(e)) { const r = 'e' + rc++; rm.set(e, r); e.setAttribute('data-ax-ref', r); }
+            return rm.get(e);
+        }
+        function ga(e) {
+            const a = [];
+            if (e.tagName && e.tagName.match(/^H[1-6]$/)) a.push('level=' + e.tagName[1]);
+            if (e.checked) a.push('checked');
+            if (e.getAttribute('aria-expanded')) a.push('expanded=' + e.getAttribute('aria-expanded'));
+            if (e.getAttribute('aria-selected') === 'true') a.push('selected');
+            if (e.disabled) a.push('disabled');
+            if (document.activeElement === e) a.push('focused');
+            if (e.value && ia.has(gr(e))) a.push('value="' + e.value.slice(0,30) + '"');
+            return a;
+        }
+        function sn(e, d) {
+            if (ih(e)) return '';
+            const r = gr(e);
+            const show = r && (ia.has(r) || sa.has(r));
+            if (!show) return sc(e, d);
+            const ind = '  '.repeat(d);
+            const nm = gn(e);
+            const ref = ia.has(r) ? ' [ref=' + grf(e) + ']' : '';
+            const at = ga(e);
+            const as2 = at.length ? ' [' + at.join(', ') + ']' : '';
+            const ns = nm ? ' "' + nm + '"' : '';
+            return ind + '- ' + r + ns + ref + as2 + '\\n' + sc(e, d + 1);
+        }
+        function sc(e, d) {
+            let o = '';
+            const roots = [e];
+            if (e.shadowRoot) roots.push(e.shadowRoot);
+            for (const root of roots)
+                for (const c of root.children)
+                    o += sn(c, d);
+            return o;
+        }
+        return '- document\\n' + sc(document.body, 1);
+    })()
+    """
+
     // MARK: - WKScriptMessageHandler
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {

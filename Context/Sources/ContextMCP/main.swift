@@ -14,7 +14,31 @@ func openDatabase() throws -> DatabaseQueue {
     guard FileManager.default.fileExists(atPath: dbPath) else {
         throw MCPError(message: "Context database not found at \(dbPath). Launch Context.app first.")
     }
-    return try DatabaseQueue(path: dbPath)
+    var config = Configuration()
+    config.busyMode = .timeout(5.0) // Wait up to 5s for locks (cross-process access)
+    let db = try DatabaseQueue(path: dbPath, configuration: config)
+
+    // Enable WAL mode for concurrent cross-process access
+    try db.writeWithoutTransaction { db in
+        try db.execute(sql: "PRAGMA journal_mode=WAL")
+    }
+
+    // Ensure browserCommands table exists (may not if GUI app hasn't launched since update)
+    try db.write { conn in
+        try conn.execute(sql: """
+            CREATE TABLE IF NOT EXISTS browserCommands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tool TEXT NOT NULL,
+                args TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                result TEXT,
+                createdAt DATETIME NOT NULL,
+                completedAt DATETIME
+            )
+        """)
+    }
+
+    return db
 }
 
 // MARK: - Models (lightweight copies)
@@ -87,10 +111,26 @@ struct Client: Codable, FetchableRecord, MutablePersistableRecord {
     static let databaseTableName = "clients"
 }
 
+struct BrowserCommand: Codable, FetchableRecord, MutablePersistableRecord {
+    var id: Int64?
+    var tool: String
+    var args: String?
+    var status: String
+    var result: String?
+    var createdAt: Date
+    var completedAt: Date?
+    static let databaseTableName = "browserCommands"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
 // MARK: - MCP Protocol Types
 
-struct MCPError: Error {
+struct MCPError: LocalizedError {
     let message: String
+    var errorDescription: String? { message }
 }
 
 struct JSONRPCRequest: Decodable {
@@ -515,6 +555,101 @@ class MCPServer {
                     "required": ["name"]
                 ] as [String: Any]
             ],
+            // MARK: - Browser Tools
+            [
+                "name": "browser_navigate",
+                "description": "Navigate the browser to a URL. Opens a new tab if none are open. Waits for page load to complete. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "url": ["type": "string", "description": "URL to navigate to"]
+                    ] as [String: Any],
+                    "required": ["url"]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_snapshot",
+                "description": "Get the accessibility tree of the current page as compact structured text. Returns ARIA roles, labels, and interactive element refs. This is the primary tool for understanding page content and structure. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "tab_id": ["type": "string", "description": "Tab ID (defaults to active tab)"]
+                    ] as [String: Any]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_extract",
+                "description": "Extract text content from a page element using a CSS selector. Returns the text content of the first matching element. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "selector": ["type": "string", "description": "CSS selector to find the element"],
+                        "tab_id": ["type": "string", "description": "Tab ID (defaults to active tab)"]
+                    ] as [String: Any],
+                    "required": ["selector"]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_list_tabs",
+                "description": "List all open browser tabs with their URLs, titles, and loading state. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [:] as [String: Any]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_console_logs",
+                "description": "Get JavaScript console log entries (log, warn, error, info) from a browser tab. Useful for debugging web applications. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "tab_id": ["type": "string", "description": "Tab ID (defaults to active tab)"],
+                        "level": ["type": "string", "description": "Filter by level: log, warn, error, info", "enum": ["log", "warn", "error", "info"]]
+                    ] as [String: Any]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_screenshot",
+                "description": "Take a PNG screenshot of the current page. Returns the file path so you can read the image. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "tab_id": ["type": "string", "description": "Tab ID (defaults to active tab)"]
+                    ] as [String: Any]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_tab_open",
+                "description": "Open a new browser tab. Optionally navigate to a URL. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "url": ["type": "string", "description": "URL to navigate to (optional)"]
+                    ] as [String: Any]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_tab_close",
+                "description": "Close a browser tab by its ID. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "tab_id": ["type": "string", "description": "ID of the tab to close"]
+                    ] as [String: Any],
+                    "required": ["tab_id"]
+                ] as [String: Any]
+            ],
+            [
+                "name": "browser_tab_switch",
+                "description": "Switch the active browser tab to the specified tab. Requires Context.app to be running.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "tab_id": ["type": "string", "description": "ID of the tab to switch to"]
+                    ] as [String: Any],
+                    "required": ["tab_id"]
+                ] as [String: Any]
+            ],
         ]
     }
 
@@ -546,6 +681,15 @@ class MCPServer {
             case "search_notes":     result = try searchNotes(args)
             case "list_clients":     result = try listClients()
             case "create_client":    result = try createClient(args)
+            case "browser_navigate":   result = try browserNavigate(args)
+            case "browser_snapshot":    result = try browserSnapshot(args)
+            case "browser_extract":     result = try browserExtract(args)
+            case "browser_list_tabs":   result = try browserListTabs(args)
+            case "browser_console_logs": result = try browserConsoleLogs(args)
+            case "browser_screenshot":  result = try browserScreenshot(args)
+            case "browser_tab_open":    result = try browserTabOpen(args)
+            case "browser_tab_close":   result = try browserTabClose(args)
+            case "browser_tab_switch":  result = try browserTabSwitch(args)
             default:
                 return errorResponse(id: req.id, code: -32602, message: "Unknown tool: \(toolName)")
             }
@@ -1076,6 +1220,136 @@ class MCPServer {
         }
 
         return "Created client '\(name)' with ID \(client.id)"
+    }
+
+    // MARK: - Browser Tool Handlers
+
+    func browserNavigate(_ args: [String: Any]) throws -> String {
+        guard let url = args["url"] as? String, !url.isEmpty else {
+            throw MCPError(message: "url is required")
+        }
+        return try executeBrowserCommand(tool: "browser_navigate", args: ["url": url], timeout: 15.0)
+    }
+
+    func browserSnapshot(_ args: [String: Any]) throws -> String {
+        var cmdArgs: [String: Any] = [:]
+        if let tabId = args["tab_id"] as? String { cmdArgs["tab_id"] = tabId }
+        return try executeBrowserCommand(tool: "browser_snapshot", args: cmdArgs, timeout: 10.0)
+    }
+
+    func browserExtract(_ args: [String: Any]) throws -> String {
+        guard let selector = args["selector"] as? String, !selector.isEmpty else {
+            throw MCPError(message: "selector is required")
+        }
+        var cmdArgs: [String: Any] = ["selector": selector]
+        if let tabId = args["tab_id"] as? String { cmdArgs["tab_id"] = tabId }
+        return try executeBrowserCommand(tool: "browser_extract", args: cmdArgs)
+    }
+
+    func browserListTabs(_ args: [String: Any]) throws -> String {
+        return try executeBrowserCommand(tool: "browser_list_tabs")
+    }
+
+    func browserConsoleLogs(_ args: [String: Any]) throws -> String {
+        var cmdArgs: [String: Any] = [:]
+        if let tabId = args["tab_id"] as? String { cmdArgs["tab_id"] = tabId }
+        if let level = args["level"] as? String { cmdArgs["level"] = level }
+        return try executeBrowserCommand(tool: "browser_console_logs", args: cmdArgs)
+    }
+
+    func browserScreenshot(_ args: [String: Any]) throws -> String {
+        var cmdArgs: [String: Any] = [:]
+        if let tabId = args["tab_id"] as? String { cmdArgs["tab_id"] = tabId }
+        return try executeBrowserCommand(tool: "browser_screenshot", args: cmdArgs, timeout: 10.0)
+    }
+
+    func browserTabOpen(_ args: [String: Any]) throws -> String {
+        var cmdArgs: [String: Any] = [:]
+        if let url = args["url"] as? String { cmdArgs["url"] = url }
+        return try executeBrowserCommand(tool: "browser_tab_open", args: cmdArgs, timeout: 15.0)
+    }
+
+    func browserTabClose(_ args: [String: Any]) throws -> String {
+        guard let tabId = args["tab_id"] as? String, !tabId.isEmpty else {
+            throw MCPError(message: "tab_id is required")
+        }
+        return try executeBrowserCommand(tool: "browser_tab_close", args: ["tab_id": tabId])
+    }
+
+    func browserTabSwitch(_ args: [String: Any]) throws -> String {
+        guard let tabId = args["tab_id"] as? String, !tabId.isEmpty else {
+            throw MCPError(message: "tab_id is required")
+        }
+        return try executeBrowserCommand(tool: "browser_tab_switch", args: ["tab_id": tabId])
+    }
+
+    // MARK: - Browser Command Execution
+
+    func executeBrowserCommand(tool: String, args: [String: Any] = [:], timeout: TimeInterval = 5.0) throws -> String {
+        let argsJSON: String?
+        if args.isEmpty {
+            argsJSON = nil
+        } else if let data = try? JSONSerialization.data(withJSONObject: args),
+                  let str = String(data: data, encoding: .utf8) {
+            argsJSON = str
+        } else {
+            argsJSON = nil
+        }
+
+        var command = BrowserCommand(
+            id: nil,
+            tool: tool,
+            args: argsJSON,
+            status: "pending",
+            result: nil,
+            createdAt: Date(),
+            completedAt: nil
+        )
+
+        try db.write { db in
+            try command.insert(db)
+        }
+
+        guard let commandId = command.id else {
+            throw MCPError(message: "Failed to insert browser command")
+        }
+
+        let startTime = Date()
+        while Date().timeIntervalSince(startTime) < timeout {
+            Thread.sleep(forTimeInterval: 0.05) // 50ms polling
+
+            let updated = try db.read { db in
+                try BrowserCommand.fetchOne(db, key: commandId)
+            }
+
+            guard let cmd = updated else {
+                throw MCPError(message: "Browser command \(commandId) disappeared")
+            }
+
+            switch cmd.status {
+            case "completed":
+                // Clean up
+                _ = try? db.write { db in
+                    try BrowserCommand.deleteOne(db, key: commandId)
+                }
+                return cmd.result ?? "{}"
+
+            case "error":
+                _ = try? db.write { db in
+                    try BrowserCommand.deleteOne(db, key: commandId)
+                }
+                throw MCPError(message: cmd.result ?? "Browser command failed")
+
+            default:
+                continue
+            }
+        }
+
+        // Timeout — clean up and report
+        _ = try? db.write { db in
+            try BrowserCommand.deleteOne(db, key: commandId)
+        }
+        throw MCPError(message: "Browser command timed out after \(Int(timeout))s. Is Context.app running with the browser tab visible?")
     }
 
     // MARK: - JSON-RPC Helpers

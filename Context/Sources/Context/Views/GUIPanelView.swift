@@ -81,6 +81,7 @@ struct GUIPanelView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var mcpMonitor = MCPConnectionMonitor()
     @StateObject private var browserViewModel = BrowserViewModel()
+    @StateObject private var browserCommandExecutor = BrowserCommandExecutor()
     @State private var showChatDrawer = false
 
     var body: some View {
@@ -190,8 +191,14 @@ struct GUIPanelView: View {
                 }
             }
         }
-        .onAppear { mcpMonitor.startPolling() }
-        .onDisappear { mcpMonitor.stopPolling() }
+        .onAppear {
+            mcpMonitor.startPolling()
+            browserCommandExecutor.start(browserViewModel: browserViewModel)
+        }
+        .onDisappear {
+            mcpMonitor.stopPolling()
+            browserCommandExecutor.stop()
+        }
     }
 
     // MARK: - Project Header
