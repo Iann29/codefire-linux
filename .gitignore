@@ -22,5 +22,8 @@ DerivedData/
 *.swp
 *~
 
+# Build output
+build/
+
 # Firebase
 firebase-debug.log
