@@ -29,6 +29,14 @@ class DatabaseService {
         }
 
         try migrator.migrate(dbQueue)
+
+        // Ensure __global__ project exists for email-created and global tasks
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO projects (id, name, path, createdAt, sortOrder)
+                VALUES ('__global__', 'Global', '', ?, -1)
+            """, arguments: [Date()])
+        }
     }
 
     private var migrator: DatabaseMigrator {
