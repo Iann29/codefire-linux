@@ -51,6 +51,24 @@ func openDatabase() throws -> DatabaseQueue {
         """)
     }
 
+    // Ensure generatedImages table exists for image generation tools
+    try db.write { conn in
+        try conn.execute(sql: """
+            CREATE TABLE IF NOT EXISTS generatedImages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                projectId TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                responseText TEXT,
+                filePath TEXT NOT NULL,
+                model TEXT NOT NULL DEFAULT 'google/gemini-3.1-flash-image-preview',
+                aspectRatio TEXT DEFAULT '1:1',
+                imageSize TEXT DEFAULT '1K',
+                parentImageId INTEGER REFERENCES generatedImages(id) ON DELETE SET NULL,
+                createdAt DATETIME NOT NULL
+            )
+        """)
+    }
+
     return db
 }
 
@@ -877,6 +895,58 @@ class MCPServer {
                     "required": ["query"]
                 ] as [String: Any]
             ] as [String: Any],
+            // MARK: - Image Generation Tools
+            [
+                "name": "generate_image",
+                "description": "Generate an image from a text prompt using AI (Gemini 3.1 Flash). Returns the file path of the generated image saved to the project's assets/generated/ directory. Requires OpenRouter API key configured in Context app settings.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "prompt": ["type": "string", "description": "Text description of the image to generate"],
+                        "aspect_ratio": ["type": "string", "description": "Aspect ratio: 1:1, 16:9, 9:16, 4:3, 3:2 (default: 1:1)"],
+                        "size": ["type": "string", "description": "Resolution: 1K, 2K, 4K (default: 1K)"],
+                        "project_id": ["type": "string", "description": "Project ID (auto-detected if omitted)"],
+                    ],
+                    "required": ["prompt"]
+                ]
+            ],
+            [
+                "name": "edit_image",
+                "description": "Edit an existing image with text instructions using AI. Provide the file path of the source image and editing instructions. Returns the file path of the edited image.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "image_path": ["type": "string", "description": "Absolute file path of the image to edit"],
+                        "prompt": ["type": "string", "description": "Editing instructions (e.g. 'make the background blue', 'add a shadow')"],
+                        "project_id": ["type": "string", "description": "Project ID (auto-detected if omitted)"],
+                    ],
+                    "required": ["image_path", "prompt"]
+                ]
+            ],
+            [
+                "name": "list_images",
+                "description": "List generated images for a project, ordered by most recent first.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "project_id": ["type": "string", "description": "Project ID (auto-detected if omitted)"],
+                        "limit": ["type": "integer", "description": "Max results (default: 20)"],
+                        "offset": ["type": "integer", "description": "Skip first N results (default: 0)"],
+                    ],
+                    "required": [] as [String]
+                ]
+            ],
+            [
+                "name": "get_image",
+                "description": "Get details of a specific generated image by ID, including prompt, file path, model, and metadata.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "image_id": ["type": "integer", "description": "Image ID"]
+                    ],
+                    "required": ["image_id"]
+                ]
+            ],
         ]
     }
 
@@ -930,6 +1000,10 @@ class MCPServer {
             case "browser_iframe":     result = try browserIframe(args)
             case "browser_clear_session": result = try browserClearSession(args)
             case "context_search":     result = try contextSearch(args)
+            case "generate_image":     result = try generateImage(args)
+            case "edit_image":         result = try editImage(args)
+            case "list_images":        result = try listImages(args)
+            case "get_image":          result = try getImage(args)
             default:
                 return errorResponse(id: req.id, code: -32602, message: "Unknown tool: \(toolName)")
             }
@@ -2007,6 +2081,300 @@ class MCPServer {
             return "{}"
         }
         return str
+    }
+
+    // MARK: - Image Generation Tools
+
+    private func callOpenRouterImageGeneration(messages: [[String: Any]], aspectRatio: String, imageSize: String) throws -> (imageData: Data, responseText: String?) {
+        let appDefaults = UserDefaults(suiteName: "com.context.app")
+        let apiKey = appDefaults?.string(forKey: "openRouterAPIKey")
+            ?? UserDefaults.standard.string(forKey: "openRouterAPIKey")
+            ?? ""
+        guard !apiKey.isEmpty else {
+            throw MCPError(message: "OpenRouter API key not configured. Set it in Context app Settings > Context Engine.")
+        }
+
+        let body: [String: Any] = [
+            "model": "google/gemini-3.1-flash-image-preview",
+            "modalities": ["image", "text"],
+            "messages": messages,
+            "image_config": [
+                "aspect_ratio": aspectRatio,
+                "image_size": imageSize
+            ]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            throw MCPError(message: "Failed to encode request")
+        }
+
+        var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Context App", forHTTPHeaderField: "X-Title")
+        request.httpBody = bodyData
+        request.timeoutInterval = 120
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var responseData: Data?
+        var responseError: Error?
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                responseError = error
+            } else if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                let raw = data.flatMap { String(data: $0, encoding: .utf8) } ?? "Unknown"
+                responseError = MCPError(message: "HTTP \(httpResponse.statusCode): \(String(raw.prefix(300)))")
+            } else {
+                responseData = data
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+
+        if let error = responseError {
+            throw error
+        }
+
+        guard let data = responseData,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw MCPError(message: "Invalid JSON response from OpenRouter")
+        }
+
+        if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
+            throw MCPError(message: "OpenRouter error: \(message)")
+        }
+
+        guard let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? [[String: Any]] else {
+            throw MCPError(message: "Unexpected response format from OpenRouter")
+        }
+
+        var imageData: Data?
+        var responseText: String?
+
+        for part in content {
+            guard let type = part["type"] as? String else { continue }
+            if type == "image_url",
+               let imageUrl = part["image_url"] as? [String: Any],
+               let urlString = imageUrl["url"] as? String,
+               let commaIndex = urlString.firstIndex(of: ",") {
+                let base64String = String(urlString[urlString.index(after: commaIndex)...])
+                imageData = Data(base64Encoded: base64String)
+            } else if type == "text", let text = part["text"] as? String {
+                responseText = text
+            }
+        }
+
+        guard let finalImageData = imageData, !finalImageData.isEmpty else {
+            throw MCPError(message: "No image in API response")
+        }
+
+        return (finalImageData, responseText)
+    }
+
+    private func saveGeneratedImage(
+        imageData: Data,
+        prompt: String,
+        responseText: String?,
+        projectId: String,
+        aspectRatio: String,
+        imageSize: String,
+        parentImageId: Int64? = nil,
+        filenamePrefix: String = "gen"
+    ) throws -> String {
+        let projectPath = try? db.read { conn in
+            try String.fetchOne(conn, sql: "SELECT path FROM projects WHERE id = ?", arguments: [projectId])
+        }
+
+        let saveDir: URL
+        if let projectPath, !projectPath.isEmpty {
+            saveDir = URL(fileURLWithPath: projectPath).appendingPathComponent("assets/generated", isDirectory: true)
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Context/generated-images", isDirectory: true)
+            saveDir = appSupport
+        }
+
+        try FileManager.default.createDirectory(at: saveDir, withIntermediateDirectories: true)
+
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let filename = "\(filenamePrefix)_\(timestamp)_\(UUID().uuidString.prefix(8)).png"
+        let filePath = saveDir.appendingPathComponent(filename)
+        try imageData.write(to: filePath)
+
+        try db.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO generatedImages (projectId, prompt, responseText, filePath, model, aspectRatio, imageSize, parentImageId, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                projectId, prompt, responseText, filePath.path,
+                "google/gemini-3.1-flash-image-preview", aspectRatio, imageSize,
+                parentImageId, Date()
+            ])
+        }
+
+        return filePath.path
+    }
+
+    func generateImage(_ args: [String: Any]) throws -> String {
+        guard let prompt = args["prompt"] as? String, !prompt.isEmpty else {
+            throw MCPError(message: "prompt is required")
+        }
+        let aspectRatio = args["aspect_ratio"] as? String ?? "1:1"
+        let size = args["size"] as? String ?? "1K"
+        let projectId = try resolveProjectId(args)
+
+        let messages: [[String: Any]] = [
+            ["role": "user", "content": [["type": "text", "text": prompt]]]
+        ]
+
+        let (imageData, responseText) = try callOpenRouterImageGeneration(messages: messages, aspectRatio: aspectRatio, imageSize: size)
+        let savedPath = try saveGeneratedImage(imageData: imageData, prompt: prompt, responseText: responseText, projectId: projectId, aspectRatio: aspectRatio, imageSize: size)
+
+        let response: [String: Any] = [
+            "file_path": savedPath,
+            "prompt": prompt,
+            "aspect_ratio": aspectRatio,
+            "size": size,
+            "response_text": responseText ?? ""
+        ]
+        return formatJSON(response)
+    }
+
+    func editImage(_ args: [String: Any]) throws -> String {
+        guard let imagePath = args["image_path"] as? String, !imagePath.isEmpty else {
+            throw MCPError(message: "image_path is required")
+        }
+        guard let prompt = args["prompt"] as? String, !prompt.isEmpty else {
+            throw MCPError(message: "prompt is required")
+        }
+        guard FileManager.default.fileExists(atPath: imagePath) else {
+            throw MCPError(message: "Image not found at: \(imagePath)")
+        }
+        let imageData = try Data(contentsOf: URL(fileURLWithPath: imagePath))
+        let base64 = imageData.base64EncodedString()
+        let dataURL = "data:image/png;base64,\(base64)"
+        let projectId = try resolveProjectId(args)
+
+        let messages: [[String: Any]] = [
+            ["role": "user", "content": [
+                ["type": "text", "text": prompt],
+                ["type": "image_url", "image_url": ["url": dataURL]]
+            ]]
+        ]
+
+        let (resultData, responseText) = try callOpenRouterImageGeneration(messages: messages, aspectRatio: "1:1", imageSize: "1K")
+
+        // Find parent image ID if source was a generated image
+        let parentId = try db.read { conn -> Int64? in
+            try Int64.fetchOne(conn, sql: "SELECT id FROM generatedImages WHERE filePath = ?", arguments: [imagePath])
+        }
+
+        let savedPath = try saveGeneratedImage(
+            imageData: resultData,
+            prompt: prompt,
+            responseText: responseText,
+            projectId: projectId,
+            aspectRatio: "1:1",
+            imageSize: "1K",
+            parentImageId: parentId,
+            filenamePrefix: "edit"
+        )
+
+        let response: [String: Any] = [
+            "file_path": savedPath,
+            "prompt": prompt,
+            "source_image": imagePath,
+            "response_text": responseText ?? ""
+        ]
+        return formatJSON(response)
+    }
+
+    func listImages(_ args: [String: Any]) throws -> String {
+        let projectId = try resolveProjectId(args)
+        let limit = args["limit"] as? Int ?? 20
+        let offset = args["offset"] as? Int ?? 0
+
+        let rows = try db.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT id, projectId, prompt, responseText, filePath, model, aspectRatio, imageSize, parentImageId, createdAt
+                FROM generatedImages
+                WHERE projectId = ?
+                ORDER BY createdAt DESC
+                LIMIT ? OFFSET ?
+            """, arguments: [projectId, limit, offset])
+        }
+
+        let formatter = ISO8601DateFormatter()
+        let images: [[String: Any]] = rows.map { row in
+            var dict: [String: Any] = [
+                "id": (row["id"] as? Int64) as Any,
+                "prompt": (row["prompt"] as? String) as Any,
+                "file_path": (row["filePath"] as? String) as Any,
+                "aspect_ratio": (row["aspectRatio"] as? String) as Any,
+                "size": (row["imageSize"] as? String) as Any,
+            ]
+            if let date = row["createdAt"] as? Date {
+                dict["created_at"] = formatter.string(from: date)
+            } else if let dateStr = row["createdAt"] as? String {
+                dict["created_at"] = dateStr
+            }
+            if let parentId = row["parentImageId"] as? Int64 {
+                dict["parent_image_id"] = parentId
+            }
+            if let text = row["responseText"] as? String {
+                dict["response_text"] = text
+            }
+            return dict
+        }
+
+        return formatJSON(["images": images, "count": images.count])
+    }
+
+    func getImage(_ args: [String: Any]) throws -> String {
+        guard let imageId = args["image_id"] as? Int64
+                ?? (args["image_id"] as? Int).map({ Int64($0) })
+                ?? (args["image_id"] as? Double).map({ Int64($0) }) else {
+            throw MCPError(message: "image_id is required")
+        }
+
+        guard let row = try db.read({ conn in
+            try Row.fetchOne(conn, sql: """
+                SELECT id, projectId, prompt, responseText, filePath, model, aspectRatio, imageSize, parentImageId, createdAt
+                FROM generatedImages WHERE id = ?
+            """, arguments: [imageId])
+        }) else {
+            throw MCPError(message: "Image not found with id: \(imageId)")
+        }
+
+        let formatter = ISO8601DateFormatter()
+        var image: [String: Any] = [
+            "id": (row["id"] as? Int64) as Any,
+            "project_id": (row["projectId"] as? String) as Any,
+            "prompt": (row["prompt"] as? String) as Any,
+            "file_path": (row["filePath"] as? String) as Any,
+            "model": (row["model"] as? String) as Any,
+            "aspect_ratio": (row["aspectRatio"] as? String) as Any,
+            "size": (row["imageSize"] as? String) as Any,
+        ]
+        if let date = row["createdAt"] as? Date {
+            image["created_at"] = formatter.string(from: date)
+        } else if let dateStr = row["createdAt"] as? String {
+            image["created_at"] = dateStr
+        }
+        if let text = row["responseText"] as? String {
+            image["response_text"] = text
+        }
+        if let parentId = row["parentImageId"] as? Int64 {
+            image["parent_image_id"] = parentId
+        }
+
+        return formatJSON(image)
     }
 
     // MARK: - JSON-RPC Helpers
