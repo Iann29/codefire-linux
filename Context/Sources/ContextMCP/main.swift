@@ -2838,7 +2838,7 @@ class MCPServer {
             if pathLower.contains("test") || pathLower.contains("spec") || pathLower.contains("mock") {
                 multiplier *= 0.6
             }
-            if pathLower.contains("generated") || pathLower.contains("build") || pathLower.contains("vendor") {
+            if pathLower.contains("generated") || pathLower.contains(".build/") || pathLower.contains("vendor/") {
                 multiplier *= 0.3
             }
 
@@ -2856,7 +2856,7 @@ class MCPServer {
         merged.sort { $0.score > $1.score }
 
         let threshold: Float
-        if merged.count >= 2 {
+        if merged.count >= 3 {
             let topN = Array(merged.prefix(5))
             let scores = topN.map { $0.score }
             let mean = scores.reduce(0, +) / Float(scores.count)
