@@ -20,8 +20,10 @@ class TranscriptionService: ObservableObject {
 
         let config = WhisperKitConfig(
             model: "large-v3-turbo",
-            modelFolder: modelDir.path,
-            verbose: false
+            downloadBase: modelDir,
+            verbose: true,
+            load: true,
+            download: true
         )
         let kit = try await WhisperKit(config)
 
