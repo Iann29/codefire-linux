@@ -211,11 +211,11 @@ struct ChunkSearchEngine {
     // MARK: - Chunk Importance
 
     /// Multiplier based on chunk type and file path heuristics.
-    private static func chunkImportance(_ scored: ScoredChunk) -> Float {
+    private static func chunkImportance(_ candidate: ScoredChunk) -> Float {
         var multiplier: Float = 1.0
 
         // Type-based importance
-        switch scored.chunk.chunkType {
+        switch candidate.chunk.chunkType {
         case "function": multiplier *= 1.0
         case "class":    multiplier *= 1.0
         case "doc":      multiplier *= 0.9
@@ -226,7 +226,7 @@ struct ChunkSearchEngine {
         }
 
         // File path heuristics
-        let path = scored.file.lowercased()
+        let path = candidate.file.lowercased()
         if path.contains("test") || path.contains("spec") || path.contains("mock") {
             multiplier *= 0.6
         }
@@ -235,7 +235,7 @@ struct ChunkSearchEngine {
         }
 
         // Visibility heuristic: check if content starts with public/export
-        let contentStart = scored.chunk.content.prefix(200).lowercased()
+        let contentStart = candidate.chunk.content.prefix(200).lowercased()
         if contentStart.contains("public ") || contentStart.contains("export ") || contentStart.contains("open ") {
             multiplier *= 1.2
         }
@@ -250,7 +250,7 @@ struct ChunkSearchEngine {
 
         let top = Array(scores.prefix(5))
         let mean = top.reduce(0, +) / Float(top.count)
-        let variance = top.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(top.count)
+        let variance = top.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(top.count - 1)
         let stddev = sqrt(variance)
 
         return max(mean - stddev, 0.05)
@@ -298,9 +298,14 @@ struct ChunkSearchEngine {
             if results.count >= limit { break }
         }
 
-        // Backfill moreInFile counts
+        // Backfill moreInFile counts — only on the last-shown result per file
+        var lastIndexForFile: [String: Int] = [:]
         for i in 0..<results.count {
-            if let extras = fileExtras[results[i].file] {
+            lastIndexForFile[results[i].file] = i
+        }
+        for i in 0..<results.count {
+            let file = results[i].file
+            if let extras = fileExtras[file], lastIndexForFile[file] == i {
                 results[i] = SearchResult(
                     file: results[i].file,
                     symbol: results[i].symbol,
