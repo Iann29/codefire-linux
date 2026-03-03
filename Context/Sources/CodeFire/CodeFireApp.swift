@@ -68,6 +68,9 @@ struct CodeFireApp: App {
         // so keyboard events go to whatever app was previously active.
         NSApplication.shared.setActivationPolicy(.regular)
 
+        // Migrate data from old "Context" paths before any DB/service init
+        Self.migrateFromContext()
+
         let oauth = GoogleOAuthManager()
         _oauthManager = StateObject(wrappedValue: oauth)
         let poller = GmailPoller(oauthManager: oauth)
@@ -117,6 +120,53 @@ struct CodeFireApp: App {
         try? FileManager.default.copyItem(at: bundleMCP, to: destBinary)
         // Ensure executable
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destBinary.path)
+    }
+
+    /// Migrates existing user data from old "Context" paths to new "CodeFire" paths.
+    /// Moves the Application Support directory, renames database files, and copies UserDefaults.
+    /// Only runs once: when the old directory exists and the new one does not.
+    private static func migrateFromContext() {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+
+        let oldDir = appSupport.appendingPathComponent("Context", isDirectory: true)
+        let newDir = appSupport.appendingPathComponent("CodeFire", isDirectory: true)
+
+        // Only migrate if old exists AND new doesn't
+        guard fm.fileExists(atPath: oldDir.path),
+              !fm.fileExists(atPath: newDir.path) else { return }
+
+        // 1. Move entire directory
+        do {
+            try fm.moveItem(at: oldDir, to: newDir)
+        } catch {
+            // If move fails, don't crash — just use fresh data
+            return
+        }
+
+        // 2. Rename database files inside
+        let dbRenames = [
+            ("context.db", "codefire.db"),
+            ("context.db-wal", "codefire.db-wal"),
+            ("context.db-shm", "codefire.db-shm"),
+        ]
+        for (oldName, newName) in dbRenames {
+            let oldFile = newDir.appendingPathComponent(oldName)
+            let newFile = newDir.appendingPathComponent(newName)
+            try? fm.moveItem(at: oldFile, to: newFile)
+        }
+
+        // 3. Migrate UserDefaults from old suite
+        if let oldDefaults = UserDefaults(suiteName: "com.context.app") {
+            let standardDefaults = UserDefaults.standard
+            for (key, value) in oldDefaults.dictionaryRepresentation() {
+                // Skip Apple's internal keys
+                if key.hasPrefix("Apple") || key.hasPrefix("NS") || key.hasPrefix("com.apple") { continue }
+                standardDefaults.set(value, forKey: key)
+            }
+            // Clean up old suite
+            oldDefaults.removePersistentDomain(forName: "com.context.app")
+        }
     }
 
     var body: some Scene {
