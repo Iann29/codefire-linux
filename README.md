@@ -1,85 +1,169 @@
-# CodeFire
+<p align="center">
+  <img src="assets/codefire-logo.png" alt="CodeFire" width="128">
+</p>
 
-A native macOS companion app for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that gives you visibility and control across all your projects from a single interface.
+<h1 align="center">CodeFire</h1>
 
-CodeFire auto-discovers your Claude Code projects, tracks tasks and sessions, monitors live coding activity, and exposes project data back to Claude via MCP — creating a feedback loop where Claude knows what you're working on and can act on it.
+<p align="center">
+  <strong>Persistent memory for AI coding agents</strong><br>
+  A native macOS companion for Claude Code, Gemini CLI, Codex CLI, and OpenCode
+</p>
 
-## What It Does
+<p align="center">
+  <a href="https://github.com/websitebutlers/codefire-app/releases/latest"><img src="https://img.shields.io/badge/download-macOS-orange?style=flat-square" alt="Download"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+</p>
 
-**Project management dashboard** — Auto-discovers all your Claude Code projects from `~/.claude/projects/`. Each project opens in its own dedicated window with an integrated terminal and tabbed GUI panel. The home view shows a global planner with tasks aggregated across all projects.
+---
 
-**Task tracking with Kanban board** — Drag-and-drop Kanban board (Todo / In Progress / Done) per project and globally. Tasks can be created manually, extracted from emails, or created programmatically by Claude through the MCP server. Priority levels, labels, notes, and full task history.
+Your AI coding agent forgets everything between sessions. CodeFire fixes that. It auto-discovers your projects, tracks tasks and sessions, monitors live coding activity, and exposes project data back to your AI via MCP — creating a feedback loop where your agent knows what you're working on and can act on it.
 
-**Live session monitoring** — Real-time mission control for active Claude Code sessions. Watches the session JSONL file and displays token usage, cost tracking, tools invoked, files touched, and a live activity feed. Pulsing indicator when Claude is actively working.
+<p align="center">
+  <img src="assets/screenshot-01.jpg" alt="CodeFire — Planner view with Kanban board, task tracking, and email integration" width="100%">
+</p>
 
-**Session history** — Parses and indexes all past Claude Code sessions. Browse conversations, see what Claude did, review tool usage patterns, and track costs over time.
+## Features
 
-**Built-in terminal** — Tabbed terminal emulator (SwiftTerm) embedded directly in each project window. Launch Claude Code sessions, run commands, manage multiple terminal tabs — all without leaving the app.
+**Project management dashboard** — Auto-discovers all your Claude Code projects from `~/.claude/projects/`. Each project opens in its own window with an integrated terminal and tabbed GUI panel. The home view shows a global planner with tasks aggregated across all projects.
 
-**GitHub integration** — Shows open PRs, CI/Actions status, recent commits on the default branch, and your assigned issues. Polls via `gh` CLI every 60 seconds. Click any item to open it in your browser.
+**Task tracking with Kanban board** — Drag-and-drop Kanban board (Todo / In Progress / Done) per project and globally. Tasks can be created manually, extracted from emails, or created programmatically by your AI agent through the MCP server. Priority levels, labels, notes, and full task history.
 
-**CLAUDE.md editor** — Read and edit your project's `CLAUDE.md` and `~/.claude/CLAUDE.md` files directly in the app. Syntax-highlighted editor with save support.
+<p align="center">
+  <img src="assets/screenshot-02.jpg" alt="Integrated terminal with project planner" width="100%">
+  <br><em>Integrated terminal alongside the project planner</em>
+</p>
 
-**Memory viewer** — Browse Claude Code's memory files and project-specific patterns from `~/.claude/`.
+**Live session monitoring** — Real-time mission control for active Claude Code sessions. Watches the session JSONL file and displays token usage, cost tracking, tools invoked, files touched, and a live activity feed.
+
+**Session history** — Parses and indexes all past Claude Code sessions. Browse conversations, review tool usage patterns, and track costs over time.
+
+<p align="center">
+  <img src="assets/screenshot-10.jpg" alt="Session history with cost tracking" width="100%">
+  <br><em>Session history with cost tracking and tool usage stats</em>
+</p>
+
+**Built-in terminal** — Tabbed terminal emulator (SwiftTerm) embedded in each project window. Launch Claude Code sessions, run commands, manage multiple tabs — all without leaving the app.
+
+**Task launcher & dev tools** — One-click actions for common workflows: code review, debugging, writing tests, refactoring, documentation, and security audits. Detects your project's package manager and provides quick-launch buttons for dev, build, test, and lint commands.
+
+<p align="center">
+  <img src="assets/screenshot-07.jpg" alt="Task launcher and cost tracker" width="100%">
+  <br><em>Task launcher, dev tools, and per-project cost tracking</em>
+</p>
+
+**Session memory** — Browse and manage Claude Code's memory files and project-specific patterns. Structured knowledge that persists across sessions.
+
+<p align="center">
+  <img src="assets/screenshot-06.jpg" alt="Session memory viewer" width="100%">
+  <br><em>Session memory with structured project knowledge</em>
+</p>
 
 **Notes** — Per-project and global notes with a rich editor. Pin important notes, search across all notes, and use them to persist context between sessions.
 
-**Chat with Claude** — Side-panel chat drawer that talks to Claude with full project context injected automatically. Claude sees your tasks, sessions, codebase profile, and notes — so it can answer questions about your project without you re-explaining everything.
+<p align="center">
+  <img src="assets/screenshot-03.jpg" alt="Project notes" width="100%">
+  <br><em>Per-project notes with pinning and search</em>
+</p>
 
-**Project profiling** — Automatically scans each project's file tree, detects the tech stack, analyzes architecture patterns, and generates a codebase profile. This profile is injected into chat context and exposed via MCP.
+**AI image generation** — Built-in image studio for generating images with AI. Supports prompt-based generation with configurable aspect ratios and sizes.
 
-**Gmail integration** — Connects to Gmail via OAuth, polls for emails matching configurable whitelist rules, triages them with Claude, and auto-creates tasks. Supports multiple accounts.
+<p align="center">
+  <img src="assets/screenshot-09.jpg" alt="AI image generation" width="100%">
+  <br><em>Built-in AI image generation</em>
+</p>
 
-**Agent monitoring** — Detects Claude Code background agents (Task tool subprocesses) running in your terminal and displays them in a status bar with elapsed time.
-
-**Built-in browser** — WebKit browser panel for quick reference without leaving the app. Includes screenshot capture with annotation tools.
+**And more** — GitHub integration (PRs, CI, commits, issues), CLAUDE.md editor, file browser, built-in browser with screenshot capture, Gmail integration with auto-task creation, semantic code search, chat with Claude using full project context, and agent monitoring.
 
 ## MCP Server
 
-CodeFire includes a companion MCP server (`CodeFireMCP`) that exposes your project data to Claude Code. When configured, Claude can:
+CodeFire includes a companion MCP server (`CodeFireMCP`) that exposes your project data to any AI coding tool. When configured, your agent can:
 
 - List and manage tasks (create, update status, add notes)
 - Read project notes and search across them
 - Access the codebase profile and file tree
 - Query session history
-- Work with client groupings
+- Navigate and interact with web pages
+- Generate images
 
-This creates a powerful loop: you manage work in CodeFire, and Claude has full awareness of that work during coding sessions.
+This creates a powerful loop: you manage work in CodeFire, and your AI has full awareness of that work during coding sessions.
 
-### MCP Configuration
+## Getting Started
 
-Add to `~/.claude/settings.json`:
+### 1. Download
+
+Grab `CodeFire.app` from [GitHub Releases](https://github.com/websitebutlers/codefire-app/releases/latest) and drag it to your Applications folder.
+
+### 2. Connect your CLI
+
+Click one button in the app to install the MCP server, or configure it manually:
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+```bash
+claude mcp add codefire ~/Library/Application\ Support/CodeFire/bin/CodeFireMCP
+```
+</details>
+
+<details>
+<summary><strong>Gemini CLI</strong></summary>
 
 ```json
+// ~/.gemini/settings.json
 {
   "mcpServers": {
     "codefire": {
-      "command": "/Applications/CodeFire.app/Contents/MacOS/CodeFireMCP"
+      "command": "~/Library/Application Support/CodeFire/bin/CodeFireMCP",
+      "args": []
     }
   }
 }
 ```
+</details>
+
+<details>
+<summary><strong>Codex CLI</strong></summary>
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.codefire]
+command = "~/Library/Application Support/CodeFire/bin/CodeFireMCP"
+args = []
+```
+</details>
+
+<details>
+<summary><strong>OpenCode</strong></summary>
+
+```json
+// ~/.opencode/config.json
+{
+  "mcpServers": {
+    "codefire": {
+      "command": "~/Library/Application Support/CodeFire/bin/CodeFireMCP",
+      "args": []
+    }
+  }
+}
+```
+</details>
+
+### 3. Code
+
+Your AI agent now has persistent memory, task tracking, and project intelligence — across every session.
 
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
-- [GitHub CLI](https://cli.github.com/) (`gh`) for the GitHub tab
-- Swift 5.9+ toolchain (for building from source)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Codex CLI](https://github.com/openai/codex), or [OpenCode](https://github.com/sst/opencode)
+- [GitHub CLI](https://cli.github.com/) (`gh`) for the GitHub tab (optional)
 
 ## Building from Source
 
 ```bash
-git clone https://github.com/websitebutlers/claude-context-tasks.git
-cd claude-context-tasks
+git clone https://github.com/websitebutlers/codefire-app.git
+cd codefire-app
 bash scripts/package-app.sh
-```
-
-This builds a release binary, generates the app icon, assembles `CodeFire.app`, and codesigns it. The output lands in `build/CodeFire.app`.
-
-To install:
-
-```bash
 cp -r build/CodeFire.app /Applications/
 ```
 
@@ -101,56 +185,9 @@ CodeFire is a pure Swift Package Manager project with two executable targets:
 
 No Electron. No web views (except the built-in browser). No node_modules. The entire app is ~16MB.
 
-### Key Services
-
-| Service | What it does |
-|---------|-------------|
-| `ProjectDiscovery` | Decodes `~/.claude/projects/` directory names back to real paths |
-| `SessionWatcher` | Watches for new/changed session JSONL files |
-| `LiveSessionMonitor` | Parses active session files in real-time for the live dashboard |
-| `ProjectProfileGenerator` | Scans projects for tech stack, architecture, and file structure |
-| `GitHubService` | Polls GitHub via `gh` CLI for PRs, CI, commits, and issues |
-| `AgentMonitor` | Detects Claude Code subagent processes via the process tree |
-| `DevEnvironment` | Scans for dev tools, package managers, and project configuration |
-| `GmailPoller` | Fetches and triages emails into tasks via Gmail API + Claude |
-| `ContextAssembler` | Composes project context for the chat drawer |
-| `DatabaseService` | SQLite via GRDB, shared between the app and MCP server |
-
 ### Data Storage
 
-All data lives in `~/Library/Application Support/CodeFire/codefire.db` — a single SQLite database shared by both the GUI app and the MCP server. MCP connection status files are written to `~/Library/Application Support/CodeFire/mcp-connections/`.
-
-## Project Structure
-
-```
-Context/
-  Sources/
-    CodeFire/           # Main app target
-      CodeFireApp.swift
-      Views/
-        Browser/       # Built-in WebKit browser
-        Chat/          # Claude chat drawer
-        Dashboard/     # Live session + stats
-        GitHub/        # PR, CI, commit, issue views
-        Home/          # Global planner + email summary
-        Memory/        # Claude memory file viewer
-        Notes/         # Note editor
-        Rules/         # CLAUDE.md editor
-        Sessions/      # Session history browser
-        Sidebar/       # Project navigation
-        Tasks/         # Kanban board
-        Visualize/     # Architecture maps (experimental)
-      ViewModels/
-        AppState.swift
-      Services/        # All backend services
-      Models/          # GRDB data models
-    CodeFireMCP/        # MCP server target
-      main.swift
-  Package.swift
-scripts/
-  package-app.sh       # Build + bundle + codesign
-  generate-icon.swift   # Programmatic app icon
-```
+All data lives in `~/Library/Application Support/CodeFire/codefire.db` — a single SQLite database shared by both the GUI app and the MCP server.
 
 ## License
 

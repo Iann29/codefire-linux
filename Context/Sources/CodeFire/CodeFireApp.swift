@@ -193,6 +193,7 @@ struct CodeFireApp: App {
                 .environmentObject(contextEngine)
                 .environmentObject(briefingService)
                 .environmentObject(updateService)
+                .accentColor(Color(red: 0.976, green: 0.451, blue: 0.086)) // CodeFire orange (#f97316)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     appState.loadProjects()

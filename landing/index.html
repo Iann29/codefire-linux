@@ -3,10 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CodeFire — AI Coding Companion Memory Layer</title>
-  <meta name="description" content="Session memory, task tracking, and project intelligence for Claude Code, Gemini CLI, Codex CLI, and OpenCode.">
-  <meta name="theme-color" content="#0a0a0a">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+  <title>CodeFire — Persistent Memory for AI Coding Agents</title>
+  <meta name="description" content="Your AI coding agent forgets everything between sessions. CodeFire fixes that. Session memory, task tracking, and project intelligence for Claude Code, Gemini CLI, Codex CLI, and OpenCode.">
+  <meta name="theme-color" content="#050505">
+  <link rel="icon" type="image/svg+xml" href="codefire-logo.svg">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="CodeFire — Persistent Memory for AI Coding Agents">
+  <meta property="og:description" content="Your AI coding agent forgets everything between sessions. CodeFire fixes that.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://codefire.app/codefire-logo.png">
+  <meta name="twitter:card" content="summary">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -14,323 +31,582 @@
         extend: {
           colors: {
             fire: {
-              50: '#fff7ed',
-              100: '#ffedd5',
-              200: '#fed7aa',
-              300: '#fdba74',
-              400: '#fb923c',
-              500: '#f97316',
-              600: '#ea580c',
-              700: '#c2410c',
-              800: '#9a3412',
-              900: '#7c2d12',
+              50: '#fff7ed', 100: '#ffedd5', 200: '#fed7aa', 300: '#fdba74',
+              400: '#fb923c', 500: '#f97316', 600: '#ea580c', 700: '#c2410c',
+              800: '#9a3412', 900: '#7c2d12',
             },
             surface: {
-              DEFAULT: '#0a0a0a',
-              50: '#171717',
-              100: '#1a1a1a',
-              200: '#262626',
-              300: '#333333',
+              DEFAULT: '#0a0a0a', 50: '#111111', 100: '#161616',
+              200: '#1a1a1a', 300: '#262626', 400: '#333333',
             }
           },
           fontFamily: {
-            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', 'monospace'],
+            sans: ['Figtree', 'system-ui', 'sans-serif'],
+            serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
           },
           animation: {
-            'fade-in': 'fadeIn 0.8s ease-out forwards',
-            'fade-in-up': 'fadeInUp 0.8s ease-out forwards',
-            'glow-pulse': 'glowPulse 3s ease-in-out infinite',
+            'fade-in': 'fadeIn 0.9s ease-out forwards',
+            'fade-in-up': 'fadeInUp 0.9s ease-out forwards',
+            'glow-pulse': 'glowPulse 4s ease-in-out infinite',
           },
           keyframes: {
-            fadeIn: {
-              '0%': { opacity: '0' },
-              '100%': { opacity: '1' },
-            },
-            fadeInUp: {
-              '0%': { opacity: '0', transform: 'translateY(24px)' },
-              '100%': { opacity: '1', transform: 'translateY(0)' },
-            },
-            glowPulse: {
-              '0%, 100%': { opacity: '0.4' },
-              '50%': { opacity: '0.8' },
-            },
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            fadeInUp: { '0%': { opacity: '0', transform: 'translateY(28px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+            glowPulse: { '0%, 100%': { opacity: '0.35' }, '50%': { opacity: '0.7' } },
           },
         }
       }
     }
   </script>
   <style>
-    body {
-      background-color: #0a0a0a;
+    body { background: #050505; }
+
+    /* Film grain overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0.018;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 200px 200px;
     }
 
-    /* Scroll-triggered fade-in */
+    /* Scroll-triggered reveal */
     .reveal {
       opacity: 0;
-      transform: translateY(24px);
+      transform: translateY(28px);
       transition: opacity 0.7s ease-out, transform 0.7s ease-out;
     }
-    .reveal.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
 
-    /* Gradient text */
+    /* Fire gradient text */
     .text-fire-gradient {
-      background: linear-gradient(135deg, #f97316, #fb923c, #fbbf24);
+      background: linear-gradient(135deg, #f97316 0%, #fb923c 40%, #fbbf24 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
 
-    /* Subtle grid background */
+    /* Subtle grid */
     .bg-grid {
       background-image:
-        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-      background-size: 64px 64px;
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 72px 72px;
     }
 
-    /* Glow effect behind hero */
+    /* Hero glow */
     .hero-glow {
       position: absolute;
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, rgba(249,115,22,0.12) 0%, transparent 70%);
-      top: 50%;
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, rgba(249,115,22,0.1) 0%, transparent 65%);
+      top: 40%;
       left: 50%;
-      transform: translate(-50%, -60%);
+      transform: translate(-50%, -50%);
       pointer-events: none;
     }
 
-    /* Code block styling */
+    /* Nav scroll state */
+    .nav-scrolled {
+      background: rgba(5,5,5,0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    /* Terminal mockup */
+    .terminal-window {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #1a1a1a;
+      background: #0a0a0a;
+    }
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #0f0f0f;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    .terminal-body {
+      padding: 20px 24px;
+      font-size: 13px;
+      line-height: 1.75;
+    }
+
+    /* Collapsible chevron */
+    details summary { cursor: pointer; list-style: none; }
+    details summary::-webkit-details-marker { display: none; }
+    details[open] summary .chevron-icon { transform: rotate(90deg); }
+    .chevron-icon { transition: transform 0.2s ease; }
+
+    /* Section divider */
+    .section-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, rgba(249,115,22,0.2) 50%, transparent 100%);
+    }
+
+    /* CLI button hover */
+    .cli-btn { transition: all 0.2s ease; }
+    .cli-btn:hover { box-shadow: 0 0 24px rgba(249,115,22,0.2); }
+
+    /* Feature card gradient border on hover */
+    .feature-card {
+      position: relative;
+      transition: border-color 0.3s ease;
+    }
+    .feature-card:hover { border-color: #333; }
+
+    /* Code block */
     .code-block {
-      background: #111111;
-      border: 1px solid #262626;
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
       border-radius: 8px;
       overflow-x: auto;
     }
-    .code-block code {
-      font-size: 0.875rem;
-      line-height: 1.7;
-    }
-
-    /* Collapsible details styling */
-    details summary {
-      cursor: pointer;
-      list-style: none;
-    }
-    details summary::-webkit-details-marker {
-      display: none;
-    }
-    details[open] summary .chevron {
-      transform: rotate(90deg);
-    }
-    .chevron {
-      transition: transform 0.2s ease;
-    }
-
-    /* Deep link button hover glow */
-    .cli-btn {
-      transition: all 0.2s ease;
-    }
-    .cli-btn:hover {
-      box-shadow: 0 0 20px rgba(249,115,22,0.25);
-    }
   </style>
 </head>
-<body class="bg-surface text-gray-300 antialiased">
+<body class="text-gray-300 antialiased font-sans">
+
+  <!-- ============================================ -->
+  <!-- NAV                                          -->
+  <!-- ============================================ -->
+  <nav id="nav" class="fixed top-0 inset-x-0 z-50 transition-all duration-300">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="#" class="flex items-center gap-2.5 group">
+        <img src="codefire-logo.svg" alt="" class="h-7 transition-transform group-hover:scale-105">
+        <span class="text-white font-semibold tracking-tight">CodeFire</span>
+      </a>
+      <div class="flex items-center gap-6">
+        <a href="#features" class="hidden sm:block text-sm text-gray-500 hover:text-white transition-colors">Features</a>
+        <a href="#setup" class="hidden sm:block text-sm text-gray-500 hover:text-white transition-colors">Setup</a>
+        <a href="https://github.com/websitebutlers/codefire-app" target="_blank" rel="noopener"
+           class="text-gray-500 hover:text-white transition-colors" aria-label="GitHub">
+          <i data-lucide="github" class="w-5 h-5"></i>
+        </a>
+        <a href="https://github.com/websitebutlers/codefire-app/releases/latest"
+           class="hidden sm:inline-flex items-center gap-2 bg-fire-500 hover:bg-fire-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          Download
+        </a>
+      </div>
+    </div>
+  </nav>
+
 
   <!-- ============================================ -->
   <!-- HERO                                         -->
   <!-- ============================================ -->
-  <section class="relative min-h-screen flex items-center justify-center bg-grid overflow-hidden">
+  <section class="relative overflow-hidden pt-16">
+    <div class="absolute inset-0 bg-grid"></div>
     <div class="hero-glow animate-glow-pulse"></div>
 
-    <div class="relative z-10 max-w-4xl mx-auto px-6 text-center">
-      <!-- Logo -->
-      <div class="animate-fade-in mb-8">
-        <span class="text-6xl md:text-7xl">🔥</span>
+    <div class="relative z-10 pt-20 md:pt-28 pb-16">
+      <div class="max-w-3xl mx-auto px-6 text-center">
+        <div class="animate-fade-in mb-10">
+          <img src="codefire-logo.svg" alt="CodeFire" class="h-24 md:h-36 mx-auto drop-shadow-[0_0_50px_rgba(249,115,22,0.3)]">
+        </div>
+
+        <h1 class="animate-fade-in text-5xl md:text-7xl font-extrabold tracking-tight text-white mb-8">
+          <span class="text-fire-gradient">CodeFire</span>
+        </h1>
+
+        <p class="animate-fade-in-up font-serif italic text-2xl md:text-[2rem] text-gray-100 mb-6 leading-snug" style="animation-delay:0.1s">
+          Your AI agent forgets everything between sessions.
+        </p>
+
+        <p class="animate-fade-in-up text-lg text-gray-400 max-w-xl mx-auto mb-14 leading-relaxed" style="animation-delay:0.2s">
+          CodeFire gives AI coding tools persistent memory, task tracking, and project intelligence. A native macOS companion for the AI-native workflow.
+        </p>
+
+        <div class="animate-fade-in-up flex flex-col sm:flex-row items-center justify-center gap-4" style="animation-delay:0.35s">
+          <a href="https://github.com/websitebutlers/codefire-app/releases/latest"
+             class="inline-flex items-center gap-2.5 bg-fire-500 hover:bg-fire-600 text-white font-semibold px-8 py-3.5 rounded-xl transition-all hover:shadow-lg hover:shadow-fire-500/25 text-base">
+            <i data-lucide="download" class="w-5 h-5"></i>
+            Download for macOS
+          </a>
+          <a href="https://github.com/websitebutlers/codefire-app" target="_blank" rel="noopener"
+             class="inline-flex items-center gap-2.5 border border-gray-700 hover:border-gray-500 text-gray-200 font-medium px-8 py-3.5 rounded-xl transition-all hover:bg-white/[0.03] text-base">
+            <i data-lucide="github" class="w-5 h-5"></i>
+            View on GitHub
+          </a>
+        </div>
+
+        <p class="animate-fade-in-up text-xs text-gray-600 mt-6" style="animation-delay:0.45s">
+          Works with Claude Code, Gemini CLI, Codex CLI, and OpenCode
+        </p>
       </div>
 
-      <!-- Name -->
-      <h1 class="animate-fade-in text-5xl md:text-7xl font-bold tracking-tight mb-6">
-        <span class="text-fire-gradient">CodeFire</span>
-      </h1>
-
-      <!-- Tagline -->
-      <p class="animate-fade-in-up text-xl md:text-2xl text-white font-medium mb-4" style="animation-delay: 0.1s;">
-        Your AI coding companion's memory layer
-      </p>
-
-      <!-- Subtitle -->
-      <p class="animate-fade-in-up text-base md:text-lg text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed" style="animation-delay: 0.2s;">
-        Session memory, task tracking, and project intelligence for
-        <span class="text-gray-200">Claude Code</span>,
-        <span class="text-gray-200">Gemini CLI</span>,
-        <span class="text-gray-200">Codex CLI</span>, and
-        <span class="text-gray-200">OpenCode</span>.
-      </p>
-
-      <!-- CTA Buttons -->
-      <div class="animate-fade-in-up flex flex-col sm:flex-row items-center justify-center gap-4" style="animation-delay: 0.35s;">
-        <a href="https://github.com/nicknorris/codefire/releases/latest"
-           class="inline-flex items-center gap-2.5 bg-fire-500 hover:bg-fire-600 text-white font-semibold px-7 py-3.5 rounded-xl transition-all hover:shadow-lg hover:shadow-fire-500/20 text-base">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-          Download for macOS
-        </a>
-        <a href="https://github.com/nicknorris/codefire"
-           class="inline-flex items-center gap-2.5 border border-gray-700 hover:border-gray-500 text-gray-200 font-medium px-7 py-3.5 rounded-xl transition-all hover:bg-surface-50 text-base">
-          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-          View on GitHub
-        </a>
-      </div>
-
-      <!-- Scroll indicator -->
-      <div class="animate-fade-in-up mt-20 text-gray-600" style="animation-delay: 0.6s;">
-        <svg class="w-5 h-5 mx-auto animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+      <!-- Hero Screenshot -->
+      <div class="animate-fade-in-up max-w-6xl mx-auto px-6 mt-16" style="animation-delay:0.55s">
+        <div class="rounded-2xl overflow-hidden shadow-2xl shadow-black/60 border border-white/[0.08] ring-1 ring-white/[0.04]">
+          <img src="../assets/screenshot-01.jpg" alt="CodeFire — Planner view with Kanban board, task tracking, and project intelligence" class="w-full" loading="eager">
+        </div>
       </div>
     </div>
   </section>
+
+
+  <!-- ============================================ -->
+  <!-- THE PROBLEM                                  -->
+  <!-- ============================================ -->
+  <section class="py-28 md:py-36">
+    <div class="max-w-5xl mx-auto px-6">
+      <div class="text-center mb-16 reveal">
+        <p class="text-fire-400 font-medium text-sm uppercase tracking-widest mb-4">The problem</p>
+        <h2 class="text-3xl md:text-5xl font-bold text-white mb-6 leading-tight">
+          Every session starts from scratch
+        </h2>
+        <p class="text-gray-400 text-lg max-w-2xl mx-auto leading-relaxed">
+          You spend the first five minutes of every AI session re-explaining context. What you were working on. What files are involved. What decisions you already made. Your agent has no idea.
+        </p>
+      </div>
+
+      <!-- Terminal comparison -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 reveal" style="transition-delay: 150ms">
+        <!-- Without -->
+        <div>
+          <div class="flex items-center gap-2 mb-3">
+            <i data-lucide="x" class="w-4 h-4 text-red-400"></i>
+            <span class="text-sm font-medium text-red-400">Without CodeFire</span>
+          </div>
+          <div class="terminal-window">
+            <div class="terminal-header">
+              <div class="flex gap-1.5">
+                <span class="w-3 h-3 rounded-full bg-[#ff5f57]"></span>
+                <span class="w-3 h-3 rounded-full bg-[#febc2e]"></span>
+                <span class="w-3 h-3 rounded-full bg-[#28c840]"></span>
+              </div>
+              <span class="text-[11px] text-gray-600 font-mono">Terminal</span>
+            </div>
+            <div class="terminal-body font-mono text-gray-400">
+              <p><span class="text-gray-600">$</span> <span class="text-fire-400">claude</span></p>
+              <p class="mt-3"><span class="text-gray-500">You:</span> <span class="text-gray-300">Pick up where we left off on the auth refactor</span></p>
+              <p class="mt-3"><span class="text-gray-500">Claude:</span> I don't have context about a previous session or auth refactor. Could you tell me:</p>
+              <p class="text-gray-500 ml-4">- Which files are involved?</p>
+              <p class="text-gray-500 ml-4">- What changes have been made?</p>
+              <p class="text-gray-500 ml-4">- What's the desired end state?</p>
+              <p class="mt-2 text-gray-600 text-xs">// 5 minutes of re-explaining later...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- With -->
+        <div>
+          <div class="flex items-center gap-2 mb-3">
+            <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+            <span class="text-sm font-medium text-emerald-400">With CodeFire</span>
+          </div>
+          <div class="terminal-window" style="border-color: rgba(16,185,129,0.15)">
+            <div class="terminal-header">
+              <div class="flex gap-1.5">
+                <span class="w-3 h-3 rounded-full bg-[#ff5f57]"></span>
+                <span class="w-3 h-3 rounded-full bg-[#febc2e]"></span>
+                <span class="w-3 h-3 rounded-full bg-[#28c840]"></span>
+              </div>
+              <span class="text-[11px] text-gray-600 font-mono">Terminal</span>
+            </div>
+            <div class="terminal-body font-mono text-gray-400">
+              <p><span class="text-gray-600">$</span> <span class="text-fire-400">claude</span></p>
+              <p class="mt-3"><span class="text-gray-500">You:</span> <span class="text-gray-300">Pick up where we left off on the auth refactor</span></p>
+              <p class="mt-3"><span class="text-gray-500">Claude:</span> <span class="text-gray-300">Resuming auth refactor from your last session:</span></p>
+              <p class="mt-1"><span class="text-emerald-400 ml-4">&#10003;</span> Migrated to JWT tokens <span class="text-gray-600">(src/auth/jwt.ts)</span></p>
+              <p><span class="text-emerald-400 ml-4">&#10003;</span> Updated 3 of 7 route handlers</p>
+              <p><span class="text-fire-400 ml-4">&#8594;</span> Remaining: payments, webhooks, admin</p>
+              <p><span class="text-amber-400 ml-4">!</span> Note: Rate limiter needs JWT update too</p>
+              <p class="mt-2 text-gray-300">Continuing with the payments handler.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <div class="section-divider max-w-xl mx-auto"></div>
 
 
   <!-- ============================================ -->
   <!-- FEATURES                                     -->
   <!-- ============================================ -->
-  <section id="features" class="py-24 md:py-32">
+  <section id="features" class="py-28 md:py-36">
     <div class="max-w-6xl mx-auto px-6">
-      <div class="text-center mb-16 reveal">
-        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">
-          Everything your AI agent needs to remember
+      <div class="text-center mb-20 reveal">
+        <p class="text-fire-400 font-medium text-sm uppercase tracking-widest mb-4">Features</p>
+        <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">
+          Built for the AI-native workflow
         </h2>
         <p class="text-gray-400 text-lg max-w-2xl mx-auto">
-          A native macOS app that gives AI coding tools persistent memory, project context, and powerful integrations.
+          A native macOS app that sits alongside your terminal, giving your AI agent the context and tools it needs to be genuinely useful.
         </p>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Task Tracking -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">📋</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Task Tracking</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Create, assign, and track tasks across coding sessions. Kanban boards, priorities, labels, and task notes that persist forever.</p>
+      <!-- Hero features — 3 larger cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="reveal feature-card bg-surface-50 border border-surface-200 rounded-2xl p-8" style="transition-delay:0ms">
+          <div class="w-10 h-10 rounded-lg bg-fire-500/10 flex items-center justify-center mb-5">
+            <i data-lucide="brain" class="w-5 h-5 text-fire-400"></i>
+          </div>
+          <h3 class="text-white font-semibold text-lg mb-3">Persistent Memory</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Tasks, notes, and session context that survive across sessions. Your AI picks up exactly where the last conversation ended — no re-explaining required.
+          </p>
         </div>
 
-        <!-- Session Memory -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">🧠</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Session Memory</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Automatic session capture with summaries and context. Your AI picks up exactly where the last session left off.</p>
+        <div class="reveal feature-card bg-surface-50 border border-surface-200 rounded-2xl p-8" style="transition-delay:80ms">
+          <div class="w-10 h-10 rounded-lg bg-fire-500/10 flex items-center justify-center mb-5">
+            <i data-lucide="terminal" class="w-5 h-5 text-fire-400"></i>
+          </div>
+          <h3 class="text-white font-semibold text-lg mb-3">Integrated Tooling</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Built-in terminal, browser automation, and semantic code search. Your agent can run commands, navigate the web, and search your codebase by meaning — all through MCP.
+          </p>
         </div>
 
-        <!-- Live Terminal -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">⚡</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Live Terminal</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Built-in terminal with session monitoring. Watch your AI agent work in real-time with full terminal emulation.</p>
+        <div class="reveal feature-card bg-surface-50 border border-surface-200 rounded-2xl p-8" style="transition-delay:160ms">
+          <div class="w-10 h-10 rounded-lg bg-fire-500/10 flex items-center justify-center mb-5">
+            <i data-lucide="plug" class="w-5 h-5 text-fire-400"></i>
+          </div>
+          <h3 class="text-white font-semibold text-lg mb-3">Universal Compatibility</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            One memory layer for every AI coding tool. Claude Code, Gemini CLI, Codex CLI, OpenCode — same persistent context, same project intelligence, any agent.
+          </p>
+        </div>
+      </div>
+
+      <!-- Supporting features — compact 3x2 grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div class="reveal feature-card bg-surface/80 border border-surface-200 rounded-xl p-6 flex gap-4" style="transition-delay:0ms">
+          <div class="flex-shrink-0 mt-0.5">
+            <i data-lucide="list-checks" class="w-5 h-5 text-gray-500"></i>
+          </div>
+          <div>
+            <h3 class="text-white font-medium text-[15px] mb-1.5">Task Tracking</h3>
+            <p class="text-gray-500 text-sm leading-relaxed">Kanban boards, priorities, labels, and task notes. Create tasks in one session, pick them up in the next.</p>
+          </div>
         </div>
 
-        <!-- Browser Tools -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">🌐</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Browser Tools</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Integrated browser with MCP-controlled automation. Navigate, click, type, and screenshot — all from your AI agent.</p>
+        <div class="reveal feature-card bg-surface/80 border border-surface-200 rounded-xl p-6 flex gap-4" style="transition-delay:60ms">
+          <div class="flex-shrink-0 mt-0.5">
+            <i data-lucide="globe" class="w-5 h-5 text-gray-500"></i>
+          </div>
+          <div>
+            <h3 class="text-white font-medium text-[15px] mb-1.5">Browser Automation</h3>
+            <p class="text-gray-500 text-sm leading-relaxed">Navigate, click, fill forms, and take screenshots. A headless browser controlled entirely by your AI agent.</p>
+          </div>
         </div>
 
-        <!-- Code Search -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">🔍</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Code Search</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Semantic code search with embeddings. Search by meaning, not just text. Indexes functions, classes, docs, and git history.</p>
+        <div class="reveal feature-card bg-surface/80 border border-surface-200 rounded-xl p-6 flex gap-4" style="transition-delay:120ms">
+          <div class="flex-shrink-0 mt-0.5">
+            <i data-lucide="search" class="w-5 h-5 text-gray-500"></i>
+          </div>
+          <div>
+            <h3 class="text-white font-medium text-[15px] mb-1.5">Semantic Code Search</h3>
+            <p class="text-gray-500 text-sm leading-relaxed">Search by meaning, not just text. Indexes functions, classes, docs, and git history into a vector store.</p>
+          </div>
         </div>
 
-        <!-- Multi-CLI -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">🔌</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Multi-CLI Support</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Works with Claude Code, Gemini CLI, Codex CLI, and OpenCode. One memory layer for all your AI coding tools.</p>
+        <div class="reveal feature-card bg-surface/80 border border-surface-200 rounded-xl p-6 flex gap-4" style="transition-delay:0ms">
+          <div class="flex-shrink-0 mt-0.5">
+            <i data-lucide="git-pull-request" class="w-5 h-5 text-gray-500"></i>
+          </div>
+          <div>
+            <h3 class="text-white font-medium text-[15px] mb-1.5">GitHub Integration</h3>
+            <p class="text-gray-500 text-sm leading-relaxed">Pull requests, commits, issues, and reviews. See your GitHub activity alongside your tasks and sessions.</p>
+          </div>
         </div>
 
-        <!-- GitHub Integration -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">🐙</div>
-          <h3 class="text-white font-semibold text-lg mb-2">GitHub Integration</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">PR and commit tracking built in. See pull request status, diffs, and review comments right alongside your tasks.</p>
+        <div class="reveal feature-card bg-surface/80 border border-surface-200 rounded-xl p-6 flex gap-4" style="transition-delay:60ms">
+          <div class="flex-shrink-0 mt-0.5">
+            <i data-lucide="message-circle" class="w-5 h-5 text-gray-500"></i>
+          </div>
+          <div>
+            <h3 class="text-white font-medium text-[15px] mb-1.5">Built-in AI Chat</h3>
+            <p class="text-gray-500 text-sm leading-relaxed">Ask questions about your codebase with full project context. RAG-powered answers without leaving the app.</p>
+          </div>
         </div>
 
-        <!-- AI Chat -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">💬</div>
-          <h3 class="text-white font-semibold text-lg mb-2">AI Chat</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Built-in AI assistant with full project context. Ask questions about your codebase without losing your terminal session.</p>
-        </div>
-
-        <!-- Notes & Briefings -->
-        <div class="reveal bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <div class="text-3xl mb-4">📝</div>
-          <h3 class="text-white font-semibold text-lg mb-2">Notes &amp; Briefings</h3>
-          <p class="text-gray-400 text-sm leading-relaxed">Persistent notes and daily AI briefings. Pin architecture decisions, capture gotchas, and get project summaries on demand.</p>
+        <div class="reveal feature-card bg-surface/80 border border-surface-200 rounded-xl p-6 flex gap-4" style="transition-delay:120ms">
+          <div class="flex-shrink-0 mt-0.5">
+            <i data-lucide="file-text" class="w-5 h-5 text-gray-500"></i>
+          </div>
+          <div>
+            <h3 class="text-white font-medium text-[15px] mb-1.5">Notes & Briefings</h3>
+            <p class="text-gray-500 text-sm leading-relaxed">Pin architecture decisions, capture gotchas, get AI-generated daily briefings that summarize project activity.</p>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
 
+  <div class="section-divider max-w-xl mx-auto"></div>
+
+
   <!-- ============================================ -->
-  <!-- ONE-CLICK MCP SETUP                          -->
+  <!-- GALLERY                                      -->
   <!-- ============================================ -->
-  <section id="setup" class="py-24 md:py-32 bg-surface-50">
-    <div class="max-w-4xl mx-auto px-6">
+  <section class="py-28 md:py-36">
+    <div class="max-w-6xl mx-auto px-6">
       <div class="text-center mb-16 reveal">
-        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">
-          Connect in One Click
+        <p class="text-fire-400 font-medium text-sm uppercase tracking-widest mb-4">See it in action</p>
+        <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">
+          Everything in one place
         </h2>
-        <p class="text-gray-400 text-lg max-w-xl mx-auto">
-          Install the CodeFire MCP server for your CLI tool instantly. No config files to edit.
+        <p class="text-gray-400 text-lg max-w-2xl mx-auto">
+          A native macOS app that puts your entire AI workflow side-by-side with your terminal.
         </p>
       </div>
 
-      <div class="reveal grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl mx-auto">
-        <!-- Claude Code -->
-        <div class="flex flex-col items-center gap-3 bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <a href="codefire://install-mcp?client=claude-code"
-             class="cli-btn w-full text-center font-semibold px-6 py-3 rounded-xl bg-[#d97706] hover:bg-[#b45309] text-white transition-all text-sm">
-            Claude Code
-          </a>
-          <span class="text-xs text-gray-500">One-click MCP install</span>
-          <a href="#manual-setup" class="text-xs text-gray-600 hover:text-gray-400 transition-colors underline underline-offset-2">App not installed?</a>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div class="reveal" style="transition-delay:0ms">
+          <div class="rounded-xl overflow-hidden border border-surface-200 hover:border-surface-300 transition-colors">
+            <img src="../assets/screenshot-02.jpg" alt="Integrated terminal with project planner" class="w-full" loading="lazy">
+          </div>
+          <p class="text-sm text-gray-500 mt-3 ml-1">Integrated terminal alongside the project planner</p>
         </div>
 
-        <!-- Gemini CLI -->
-        <div class="flex flex-col items-center gap-3 bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <a href="codefire://install-mcp?client=gemini-cli"
-             class="cli-btn w-full text-center font-semibold px-6 py-3 rounded-xl bg-[#4285f4] hover:bg-[#3367d6] text-white transition-all text-sm">
-            Gemini CLI
-          </a>
-          <span class="text-xs text-gray-500">One-click MCP install</span>
-          <a href="#manual-setup" class="text-xs text-gray-600 hover:text-gray-400 transition-colors underline underline-offset-2">App not installed?</a>
+        <div class="reveal" style="transition-delay:80ms">
+          <div class="rounded-xl overflow-hidden border border-surface-200 hover:border-surface-300 transition-colors">
+            <img src="../assets/screenshot-10.jpg" alt="Session history" class="w-full" loading="lazy">
+          </div>
+          <p class="text-sm text-gray-500 mt-3 ml-1">Session history with cost tracking and tool usage stats</p>
         </div>
 
-        <!-- Codex CLI -->
-        <div class="flex flex-col items-center gap-3 bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <a href="codefire://install-mcp?client=codex-cli"
-             class="cli-btn w-full text-center font-semibold px-6 py-3 rounded-xl bg-[#10a37f] hover:bg-[#0d8c6d] text-white transition-all text-sm">
-            Codex CLI
-          </a>
-          <span class="text-xs text-gray-500">One-click MCP install</span>
-          <a href="#manual-setup" class="text-xs text-gray-600 hover:text-gray-400 transition-colors underline underline-offset-2">App not installed?</a>
+        <div class="reveal" style="transition-delay:0ms">
+          <div class="rounded-xl overflow-hidden border border-surface-200 hover:border-surface-300 transition-colors">
+            <img src="../assets/screenshot-07.jpg" alt="Task launcher and cost tracker" class="w-full" loading="lazy">
+          </div>
+          <p class="text-sm text-gray-500 mt-3 ml-1">Task launcher, dev tools, and per-project cost tracking</p>
         </div>
 
-        <!-- OpenCode -->
-        <div class="flex flex-col items-center gap-3 bg-surface-100 border border-surface-200 rounded-2xl p-6 hover:border-surface-300 transition-colors">
-          <a href="codefire://install-mcp?client=opencode"
-             class="cli-btn w-full text-center font-semibold px-6 py-3 rounded-xl bg-[#8b5cf6] hover:bg-[#7c3aed] text-white transition-all text-sm">
-            OpenCode
-          </a>
-          <span class="text-xs text-gray-500">One-click MCP install</span>
-          <a href="#manual-setup" class="text-xs text-gray-600 hover:text-gray-400 transition-colors underline underline-offset-2">App not installed?</a>
+        <div class="reveal" style="transition-delay:80ms">
+          <div class="rounded-xl overflow-hidden border border-surface-200 hover:border-surface-300 transition-colors">
+            <img src="../assets/screenshot-06.jpg" alt="Session memory" class="w-full" loading="lazy">
+          </div>
+          <p class="text-sm text-gray-500 mt-3 ml-1">Session memory with structured project knowledge</p>
+        </div>
+
+        <div class="reveal" style="transition-delay:0ms">
+          <div class="rounded-xl overflow-hidden border border-surface-200 hover:border-surface-300 transition-colors">
+            <img src="../assets/screenshot-03.jpg" alt="Project notes" class="w-full" loading="lazy">
+          </div>
+          <p class="text-sm text-gray-500 mt-3 ml-1">Per-project notes with pinning and search</p>
+        </div>
+
+        <div class="reveal" style="transition-delay:80ms">
+          <div class="rounded-xl overflow-hidden border border-surface-200 hover:border-surface-300 transition-colors">
+            <img src="../assets/screenshot-09.jpg" alt="AI image generation" class="w-full" loading="lazy">
+          </div>
+          <p class="text-sm text-gray-500 mt-3 ml-1">Built-in AI image generation</p>
         </div>
       </div>
+    </div>
+  </section>
+
+
+  <div class="section-divider max-w-xl mx-auto"></div>
+
+
+  <!-- ============================================ -->
+  <!-- HOW IT WORKS                                 -->
+  <!-- ============================================ -->
+  <section class="py-28 md:py-36">
+    <div class="max-w-4xl mx-auto px-6">
+      <div class="text-center mb-20 reveal">
+        <p class="text-fire-400 font-medium text-sm uppercase tracking-widest mb-4">Getting started</p>
+        <h2 class="text-3xl md:text-5xl font-bold text-white">
+          Three steps. That's it.
+        </h2>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
+        <div class="reveal text-center md:text-left" style="transition-delay:0ms">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-full border-2 border-fire-500/30 text-fire-400 font-bold text-lg mb-5">
+            1
+          </div>
+          <h3 class="text-white font-semibold text-lg mb-2">Download</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Grab CodeFire.app from GitHub Releases and drag it to your Applications folder.
+          </p>
+        </div>
+
+        <div class="reveal text-center md:text-left" style="transition-delay:100ms">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-full border-2 border-fire-500/30 text-fire-400 font-bold text-lg mb-5">
+            2
+          </div>
+          <h3 class="text-white font-semibold text-lg mb-2">Connect</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Click one button to install the MCP server for your CLI tool. No config files to edit.
+          </p>
+        </div>
+
+        <div class="reveal text-center md:text-left" style="transition-delay:200ms">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-full border-2 border-fire-500/30 text-fire-400 font-bold text-lg mb-5">
+            3
+          </div>
+          <h3 class="text-white font-semibold text-lg mb-2">Code</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            Your AI agent now has persistent memory, browser tools, code search, and more — across every session.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <div class="section-divider max-w-xl mx-auto"></div>
+
+
+  <!-- ============================================ -->
+  <!-- CONNECT YOUR CLI                             -->
+  <!-- ============================================ -->
+  <section id="setup" class="py-28 md:py-36">
+    <div class="max-w-4xl mx-auto px-6">
+      <div class="text-center mb-16 reveal">
+        <p class="text-fire-400 font-medium text-sm uppercase tracking-widest mb-4">One-click setup</p>
+        <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">
+          Connect your CLI
+        </h2>
+        <p class="text-gray-400 text-lg max-w-xl mx-auto">
+          Click to install the CodeFire MCP server. Your CLI tool will connect to CodeFire automatically.
+        </p>
+      </div>
+
+      <div class="reveal grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto">
+        <a href="codefire://install-mcp?client=claude-code"
+           class="cli-btn group flex flex-col items-center gap-3 border border-surface-300 hover:border-gray-500 rounded-xl px-4 py-5 transition-all hover:bg-white/[0.02]">
+          <span class="text-white font-medium text-sm">Claude Code</span>
+          <span class="text-[11px] text-gray-600 group-hover:text-gray-400 transition-colors">Install MCP</span>
+        </a>
+
+        <a href="codefire://install-mcp?client=gemini-cli"
+           class="cli-btn group flex flex-col items-center gap-3 border border-surface-300 hover:border-gray-500 rounded-xl px-4 py-5 transition-all hover:bg-white/[0.02]">
+          <span class="text-white font-medium text-sm">Gemini CLI</span>
+          <span class="text-[11px] text-gray-600 group-hover:text-gray-400 transition-colors">Install MCP</span>
+        </a>
+
+        <a href="codefire://install-mcp?client=codex-cli"
+           class="cli-btn group flex flex-col items-center gap-3 border border-surface-300 hover:border-gray-500 rounded-xl px-4 py-5 transition-all hover:bg-white/[0.02]">
+          <span class="text-white font-medium text-sm">Codex CLI</span>
+          <span class="text-[11px] text-gray-600 group-hover:text-gray-400 transition-colors">Install MCP</span>
+        </a>
+
+        <a href="codefire://install-mcp?client=opencode"
+           class="cli-btn group flex flex-col items-center gap-3 border border-surface-300 hover:border-gray-500 rounded-xl px-4 py-5 transition-all hover:bg-white/[0.02]">
+          <span class="text-white font-medium text-sm">OpenCode</span>
+          <span class="text-[11px] text-gray-600 group-hover:text-gray-400 transition-colors">Install MCP</span>
+        </a>
+      </div>
+
+      <p class="reveal text-center text-sm text-gray-600 mt-6">
+        Don't have CodeFire installed? <a href="https://github.com/websitebutlers/codefire-app/releases/latest" class="text-gray-400 hover:text-white underline underline-offset-2 transition-colors">Download it first</a>.
+      </p>
     </div>
   </section>
 
@@ -338,46 +614,46 @@
   <!-- ============================================ -->
   <!-- MANUAL SETUP                                 -->
   <!-- ============================================ -->
-  <section id="manual-setup" class="py-24 md:py-32">
+  <section id="manual-setup" class="py-20 md:py-28 bg-surface-50/30">
     <div class="max-w-4xl mx-auto px-6">
-      <div class="text-center mb-16 reveal">
-        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">
+      <div class="text-center mb-12 reveal">
+        <h2 class="text-2xl md:text-3xl font-bold text-white mb-4">
           Manual Setup
         </h2>
-        <p class="text-gray-400 text-lg max-w-xl mx-auto">
+        <p class="text-gray-500 text-base max-w-lg mx-auto">
           Prefer to configure things yourself? Add the MCP server manually.
         </p>
       </div>
 
-      <div class="space-y-6">
+      <div class="space-y-4">
         <!-- Claude Code -->
         <details class="reveal group">
-          <summary class="flex items-center gap-3 bg-surface-100 border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors cursor-pointer">
-            <svg class="chevron w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="font-semibold text-white">Claude Code</span>
-            <span class="text-xs text-gray-500 ml-auto font-mono">Terminal command</span>
+          <summary class="flex items-center gap-3 bg-surface border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors">
+            <i data-lucide="chevron-right" class="chevron-icon w-4 h-4 text-gray-600 flex-shrink-0"></i>
+            <span class="font-medium text-white">Claude Code</span>
+            <span class="text-xs text-gray-600 ml-auto font-mono">Terminal command</span>
           </summary>
           <div class="mt-3 code-block p-5">
-            <code class="font-mono text-sm">
-              <span class="text-gray-500">$</span> <span class="text-fire-400">claude</span> mcp add codefire ~/Library/Application\ Support/CodeFire/bin/CodeFireMCP
+            <code class="font-mono text-sm text-gray-300">
+              <span class="text-gray-600">$</span> <span class="text-fire-400">claude</span> mcp add codefire ~/Library/Application\ Support/CodeFire/bin/CodeFireMCP
             </code>
           </div>
         </details>
 
         <!-- Gemini CLI -->
         <details class="reveal group">
-          <summary class="flex items-center gap-3 bg-surface-100 border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors cursor-pointer">
-            <svg class="chevron w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="font-semibold text-white">Gemini CLI</span>
-            <span class="text-xs text-gray-500 ml-auto font-mono">~/.gemini/settings.json</span>
+          <summary class="flex items-center gap-3 bg-surface border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors">
+            <i data-lucide="chevron-right" class="chevron-icon w-4 h-4 text-gray-600 flex-shrink-0"></i>
+            <span class="font-medium text-white">Gemini CLI</span>
+            <span class="text-xs text-gray-600 ml-auto font-mono">~/.gemini/settings.json</span>
           </summary>
           <div class="mt-3 code-block p-5">
-<pre class="font-mono text-sm"><span class="text-gray-500">// ~/.gemini/settings.json</span>
+<pre class="font-mono text-sm text-gray-300"><span class="text-gray-600">// ~/.gemini/settings.json</span>
 {
   <span class="text-fire-400">"mcpServers"</span>: {
     <span class="text-fire-300">"codefire"</span>: {
-      <span class="text-green-400">"command"</span>: <span class="text-amber-300">"~/Library/Application Support/CodeFire/bin/CodeFireMCP"</span>,
-      <span class="text-green-400">"args"</span>: []
+      <span class="text-emerald-400">"command"</span>: <span class="text-amber-300">"~/Library/Application Support/CodeFire/bin/CodeFireMCP"</span>,
+      <span class="text-emerald-400">"args"</span>: []
     }
   }
 }</pre>
@@ -386,38 +662,73 @@
 
         <!-- Codex CLI -->
         <details class="reveal group">
-          <summary class="flex items-center gap-3 bg-surface-100 border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors cursor-pointer">
-            <svg class="chevron w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="font-semibold text-white">Codex CLI</span>
-            <span class="text-xs text-gray-500 ml-auto font-mono">~/.codex/config.toml</span>
+          <summary class="flex items-center gap-3 bg-surface border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors">
+            <i data-lucide="chevron-right" class="chevron-icon w-4 h-4 text-gray-600 flex-shrink-0"></i>
+            <span class="font-medium text-white">Codex CLI</span>
+            <span class="text-xs text-gray-600 ml-auto font-mono">~/.codex/config.toml</span>
           </summary>
           <div class="mt-3 code-block p-5">
-<pre class="font-mono text-sm"><span class="text-gray-500"># ~/.codex/config.toml</span>
+<pre class="font-mono text-sm text-gray-300"><span class="text-gray-600"># ~/.codex/config.toml</span>
 <span class="text-fire-400">[mcp_servers.codefire]</span>
-<span class="text-green-400">command</span> = <span class="text-amber-300">"~/Library/Application Support/CodeFire/bin/CodeFireMCP"</span>
-<span class="text-green-400">args</span> = []</pre>
+<span class="text-emerald-400">command</span> = <span class="text-amber-300">"~/Library/Application Support/CodeFire/bin/CodeFireMCP"</span>
+<span class="text-emerald-400">args</span> = []</pre>
           </div>
         </details>
 
         <!-- OpenCode -->
         <details class="reveal group">
-          <summary class="flex items-center gap-3 bg-surface-100 border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors cursor-pointer">
-            <svg class="chevron w-4 h-4 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="font-semibold text-white">OpenCode</span>
-            <span class="text-xs text-gray-500 ml-auto font-mono">~/.opencode/config.json</span>
+          <summary class="flex items-center gap-3 bg-surface border border-surface-200 rounded-xl px-6 py-4 hover:border-surface-300 transition-colors">
+            <i data-lucide="chevron-right" class="chevron-icon w-4 h-4 text-gray-600 flex-shrink-0"></i>
+            <span class="font-medium text-white">OpenCode</span>
+            <span class="text-xs text-gray-600 ml-auto font-mono">~/.opencode/config.json</span>
           </summary>
           <div class="mt-3 code-block p-5">
-<pre class="font-mono text-sm"><span class="text-gray-500">// ~/.opencode/config.json</span>
+<pre class="font-mono text-sm text-gray-300"><span class="text-gray-600">// ~/.opencode/config.json</span>
 {
   <span class="text-fire-400">"mcpServers"</span>: {
     <span class="text-fire-300">"codefire"</span>: {
-      <span class="text-green-400">"command"</span>: <span class="text-amber-300">"~/Library/Application Support/CodeFire/bin/CodeFireMCP"</span>,
-      <span class="text-green-400">"args"</span>: []
+      <span class="text-emerald-400">"command"</span>: <span class="text-amber-300">"~/Library/Application Support/CodeFire/bin/CodeFireMCP"</span>,
+      <span class="text-emerald-400">"args"</span>: []
     }
   }
 }</pre>
           </div>
         </details>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================ -->
+  <!-- OPEN SOURCE CTA                              -->
+  <!-- ============================================ -->
+  <section class="py-28 md:py-36">
+    <div class="max-w-3xl mx-auto px-6">
+      <div class="reveal relative rounded-2xl border border-surface-200 p-12 md:p-16 text-center overflow-hidden">
+        <!-- Gradient glow -->
+        <div class="absolute inset-0 bg-gradient-to-b from-fire-500/[0.04] to-transparent pointer-events-none"></div>
+
+        <div class="relative">
+          <i data-lucide="flame" class="w-8 h-8 text-fire-500 mx-auto mb-6"></i>
+          <h2 class="text-2xl md:text-4xl font-bold text-white mb-4">
+            Free. Open source. No telemetry.
+          </h2>
+          <p class="text-gray-400 text-base max-w-lg mx-auto mb-8 leading-relaxed">
+            Built by developers who got tired of re-explaining context to their AI agents. MIT licensed. Contributions welcome.
+          </p>
+          <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="https://github.com/websitebutlers/codefire-app" target="_blank" rel="noopener"
+               class="inline-flex items-center gap-2 border border-gray-700 hover:border-gray-500 text-gray-200 font-medium px-6 py-3 rounded-xl transition-all hover:bg-white/[0.03]">
+              <i data-lucide="github" class="w-5 h-5"></i>
+              Star on GitHub
+            </a>
+            <a href="https://github.com/websitebutlers/codefire-app/releases/latest"
+               class="inline-flex items-center gap-2 bg-fire-500 hover:bg-fire-600 text-white font-semibold px-6 py-3 rounded-xl transition-all hover:shadow-lg hover:shadow-fire-500/25">
+              <i data-lucide="download" class="w-5 h-5"></i>
+              Download for macOS
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -429,28 +740,31 @@
   <footer class="border-t border-surface-200 py-12">
     <div class="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
       <div class="flex items-center gap-3">
-        <span class="text-xl">🔥</span>
-        <span class="text-gray-400 text-sm">
-          Built by <a href="https://github.com/nicknorris" class="text-gray-300 hover:text-white transition-colors">Nick Norris</a>
+        <img src="codefire-logo.svg" alt="" class="h-5 opacity-60">
+        <span class="text-gray-600 text-sm">
+          Built by <a href="https://github.com/websitebutlers" target="_blank" rel="noopener" class="text-gray-500 hover:text-white transition-colors">Website Butlers</a>
         </span>
       </div>
-
       <div class="flex items-center gap-6">
-        <a href="https://github.com/nicknorris/codefire"
-           class="text-gray-500 hover:text-gray-300 transition-colors text-sm flex items-center gap-1.5">
-          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        <a href="https://github.com/websitebutlers/codefire-app" target="_blank" rel="noopener"
+           class="text-gray-600 hover:text-gray-300 transition-colors text-sm flex items-center gap-1.5">
+          <i data-lucide="github" class="w-4 h-4"></i>
           GitHub
         </a>
-        <span class="text-gray-700 text-xs font-mono border border-gray-800 rounded px-2 py-0.5">MIT License</span>
+        <span class="text-gray-800 text-xs font-mono border border-surface-300 rounded px-2 py-0.5">MIT License</span>
       </div>
     </div>
   </footer>
 
 
   <!-- ============================================ -->
-  <!-- SCROLL REVEAL SCRIPT                         -->
+  <!-- SCRIPTS                                      -->
   <!-- ============================================ -->
   <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // Scroll-triggered reveals with stagger
     document.addEventListener('DOMContentLoaded', () => {
       const reveals = document.querySelectorAll('.reveal');
       const observer = new IntersectionObserver((entries) => {
@@ -460,12 +774,21 @@
             observer.unobserve(entry.target);
           }
         });
-      }, {
-        threshold: 0.1,
-        rootMargin: '0px 0px -40px 0px'
-      });
-
+      }, { threshold: 0.08, rootMargin: '0px 0px -30px 0px' });
       reveals.forEach(el => observer.observe(el));
+    });
+
+    // Nav scroll effect
+    const nav = document.getElementById('nav');
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          nav.classList.toggle('nav-scrolled', window.scrollY > 24);
+          ticking = false;
+        });
+        ticking = true;
+      }
     });
   </script>
 
