@@ -52,7 +52,25 @@ export type GitChannel =
   | 'git:unstage'
   | 'git:commit'
 
+export type GitHubChannel =
+  | 'github:setToken'
+  | 'github:getRepoInfo'
+  | 'github:listPRs'
+  | 'github:getPR'
+  | 'github:listWorkflows'
+  | 'github:listIssues'
+  | 'github:listCommits'
+
 export type SearchChannel = 'search:query' | 'search:reindex'
+
+export type GmailChannel =
+  | 'gmail:listAccounts'
+  | 'gmail:authenticate'
+  | 'gmail:removeAccount'
+  | 'gmail:listRules'
+  | 'gmail:addRule'
+  | 'gmail:removeRule'
+  | 'gmail:pollEmails'
 
 /** Channels that use ipcMain.handle (request-response) */
 export type TerminalHandleChannel = 'terminal:create' | 'terminal:kill'
@@ -74,7 +92,9 @@ export type IpcChannel =
   | TerminalHandleChannel
   | DiscoveryChannel
   | GitChannel
+  | GitHubChannel
   | SearchChannel
+  | GmailChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 
