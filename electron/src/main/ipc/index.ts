@@ -8,15 +8,20 @@ import { registerWindowHandlers } from './window-handlers'
 import { registerTerminalHandlers } from './terminal-handlers'
 import { registerDiscoveryHandlers } from './discovery-handlers'
 import { registerGitHandlers } from './git-handlers'
+import { registerSearchHandlers } from './search-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
 import type { GitService } from '../services/GitService'
+import type { SearchEngine } from '../services/SearchEngine'
+import type { ContextEngine } from '../services/ContextEngine'
 
 export function registerAllHandlers(
   db: Database.Database,
   windowManager?: WindowManager,
   terminalService?: TerminalService,
-  gitService?: GitService
+  gitService?: GitService,
+  searchEngine?: SearchEngine,
+  contextEngine?: ContextEngine
 ) {
   registerProjectHandlers(db)
   registerTaskHandlers(db)
@@ -32,5 +37,8 @@ export function registerAllHandlers(
   }
   if (gitService) {
     registerGitHandlers(gitService)
+  }
+  if (searchEngine && contextEngine) {
+    registerSearchHandlers(db, searchEngine, contextEngine)
   }
 }

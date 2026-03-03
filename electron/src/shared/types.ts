@@ -52,6 +52,8 @@ export type GitChannel =
   | 'git:unstage'
   | 'git:commit'
 
+export type SearchChannel = 'search:query' | 'search:reindex'
+
 /** Channels that use ipcMain.handle (request-response) */
 export type TerminalHandleChannel = 'terminal:create' | 'terminal:kill'
 
@@ -72,6 +74,7 @@ export type IpcChannel =
   | TerminalHandleChannel
   | DiscoveryChannel
   | GitChannel
+  | SearchChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 
