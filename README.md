@@ -148,7 +148,21 @@ args = []
 ```
 </details>
 
-### 3. Code
+### 3. Configure
+
+Open **Settings** (`Cmd + ,`) → **CodeFire Engine** tab and paste your [OpenRouter API key](https://openrouter.ai/keys).
+
+This powers the built-in AI chat, semantic code search, and image generation. All models are served through OpenRouter with a single key.
+
+<details>
+<summary>Optional: Gmail integration</summary>
+
+To enable email-to-task sync, go to **Settings → Gmail** and enter your Google OAuth credentials (Client ID + Client Secret).
+
+Get these from [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).
+</details>
+
+### 4. Code
 
 Your AI agent now has persistent memory, task tracking, and project intelligence — across every session.
 
