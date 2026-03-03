@@ -10,10 +10,12 @@ import { registerDiscoveryHandlers } from './discovery-handlers'
 import { registerGitHandlers } from './git-handlers'
 import { registerSearchHandlers } from './search-handlers'
 import { registerGitHubHandlers } from './github-handlers'
+import { registerGmailHandlers } from './gmail-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
 import type { GitService } from '../services/GitService'
 import type { GitHubService } from '../services/GitHubService'
+import type { GmailService } from '../services/GmailService'
 import type { SearchEngine } from '../services/SearchEngine'
 import type { ContextEngine } from '../services/ContextEngine'
 
@@ -23,6 +25,7 @@ export function registerAllHandlers(
   terminalService?: TerminalService,
   gitService?: GitService,
   githubService?: GitHubService,
+  gmailService?: GmailService,
   searchEngine?: SearchEngine,
   contextEngine?: ContextEngine
 ) {
@@ -43,6 +46,9 @@ export function registerAllHandlers(
   }
   if (githubService) {
     registerGitHubHandlers(githubService)
+  }
+  if (gmailService) {
+    registerGmailHandlers(gmailService)
   }
   if (searchEngine && contextEngine) {
     registerSearchHandlers(db, searchEngine, contextEngine)
