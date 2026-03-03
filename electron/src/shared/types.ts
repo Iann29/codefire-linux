@@ -42,6 +42,8 @@ export type WindowChannel =
   | 'window:getProjectWindows'
   | 'window:focusMain'
 
+export type DiscoveryChannel = 'discovery:scanProjects' | 'discovery:importSessions'
+
 /** Channels that use ipcMain.handle (request-response) */
 export type TerminalHandleChannel = 'terminal:create' | 'terminal:kill'
 
@@ -60,6 +62,7 @@ export type IpcChannel =
   | ClientChannel
   | WindowChannel
   | TerminalHandleChannel
+  | DiscoveryChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 

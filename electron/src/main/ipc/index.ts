@@ -6,6 +6,7 @@ import { registerSessionHandlers } from './session-handlers'
 import { registerClientHandlers } from './client-handlers'
 import { registerWindowHandlers } from './window-handlers'
 import { registerTerminalHandlers } from './terminal-handlers'
+import { registerDiscoveryHandlers } from './discovery-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
 
@@ -19,6 +20,7 @@ export function registerAllHandlers(
   registerNoteHandlers(db)
   registerSessionHandlers(db)
   registerClientHandlers(db)
+  registerDiscoveryHandlers(db)
   if (windowManager) {
     registerWindowHandlers(windowManager)
   }
