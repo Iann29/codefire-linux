@@ -261,4 +261,18 @@ export const api = {
     commit: (projectPath: string, message: string) =>
       invoke('git:commit', projectPath, message) as Promise<{ hash: string }>,
   },
+
+  github: {
+    getRepoInfo: (projectPath: string) =>
+      invoke('github:getRepoInfo', projectPath) as Promise<{ owner: string; repo: string } | null>,
+    listPRs: (owner: string, repo: string, options?: { state?: string; limit?: number }) =>
+      invoke('github:listPRs', owner, repo, options) as Promise<any[]>,
+    listWorkflows: (owner: string, repo: string, options?: { limit?: number }) =>
+      invoke('github:listWorkflows', owner, repo, options) as Promise<any[]>,
+    listIssues: (
+      owner: string,
+      repo: string,
+      options?: { state?: string; limit?: number; labels?: string[] }
+    ) => invoke('github:listIssues', owner, repo, options) as Promise<any[]>,
+  },
 }
