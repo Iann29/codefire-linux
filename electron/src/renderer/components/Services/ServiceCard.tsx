@@ -15,7 +15,7 @@ function getIcon(iconName: string): LucideIcon {
   const lookup = Icons as Record<string, unknown>
   const icon = lookup[iconName]
   if (icon && typeof icon === 'object' && 'render' in icon) {
-    return icon as LucideIcon
+    return icon as unknown as LucideIcon
   }
   return Icons.Box
 }
