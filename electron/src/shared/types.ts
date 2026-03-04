@@ -63,6 +63,16 @@ export type GitHubChannel =
 
 export type FileChannel = 'files:list' | 'files:read' | 'files:write'
 
+export type MemoryChannel =
+  | 'memory:getDir'
+  | 'memory:list'
+  | 'memory:read'
+  | 'memory:write'
+  | 'memory:delete'
+  | 'memory:create'
+
+export type RulesChannel = 'rules:list' | 'rules:read' | 'rules:write' | 'rules:create'
+
 export type ServiceChannel = 'services:detect'
 
 export type SearchChannel = 'search:query' | 'search:reindex'
@@ -100,6 +110,7 @@ export type IpcChannel =
   | SearchChannel
   | GmailChannel
   | FileChannel
+  | MemoryChannel
   | ServiceChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────

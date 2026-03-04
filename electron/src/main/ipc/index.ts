@@ -12,6 +12,8 @@ import { registerSearchHandlers } from './search-handlers'
 import { registerGitHubHandlers } from './github-handlers'
 import { registerGmailHandlers } from './gmail-handlers'
 import { registerFileHandlers } from './file-handlers'
+import { registerMemoryHandlers } from './memory-handlers'
+import { registerRulesHandlers } from './rules-handlers'
 import { registerServiceHandlers } from './service-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
@@ -56,5 +58,7 @@ export function registerAllHandlers(
     registerSearchHandlers(db, searchEngine, contextEngine)
   }
   registerFileHandlers()
+  registerMemoryHandlers()
+  registerRulesHandlers()
   registerServiceHandlers()
 }

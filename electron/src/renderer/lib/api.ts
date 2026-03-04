@@ -165,6 +165,27 @@ export const api = {
       invoke('files:write', filePath, content) as Promise<void>,
   },
 
+  memory: {
+    getDir: (projectPath: string) =>
+      invoke('memory:getDir', projectPath) as Promise<string>,
+    list: (projectPath: string) =>
+      invoke('memory:list', projectPath) as Promise<
+        Array<{ name: string; path: string; isMain: boolean }>
+      >,
+    read: (filePath: string) =>
+      invoke('memory:read', filePath) as Promise<string>,
+    write: (filePath: string, content: string) =>
+      invoke('memory:write', filePath, content) as Promise<void>,
+    delete: (filePath: string) =>
+      invoke('memory:delete', filePath) as Promise<void>,
+    create: (projectPath: string, fileName: string) =>
+      invoke('memory:create', projectPath, fileName) as Promise<{
+        name: string
+        path: string
+        isMain: boolean
+      }>,
+  },
+
   services: {
     detect: (projectPath: string) =>
       invoke('services:detect', projectPath) as Promise<
