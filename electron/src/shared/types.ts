@@ -79,6 +79,12 @@ export type ServiceChannel =
   | 'services:readEnvFile'
   | 'services:scanTemplates'
 
+export type ImageChannel =
+  | 'images:list'
+  | 'images:get'
+  | 'images:create'
+  | 'images:delete'
+
 export type SearchChannel = 'search:query' | 'search:reindex'
 
 export type GmailChannel =
@@ -117,6 +123,7 @@ export type IpcChannel =
   | MemoryChannel
   | RulesChannel
   | ServiceChannel
+  | ImageChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 

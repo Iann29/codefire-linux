@@ -5,6 +5,7 @@ import type {
   Note,
   Session,
   Client,
+  GeneratedImage,
 } from '@shared/models'
 
 const invoke = window.api.invoke
@@ -232,6 +233,25 @@ export const api = {
           vars: Array<{ key: string; comment?: string; defaultValue?: string }>
         }>
       >,
+  },
+
+  images: {
+    list: (projectId: string) =>
+      invoke('images:list', projectId) as Promise<GeneratedImage[]>,
+    get: (id: number) =>
+      invoke('images:get', id) as Promise<GeneratedImage | undefined>,
+    create: (data: {
+      projectId: string
+      prompt: string
+      filePath: string
+      model: string
+      responseText?: string
+      aspectRatio?: string
+      imageSize?: string
+      parentImageId?: number
+    }) => invoke('images:create', data) as Promise<GeneratedImage>,
+    delete: (id: number) =>
+      invoke('images:delete', id) as Promise<boolean>,
   },
 
   git: {
