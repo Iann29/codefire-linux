@@ -84,14 +84,30 @@ struct AgentArenaView: View {
 struct ArenaWebView: NSViewRepresentable {
     @Binding var webViewRef: WKWebView?
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("[Arena] Navigation failed: \(error)")
+        }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("[Arena] Provisional navigation failed: \(error)")
+        }
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
 
         // Load the arena HTML from the bundle
-        if let htmlURL = Bundle.module.url(forResource: "agent-arena", withExtension: "html") {
-            webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
+        // Use loadHTMLString instead of loadFileURL to avoid sandbox issues
+        // when running as a bare SPM binary (not a .app bundle)
+        if let htmlURL = Bundle.module.url(forResource: "agent-arena", withExtension: "html"),
+           let htmlString = try? String(contentsOf: htmlURL, encoding: .utf8) {
+            webView.loadHTMLString(htmlString, baseURL: htmlURL.deletingLastPathComponent())
         }
 
         DispatchQueue.main.async {

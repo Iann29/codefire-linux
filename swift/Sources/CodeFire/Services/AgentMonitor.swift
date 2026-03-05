@@ -293,9 +293,13 @@ class AgentMonitor: ObservableObject {
                 }
             }
 
-            // Only fetch full args for "node" processes (Claude Code runs as node)
+            // Fetch full args for processes that might be Claude Code:
+            // - "node" (older Node-based Claude Code)
+            // - "claude" (native binary accessed via symlink)
+            // - version-like names e.g. "2.1.69" (actual binary filename at ~/.local/share/claude/versions/X.Y.Z)
+            let needsFullArgs = comm == "node" || comm == "claude" || Self.looksLikeVersion(comm)
             let fullCommand: String
-            if comm == "node" {
+            if needsFullArgs {
                 fullCommand = Self.getProcessArgs(pid: Int32(pid)) ?? comm
             } else {
                 fullCommand = comm
@@ -345,6 +349,13 @@ class AgentMonitor: ObservableObject {
         return args.joined(separator: " ")
     }
 
+    /// Check if a string looks like a semver version number (e.g. "2.1.69").
+    /// Claude Code's native binary is named by its version at ~/.local/share/claude/versions/X.Y.Z
+    private static func looksLikeVersion(_ s: String) -> Bool {
+        let parts = s.split(separator: ".")
+        return parts.count >= 2 && parts.allSatisfy { $0.allSatisfy(\.isNumber) }
+    }
+
     /// Format seconds into ps-style etime string.
     private func formatEtime(_ totalSeconds: Int) -> String {
         let s = max(0, totalSeconds)
@@ -357,7 +368,12 @@ class AgentMonitor: ObservableObject {
     }
 
     private func isClaude(_ command: String) -> Bool {
-        command.contains("claude") && (
+        // Native binary: command is "claude" or "claude --flags..."
+        if command == "claude" || command.hasPrefix("claude ") {
+            return true
+        }
+        // Node-based (older versions): look for @anthropic or claude-code in args
+        return command.contains("claude") && (
             command.contains("@anthropic") ||
             command.contains("claude-code") ||
             command.contains("/claude ") ||
