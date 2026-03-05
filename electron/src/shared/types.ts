@@ -97,6 +97,8 @@ export type RecordingChannel =
 
 export type SettingsChannel = 'settings:get' | 'settings:set'
 
+export type ArenaChannel = 'arena:open'
+
 export type SearchChannel = 'search:query' | 'search:reindex'
 
 export type GmailChannel =
@@ -139,6 +141,7 @@ export type IpcChannel =
   | ImageChannel
   | RecordingChannel
   | SettingsChannel
+  | ArenaChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 

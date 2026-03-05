@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeImage } from 'electron'
 import path from 'path'
 import { getDatabase, closeDatabase } from './database/connection'
 import { registerAllHandlers } from './ipc'
@@ -35,6 +35,12 @@ if (googleClientId && googleClientSecret) {
 
 // Register all IPC handlers (including window, terminal, and git management)
 registerAllHandlers(db, windowManager, terminalService, gitService, undefined, gmailService)
+
+// Register Agent Arena handler
+import { openAgentArena } from './windows/AgentArenaWindow'
+ipcMain.handle('arena:open', () => {
+  openAgentArena()
+})
 
 let isQuitting = false
 
