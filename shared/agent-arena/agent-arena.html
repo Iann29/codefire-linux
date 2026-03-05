@@ -36,6 +36,41 @@
     const GROUND_COLOR = '#2a1a0a';
     const GROUND_LINE_COLOR = '#3d2b1a';
 
+    // ── Sprite System ────────────────────────────────────────
+    const sprites = {};
+
+    function loadSprite(name, base64, frameW, frameH) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          sprites[name] = { img, frameW, frameH };
+          resolve(sprites[name]);
+        };
+        img.onerror = reject;
+        img.src = 'data:image/png;base64,' + base64;
+      });
+    }
+
+    // ── Campfire Sprite Base64 ───────────────────────────────
+    const CAMPFIRE_B64 = 'iVBORw0KGgoAAAANSUhEUgAAADAAAACACAMAAAB6FhrAAAAAAXNSR0IArs4c6QAAAgFQTFRFAAAA//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////f3/////Orq////////////////////////4M7O//////////////////////////////r69uLi59bW//n5++jo+eXl//////////r69uLitKio8d/f/////urq////saam//Dw/+3t9uPj////////7Nvb/+vr////////xbi4yb29//Hxyr29zL29//Ly/+7u7t7eraSk/+/v4tHRraWlj4mJ//z8kIuL//Pz//T0qKKim5WVqqKijYiIlY6OekRKoFtTRy08v3lY7qFgXjZDMCwuqTs7WlNT5kgu9H4bz8a4oJOOfXBx9LQby77Cw7vA1Lu9y7a61MLEy7i8vLu7w7C1moSGy7a7mYOFkH+FycfHw7O4gmBjcVdfgl9jkH+DkIiI7+zo4Nza1dHRiHyBY1Jbb2lp7uXgw7S5Y1Faj4iIw7S4hnt8p52b7+XgmpGSVVFShHp839TTtq+q4NXT1crKV1JTpp2c1cnJvLO0cGlpbmhobWdngXd4mpKSj4mJVlFSVFBR////dkqYdwAAAKt0Uk5TADAXFFIRHSEbLRAeNz8jGSJGVyc0NS9QQlRKKHQsWn+eORIll60ubB86T32fVU1sQzOJnaqLc2GgeIA2djt2h2s8U3tJrFapra13Zhw/rY1YmEmtk0mtcT6trYNWZjRlra2tXq1nYv//////////////////////////////////////////////////////////////////////////////////////////TBYMKQAAAW5JREFUWIXtleFugzAMhHlbJywO9krefw5t4RIqqmiTpmm+X3zBF2wj2dPkcrlcVUQ0xiEEGuU4yHDw+zwP8UTzxxwGeLthhOs/GWOXy+U6T/MUL5mqcHalmFLLnE7DHIZj4hwT8rIwgyF24z+yqEBAXD5vKzBF2gbuwVmLZj54vVUHFNA4KJlDco68J8jLulpSzwIsFBz2ZA6OOdGDiU0W/2jkfZofDppDSNG6RDtvjic/p3kMZiRgmueXvE/zeOR0zdDcMXb9S+m3A35c0rN0aUj/vkYcAaLaJa2iaKoBiFMprUFsrMhxo2Ep6NBzfCl4Yz3YDS862N6o20FTlkxbUY2h+2rbBasQUlAr2aL7PmCb6oVYUy1K2pHQ1Cylptz8BpW6D/YjSk2X7hnDDSTdPrh3Ab6gdoD7ga2RuA/YLmTF9/YncT/k+lFuWHuGfWHT3eJhH/T7oePTPrjmV/vgkt/uA98PLpfL5fqb+gK9SlFoYBFPAwAAAABJRU5ErkJggg==';
+
+    // ── Campfire Animation State ─────────────────────────────
+    const CAMPFIRE_FRAME_W = 16;
+    const CAMPFIRE_FRAME_H = 32;
+    const CAMPFIRE_SCALE = 2;
+    const CAMPFIRE_ANIM_SPEED = 200; // ms per frame
+    // 6 fire frames: row1 cols 0,1,2 then row2 cols 0,1,2
+    const CAMPFIRE_FRAMES = [
+      { col: 0, row: 1 },
+      { col: 1, row: 1 },
+      { col: 2, row: 1 },
+      { col: 0, row: 2 },
+      { col: 1, row: 2 },
+      { col: 2, row: 2 },
+    ];
+    let campfireFrameIndex = 0;
+    let campfireLastSwitch = 0;
+
     // ── State ─────────────────────────────────────────────────
     const canvas = document.getElementById('arena');
     const ctx = canvas.getContext('2d');
@@ -101,6 +136,54 @@
       generateStars();
     }
 
+    // ── Campfire Drawing ─────────────────────────────────────
+    function drawCampfire(timestamp) {
+      const sprite = sprites['campfire'];
+      if (!sprite) return;
+
+      // Advance frame
+      if (timestamp - campfireLastSwitch >= CAMPFIRE_ANIM_SPEED) {
+        campfireFrameIndex = (campfireFrameIndex + 1) % CAMPFIRE_FRAMES.length;
+        campfireLastSwitch = timestamp;
+      }
+
+      const frame = CAMPFIRE_FRAMES[campfireFrameIndex];
+      const sx = frame.col * CAMPFIRE_FRAME_W;
+      const sy = frame.row * CAMPFIRE_FRAME_H;
+      const drawW = CAMPFIRE_FRAME_W * CAMPFIRE_SCALE;
+      const drawH = CAMPFIRE_FRAME_H * CAMPFIRE_SCALE;
+
+      const groundY = height - GROUND_HEIGHT;
+      const drawX = Math.floor(width / 2 - drawW / 2);
+      const drawY = Math.floor(groundY - drawH);
+
+      // Warm glow behind the fire
+      ctx.save();
+      const glowRadius = 40;
+      const glow = ctx.createRadialGradient(
+        drawX + drawW / 2, drawY + drawH / 2, 4,
+        drawX + drawW / 2, drawY + drawH / 2, glowRadius
+      );
+      glow.addColorStop(0, 'rgba(255, 140, 40, 0.35)');
+      glow.addColorStop(1, 'rgba(255, 140, 40, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(
+        drawX + drawW / 2 - glowRadius,
+        drawY + drawH / 2 - glowRadius,
+        glowRadius * 2,
+        glowRadius * 2
+      );
+      ctx.restore();
+
+      // Draw the sprite frame
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        sprite.img,
+        sx, sy, CAMPFIRE_FRAME_W, CAMPFIRE_FRAME_H,
+        drawX, drawY, drawW, drawH
+      );
+    }
+
     // ── Render ────────────────────────────────────────────────
     function render(timestamp) {
       requestAnimationFrame(render);
@@ -119,12 +202,21 @@
         ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.fillRect(s.x, s.y, s.size, s.size);
       }
+
+      // Draw campfire
+      drawCampfire(timestamp);
     }
 
     // ── Init ──────────────────────────────────────────────────
-    window.addEventListener('resize', handleResize);
-    handleResize();
-    requestAnimationFrame(render);
+    async function init() {
+      await loadSprite('campfire', CAMPFIRE_B64, CAMPFIRE_FRAME_W, CAMPFIRE_FRAME_H);
+
+      window.addEventListener('resize', handleResize);
+      handleResize();
+      requestAnimationFrame(render);
+    }
+
+    init();
   </script>
 </body>
 </html>
