@@ -4,25 +4,17 @@ import { GoogleOAuth } from '../services/GoogleOAuth'
 import { GmailService } from '../services/GmailService'
 import { registerGmailHandlers } from './gmail-handlers'
 import type Database from 'better-sqlite3'
+import type { AppConfig } from '@shared/models'
 
 export function registerSettingsHandlers(
   db: Database.Database,
   onGmailReady?: (service: GmailService) => void
 ) {
   ipcMain.handle('settings:get', () => {
-    const config = readConfig()
-    return {
-      openRouterKey: config.openRouterKey ?? '',
-      googleClientId: config.googleClientId ?? '',
-      googleClientSecret: config.googleClientSecret ?? '',
-    }
+    return readConfig()
   })
 
-  ipcMain.handle('settings:set', (_event, settings: {
-    openRouterKey?: string
-    googleClientId?: string
-    googleClientSecret?: string
-  }) => {
+  ipcMain.handle('settings:set', (_event, settings: Partial<AppConfig>) => {
     writeConfig(settings)
 
     // If Google credentials were provided, reinitialize Gmail service

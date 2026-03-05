@@ -1,49 +1,76 @@
 import { useState, useEffect } from 'react'
-import { X, Eye, EyeOff, Check } from 'lucide-react'
+import { X, Check, Settings, Terminal, Cpu, Mail, Globe, Newspaper } from 'lucide-react'
+import type { AppConfig } from '@shared/models'
+import { api } from '../../lib/api'
+import SettingsTabGeneral from './SettingsTabGeneral'
+import SettingsTabTerminal from './SettingsTabTerminal'
+import SettingsTabEngine from './SettingsTabEngine'
+import SettingsTabGmail from './SettingsTabGmail'
+import SettingsTabBrowser from './SettingsTabBrowser'
+import SettingsTabBriefing from './SettingsTabBriefing'
 
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
 }
 
+const TABS = [
+  { id: 'general', label: 'General', icon: Settings },
+  { id: 'terminal', label: 'Terminal', icon: Terminal },
+  { id: 'engine', label: 'Engine', icon: Cpu },
+  { id: 'gmail', label: 'Gmail', icon: Mail },
+  { id: 'browser', label: 'Browser', icon: Globe },
+  { id: 'briefing', label: 'Briefing', icon: Newspaper },
+] as const
+
+type TabId = (typeof TABS)[number]['id']
+
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
-  const [openRouterKey, setOpenRouterKey] = useState('')
-  const [googleClientId, setGoogleClientId] = useState('')
-  const [googleClientSecret, setGoogleClientSecret] = useState('')
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
+  const [activeTab, setActiveTab] = useState<TabId>('general')
+  const [config, setConfig] = useState<AppConfig | null>(null)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (open) {
-      // Load settings from main process config store
-      window.api.invoke('settings:get').then((settings: any) => {
-        setOpenRouterKey(settings.openRouterKey ?? '')
-        setGoogleClientId(settings.googleClientId ?? '')
-        setGoogleClientSecret(settings.googleClientSecret ?? '')
-      }).catch(() => {})
+      api.settings.get().then(setConfig).catch(() => {})
       setSaved(false)
     }
   }, [open])
 
-  if (!open) return null
+  if (!open || !config) return null
+
+  function handleChange(patch: Partial<AppConfig>) {
+    setConfig((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
 
   async function handleSave() {
-    await window.api.invoke('settings:set', {
-      openRouterKey: openRouterKey.trim() || undefined,
-      googleClientId: googleClientId.trim() || undefined,
-      googleClientSecret: googleClientSecret.trim() || undefined,
-    })
+    if (!config) return
+    await api.settings.set(config)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
 
-  function toggleVisibility(key: string) {
-    setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }))
+  function renderTab() {
+    const props = { config: config!, onChange: handleChange }
+    switch (activeTab) {
+      case 'general':
+        return <SettingsTabGeneral {...props} />
+      case 'terminal':
+        return <SettingsTabTerminal {...props} />
+      case 'engine':
+        return <SettingsTabEngine {...props} />
+      case 'gmail':
+        return <SettingsTabGmail {...props} />
+      case 'browser':
+        return <SettingsTabBrowser {...props} />
+      case 'briefing':
+        return <SettingsTabBriefing {...props} />
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[480px] max-h-[80vh] bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl flex flex-col">
+      <div className="w-[720px] h-[80vh] bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
           <h2 className="text-sm font-semibold text-neutral-200">Settings</h2>
@@ -55,105 +82,32 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-          {/* OpenRouter API Key */}
-          <section>
-            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-              Image Generation
-            </h3>
-            <label className="text-xs text-neutral-500 block mb-1.5">OpenRouter API Key</label>
-            <p className="text-[10px] text-neutral-600 mb-2">
-              Used for AI image generation. Get one at{' '}
-              <span className="text-codefire-orange">openrouter.ai</span>
-            </p>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 relative">
-                <input
-                  type={showKeys.openrouter ? 'text' : 'password'}
-                  value={openRouterKey}
-                  onChange={(e) => setOpenRouterKey(e.target.value)}
-                  placeholder="sk-or-..."
-                  className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-1.5
-                             text-xs text-neutral-200 placeholder:text-neutral-600
-                             focus:outline-none focus:border-codefire-orange/50"
-                />
+        {/* Body: sidebar + content */}
+        <div className="flex flex-1 min-h-0">
+          {/* Sidebar */}
+          <nav className="w-[160px] shrink-0 border-r border-neutral-800 py-2">
+            {TABS.map((tab) => {
+              const Icon = tab.icon
+              const active = activeTab === tab.id
+              return (
                 <button
-                  type="button"
-                  onClick={() => toggleVisibility('openrouter')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-600 hover:text-neutral-400"
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-2.5 px-4 py-2 text-xs transition-colors ${
+                    active
+                      ? 'text-codefire-orange bg-codefire-orange/10'
+                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60'
+                  }`}
                 >
-                  {showKeys.openrouter ? <EyeOff size={12} /> : <Eye size={12} />}
+                  <Icon size={14} />
+                  {tab.label}
                 </button>
-              </div>
-            </div>
-          </section>
+              )
+            })}
+          </nav>
 
-          {/* Gmail / Google OAuth */}
-          <section>
-            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-              Gmail Integration
-            </h3>
-            <p className="text-[10px] text-neutral-600 mb-3">
-              Create OAuth credentials in the{' '}
-              <span className="text-codefire-orange">Google Cloud Console</span>
-              {' '}to enable Gmail email polling and triage.
-            </p>
-
-            <label className="text-xs text-neutral-500 block mb-1.5">Google Client ID</label>
-            <div className="relative mb-3">
-              <input
-                type={showKeys.googleId ? 'text' : 'password'}
-                value={googleClientId}
-                onChange={(e) => setGoogleClientId(e.target.value)}
-                placeholder="123456789.apps.googleusercontent.com"
-                className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-1.5
-                           text-xs text-neutral-200 placeholder:text-neutral-600
-                           focus:outline-none focus:border-codefire-orange/50"
-              />
-              <button
-                type="button"
-                onClick={() => toggleVisibility('googleId')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-600 hover:text-neutral-400"
-              >
-                {showKeys.googleId ? <EyeOff size={12} /> : <Eye size={12} />}
-              </button>
-            </div>
-
-            <label className="text-xs text-neutral-500 block mb-1.5">Google Client Secret</label>
-            <div className="relative">
-              <input
-                type={showKeys.googleSecret ? 'text' : 'password'}
-                value={googleClientSecret}
-                onChange={(e) => setGoogleClientSecret(e.target.value)}
-                placeholder="GOCSPX-..."
-                className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-1.5
-                           text-xs text-neutral-200 placeholder:text-neutral-600
-                           focus:outline-none focus:border-codefire-orange/50"
-              />
-              <button
-                type="button"
-                onClick={() => toggleVisibility('googleSecret')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-600 hover:text-neutral-400"
-              >
-                {showKeys.googleSecret ? <EyeOff size={12} /> : <Eye size={12} />}
-              </button>
-            </div>
-
-            <p className="text-[10px] text-neutral-600 mt-2">
-              Gmail will activate immediately after saving valid credentials.
-            </p>
-          </section>
-
-          {/* General */}
-          <section>
-            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">
-              General
-            </h3>
-            <div className="text-xs text-neutral-500">
-              Version 1.0.4 (Electron)
-            </div>
-          </section>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">{renderTab()}</div>
         </div>
 
         {/* Footer */}

@@ -10,6 +10,7 @@ import type {
   GmailAccount,
   WhitelistRule,
   ProcessedEmail,
+  AppConfig,
 } from '@shared/models'
 
 const invoke = window.api.invoke
@@ -157,6 +158,10 @@ export const api = {
     getProjectWindows: () =>
       invoke('window:getProjectWindows') as Promise<string[]>,
     focusMain: () => invoke('window:focusMain') as Promise<void>,
+  },
+
+  dialog: {
+    selectFolder: () => invoke('dialog:selectFolder') as Promise<string | null>,
   },
 
   files: {
@@ -343,6 +348,12 @@ export const api = {
       invoke('gmail:pollEmails', accountId) as Promise<ProcessedEmail[]>,
     listRecentEmails: () =>
       invoke('gmail:listRecentEmails') as Promise<ProcessedEmail[]>,
+  },
+
+  settings: {
+    get: () => invoke('settings:get') as Promise<AppConfig>,
+    set: (config: Partial<AppConfig>) =>
+      invoke('settings:set', config) as Promise<{ success: boolean }>,
   },
 
   github: {

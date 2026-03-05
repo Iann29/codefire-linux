@@ -245,6 +245,47 @@ export interface Recording {
   createdAt: string
 }
 
+// ─── App Config ──────────────────────────────────────────────────────────────
+
+export interface AppConfig {
+  // General
+  checkForUpdates: boolean
+  notifyOnNewEmail: boolean
+  notifyOnClaudeDone: boolean
+  demoMode: boolean
+  preferredCLI: 'claude' | 'gemini' | 'codex'
+
+  // Terminal
+  terminalFontSize: number
+  scrollbackLines: number
+
+  // Engine
+  openRouterKey: string
+  contextSearchEnabled: boolean
+  embeddingModel: string
+  chatModel: string
+  autoSnapshotSessions: boolean
+  autoUpdateCodebaseTree: boolean
+  mcpServerAutoStart: boolean
+  instructionInjection: boolean
+  snapshotDebounce: number
+
+  // Gmail
+  googleClientId: string
+  googleClientSecret: string
+  gmailSyncEnabled: boolean
+  gmailSyncInterval: number
+
+  // Browser
+  browserAllowedDomains: string[]
+  networkBodyLimit: number
+
+  // Briefing
+  briefingStalenessHours: number
+  briefingRSSFeeds: string[]
+  briefingSubreddits: string[]
+}
+
 // ─── Snapshot & Pattern Models ────────────────────────────────────────────────
 
 export interface CodebaseSnapshot {
