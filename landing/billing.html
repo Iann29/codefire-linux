@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Billing — CodeFire</title>
+  <meta name="description" content="Manage your CodeFire team billing and subscription.">
+  <meta name="theme-color" content="#050505">
+  <link rel="icon" type="image/svg+xml" href="codefire-logo.svg">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            fire: {
+              50: '#fff7ed', 100: '#ffedd5', 200: '#fed7aa', 300: '#fdba74',
+              400: '#fb923c', 500: '#f97316', 600: '#ea580c', 700: '#c2410c',
+              800: '#9a3412', 900: '#7c2d12',
+            },
+            surface: {
+              DEFAULT: '#0a0a0a', 50: '#111111', 100: '#161616',
+              200: '#1a1a1a', 300: '#262626', 400: '#333333',
+            }
+          },
+          fontFamily: {
+            sans: ['Figtree', 'system-ui', 'sans-serif'],
+            serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.9s ease-out forwards',
+            'fade-in-up': 'fadeInUp 0.9s ease-out forwards',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            fadeInUp: { '0%': { opacity: '0', transform: 'translateY(28px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #050505; }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0.018;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 200px 200px;
+    }
+
+    .text-fire-gradient {
+      background: linear-gradient(135deg, #f97316 0%, #fb923c 40%, #fbbf24 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body class="font-sans text-white antialiased min-h-screen flex items-center justify-center px-4">
+
+  <div class="w-full max-w-md animate-fade-in-up">
+
+    <!-- Logo -->
+    <div class="flex justify-center mb-8">
+      <a href="/" class="flex items-center gap-2">
+        <img src="codefire-logo.svg" alt="CodeFire" class="h-8 w-8">
+        <span class="text-lg font-semibold tracking-tight text-white">CodeFire</span>
+      </a>
+    </div>
+
+    <!-- Sign In Form -->
+    <div id="state-signin" class="bg-surface-100 border border-surface-300 rounded-2xl p-8">
+      <div class="text-center mb-6">
+        <div class="flex justify-center mb-3">
+          <i data-lucide="credit-card" class="w-10 h-10 text-fire-500"></i>
+        </div>
+        <h2 class="text-xl font-semibold mb-1">Manage Billing</h2>
+        <p class="text-zinc-500 text-sm">Sign in to access your team's billing portal</p>
+      </div>
+
+      <form id="signin-form" onsubmit="handleSignIn(event)" class="space-y-4">
+        <div>
+          <label for="email" class="block text-sm font-medium text-zinc-400 mb-1.5">Email</label>
+          <input type="email" id="email" required placeholder="you@example.com"
+            class="w-full bg-surface-200 border border-surface-400 rounded-lg px-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-fire-500 focus:ring-1 focus:ring-fire-500 transition-colors">
+        </div>
+
+        <div>
+          <label for="password" class="block text-sm font-medium text-zinc-400 mb-1.5">Password</label>
+          <input type="password" id="password" required placeholder="Enter your password"
+            class="w-full bg-surface-200 border border-surface-400 rounded-lg px-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-fire-500 focus:ring-1 focus:ring-fire-500 transition-colors">
+        </div>
+
+        <!-- Error message -->
+        <div id="signin-error" class="hidden text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2.5"></div>
+
+        <button type="submit" id="signin-submit"
+          class="w-full bg-fire-500 hover:bg-fire-600 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+          <span id="signin-submit-text">Sign In</span>
+          <i data-lucide="loader-2" id="signin-spinner" class="w-4 h-4 animate-spin hidden"></i>
+        </button>
+      </form>
+    </div>
+
+    <!-- Loading Portal -->
+    <div id="state-loading" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="loader-2" class="w-8 h-8 text-fire-500 animate-spin"></i>
+      </div>
+      <p class="text-zinc-300 font-medium">Opening billing portal...</p>
+      <p class="text-zinc-500 text-sm mt-1">Connecting to Stripe</p>
+    </div>
+
+    <!-- Error -->
+    <div id="state-error" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="alert-circle" class="w-10 h-10 text-red-500"></i>
+      </div>
+      <h2 class="text-xl font-semibold mb-2">Unable to Open Billing</h2>
+      <p id="error-message" class="text-zinc-400 mb-6"></p>
+      <button onclick="resetToSignIn()"
+        class="inline-flex items-center gap-2 text-fire-500 hover:text-fire-400 transition-colors text-sm font-medium">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i>
+        Try again
+      </button>
+    </div>
+
+    <!-- Redirecting -->
+    <div id="state-redirecting" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="external-link" class="w-8 h-8 text-green-500"></i>
+      </div>
+      <p class="text-zinc-300 font-medium">Redirecting to Stripe...</p>
+      <p class="text-zinc-500 text-sm mt-2">If you're not redirected automatically,
+        <a id="portal-link" href="#" class="text-fire-500 hover:text-fire-400 underline">click here</a>.
+      </p>
+    </div>
+
+  </div>
+
+  <script>
+    // ─── Configuration ───────────────────────────────────────────────
+    const SUPABASE_URL = 'https://hofreldxofygaerodowt.supabase.co';
+    const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY'; // TODO: Replace with your Supabase anon/public key
+
+    // ─── Helpers ─────────────────────────────────────────────────────
+    function show(id) {
+      ['state-signin', 'state-loading', 'state-error', 'state-redirecting']
+        .forEach(s => document.getElementById(s).classList.add('hidden'));
+      document.getElementById(id).classList.remove('hidden');
+    }
+
+    function showSignInError(msg) {
+      const el = document.getElementById('signin-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideSignInError() {
+      document.getElementById('signin-error').classList.add('hidden');
+    }
+
+    function setSubmitLoading(loading) {
+      const btn = document.getElementById('signin-submit');
+      const text = document.getElementById('signin-submit-text');
+      const spinner = document.getElementById('signin-spinner');
+      btn.disabled = loading;
+      spinner.classList.toggle('hidden', !loading);
+      text.textContent = loading ? 'Signing in...' : 'Sign In';
+    }
+
+    function resetToSignIn() {
+      show('state-signin');
+      lucide.createIcons();
+    }
+
+    function getTeamId() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('team');
+    }
+
+    // ─── Sign In Handler ─────────────────────────────────────────────
+    async function handleSignIn(e) {
+      e.preventDefault();
+      hideSignInError();
+      setSubmitLoading(true);
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const teamId = getTeamId();
+
+      if (!teamId) {
+        showSignInError('No team specified. Please use the billing link provided by your team.');
+        setSubmitLoading(false);
+        return;
+      }
+
+      try {
+        // Sign in
+        const authRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ email, password })
+        });
+
+        const authData = await authRes.json();
+
+        if (!authRes.ok) {
+          throw new Error(authData.error_description || authData.msg || 'Invalid email or password');
+        }
+
+        const accessToken = authData.access_token;
+
+        // Get billing portal URL
+        show('state-loading');
+        lucide.createIcons();
+
+        const portalRes = await fetch(`${SUPABASE_URL}/functions/v1/billing-portal`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ teamId })
+        });
+
+        const portalData = await portalRes.json();
+
+        if (!portalRes.ok) {
+          const errorMsg = portalData.error || portalData.message || 'Failed to open billing portal';
+
+          // Provide user-friendly messages for common errors
+          if (portalRes.status === 403) {
+            throw new Error('You must be the team owner to access billing.');
+          } else if (portalRes.status === 404) {
+            throw new Error('No active subscription found for this team.');
+          } else {
+            throw new Error(errorMsg);
+          }
+        }
+
+        if (!portalData.url) {
+          throw new Error('No billing portal URL returned. Please try again.');
+        }
+
+        // Redirect to Stripe portal
+        show('state-redirecting');
+        document.getElementById('portal-link').href = portalData.url;
+        lucide.createIcons();
+
+        // Auto-redirect after a brief moment
+        setTimeout(() => {
+          window.location.href = portalData.url;
+        }, 500);
+
+      } catch (err) {
+        console.error('Billing error:', err);
+
+        // If we're past sign-in, show the error state
+        if (document.getElementById('state-loading').classList.contains('hidden') === false ||
+            document.getElementById('state-signin').classList.contains('hidden')) {
+          document.getElementById('error-message').textContent = err.message;
+          show('state-error');
+          lucide.createIcons();
+        } else {
+          // Still on sign-in form
+          showSignInError(err.message);
+          setSubmitLoading(false);
+        }
+      }
+    }
+
+    // ─── Init ────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+
+      // Show a hint if no team param
+      if (!getTeamId()) {
+        showSignInError('No team specified in the URL. Please use the billing link provided by your team admin.');
+      }
+    });
+  </script>
+
+</body>
+</html>
