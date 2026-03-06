@@ -15,6 +15,7 @@ import { SearchEngine } from './services/SearchEngine'
 import { ContextEngine } from './services/ContextEngine'
 import { EmbeddingClient } from './services/EmbeddingClient'
 import { BrowserCommandExecutor } from './services/BrowserCommandExecutor'
+import { LiveSessionWatcher } from './services/LiveSessionWatcher'
 
 // Prevent crashes from uncaught errors
 process.on('uncaughtException', (err) => {
@@ -57,6 +58,9 @@ const contextEngine = new ContextEngine(db)
 
 // Initialize browser command executor (polls browserCommands table for MCP browser tools)
 let browserExecutor: BrowserCommandExecutor | null = null
+
+// Initialize live session watcher (polls active Claude Code JSONL files every 2s)
+const liveWatcher = new LiveSessionWatcher()
 
 // Initialize deep link service and register codefire:// protocol
 const deepLinkService = new DeepLinkService()
@@ -179,6 +183,9 @@ app.whenReady().then(() => {
   browserExecutor = new BrowserCommandExecutor(db)
   browserExecutor.start()
 
+  // Start live session watcher for real-time Claude Code session monitoring
+  liveWatcher.start()
+
   // Global shortcut: Ctrl+Shift+H to show/focus the planner window
   globalShortcut.register('CommandOrControl+Shift+H', () => {
     const win = windowManager.getMainWindow()
@@ -241,6 +248,7 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  liveWatcher.stop()
   if (browserExecutor) browserExecutor.stop()
   trayManager.destroy()
   terminalService.killAll()
