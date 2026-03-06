@@ -105,6 +105,26 @@ function initDeferredServices() {
   // Register deferred IPC handlers
   registerSearchHandlers(db, searchEngine, contextEngine)
   if (gmailService) registerGmailHandlers(gmailService)
+
+  // Premium services (only if configured)
+  if (config.premiumEnabled && config.supabaseUrl && config.supabaseAnonKey) {
+    try {
+      const { AuthService } = require('./services/premium/AuthService')
+      const { TeamService } = require('./services/premium/TeamService')
+      const { SyncEngine } = require('./services/premium/SyncEngine')
+      const { PresenceService } = require('./services/premium/PresenceService')
+      const { registerPremiumHandlers } = require('./ipc/premium-handlers')
+      const authSvc = new AuthService()
+      const teamSvc = new TeamService()
+      const syncEng = new SyncEngine(db)
+      const presenceSvc = new PresenceService()
+      registerPremiumHandlers(authSvc, teamSvc, syncEng, presenceSvc)
+      syncEng.start()
+      console.log('[Main] Premium services initialized')
+    } catch (err) {
+      console.warn('[Main] Premium services unavailable:', err)
+    }
+  }
 }
 
 // Initialize deep link service and register codefire:// protocol

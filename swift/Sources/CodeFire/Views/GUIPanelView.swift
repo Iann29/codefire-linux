@@ -174,6 +174,12 @@ struct GUIPanelView: View {
                                 VisualizerView()
                             case .recordings:
                                 RecordingsView()
+                            case .activity:
+                                ActivityFeedView()
+                            case .docs:
+                                ProjectDocsView()
+                            case .reviews:
+                                ReviewRequestsView()
                             case .browser:
                                 EmptyView() // Handled above in ZStack
                             }
@@ -257,7 +263,9 @@ struct GUIPanelView: View {
 
             Spacer()
 
+            PresenceAvatarsView(projectId: appState.currentProject?.id)
             terminalToggle
+            NotificationBellView()
             BriefingBellView(showDrawer: $showBriefingDrawer)
             chatButton
             IndexIndicator(

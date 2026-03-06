@@ -12,6 +12,7 @@ final class SharedServices {
     let appSettings: AppSettings
     let briefingService: BriefingService
     let claudeService: ClaudeService
+    let premiumService: PremiumService
 
     private init() {
         // These are created once and reused across all project windows.
@@ -20,5 +21,6 @@ final class SharedServices {
         self.appSettings = AppSettings()
         self.briefingService = BriefingService()
         self.claudeService = ClaudeService()
+        self.premiumService = PremiumService.shared
     }
 }

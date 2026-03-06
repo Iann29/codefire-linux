@@ -131,6 +131,50 @@ export type ArenaChannel = 'arena:open'
 
 export type BrowserCommandChannel = 'browser:executeCommand'
 
+export type PremiumChannel =
+  | 'premium:getStatus'
+  | 'premium:signUp'
+  | 'premium:signIn'
+  | 'premium:signOut'
+  | 'premium:createTeam'
+  | 'premium:getTeam'
+  | 'premium:listMembers'
+  | 'premium:inviteMember'
+  | 'premium:removeMember'
+  | 'premium:updateMemberRole'
+  | 'premium:listInvites'
+  | 'premium:cancelInvite'
+  | 'premium:acceptInvite'
+  | 'premium:syncProject'
+  | 'premium:unsyncProject'
+  | 'premium:listSyncedProjects'
+  | 'premium:getNotifications'
+  | 'premium:markNotificationRead'
+  | 'premium:markAllNotificationsRead'
+  | 'premium:getActivityFeed'
+  | 'premium:listSessionSummaries'
+  | 'premium:shareSessionSummary'
+  | 'premium:listProjectDocs'
+  | 'premium:getProjectDoc'
+  | 'premium:createProjectDoc'
+  | 'premium:updateProjectDoc'
+  | 'premium:deleteProjectDoc'
+  | 'premium:requestReview'
+  | 'premium:resolveReview'
+  | 'premium:listReviewRequests'
+  | 'premium:joinPresence'
+  | 'premium:leavePresence'
+  | 'premium:getPresence'
+  | 'premium:getBillingPortalUrl'
+  | 'premium:createCheckoutSession'
+  | 'premium:createCheckout'
+  | 'premium:getBillingPortal'
+  | 'premium:admin:isSuperAdmin'
+  | 'premium:admin:searchUsers'
+  | 'premium:admin:grantTeam'
+  | 'premium:admin:revokeGrant'
+  | 'premium:admin:listGrants'
+
 export type SearchChannel = 'search:query' | 'search:reindex' | 'search:getIndexState' | 'search:clearIndex'
 
 export type GmailChannel =
@@ -181,6 +225,7 @@ export type IpcChannel =
   | ArenaChannel
   | ShellChannel
   | BrowserCommandChannel
+  | PremiumChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 

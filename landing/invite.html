@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join a Team — CodeFire</title>
+  <meta name="description" content="Accept your team invitation to CodeFire.">
+  <meta name="theme-color" content="#050505">
+  <link rel="icon" type="image/svg+xml" href="codefire-logo.svg">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            fire: {
+              50: '#fff7ed', 100: '#ffedd5', 200: '#fed7aa', 300: '#fdba74',
+              400: '#fb923c', 500: '#f97316', 600: '#ea580c', 700: '#c2410c',
+              800: '#9a3412', 900: '#7c2d12',
+            },
+            surface: {
+              DEFAULT: '#0a0a0a', 50: '#111111', 100: '#161616',
+              200: '#1a1a1a', 300: '#262626', 400: '#333333',
+            }
+          },
+          fontFamily: {
+            sans: ['Figtree', 'system-ui', 'sans-serif'],
+            serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.9s ease-out forwards',
+            'fade-in-up': 'fadeInUp 0.9s ease-out forwards',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            fadeInUp: { '0%': { opacity: '0', transform: 'translateY(28px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #050505; }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0.018;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 200px 200px;
+    }
+
+    .text-fire-gradient {
+      background: linear-gradient(135deg, #f97316 0%, #fb923c 40%, #fbbf24 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body class="font-sans text-white antialiased min-h-screen flex items-center justify-center px-4">
+
+  <div class="w-full max-w-md animate-fade-in-up">
+
+    <!-- Logo -->
+    <div class="flex justify-center mb-8">
+      <a href="/" class="flex items-center gap-2">
+        <img src="codefire-logo.svg" alt="CodeFire" class="h-8 w-8">
+        <span class="text-lg font-semibold tracking-tight text-white">CodeFire</span>
+      </a>
+    </div>
+
+    <!-- Loading State -->
+    <div id="state-loading" class="bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="loader-2" class="w-8 h-8 text-fire-500 animate-spin"></i>
+      </div>
+      <p class="text-zinc-400">Checking invitation...</p>
+    </div>
+
+    <!-- Invalid/Expired Invite -->
+    <div id="state-invalid" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="x-circle" class="w-10 h-10 text-red-500"></i>
+      </div>
+      <h2 class="text-xl font-semibold mb-2">Invalid Invitation</h2>
+      <p id="invalid-message" class="text-zinc-400 mb-6">This invitation link is invalid or has expired.</p>
+      <a href="/" class="inline-flex items-center gap-2 text-fire-500 hover:text-fire-400 transition-colors text-sm font-medium">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i>
+        Back to CodeFire
+      </a>
+    </div>
+
+    <!-- Auth Form -->
+    <div id="state-auth" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8">
+      <div class="text-center mb-6">
+        <div class="flex justify-center mb-3">
+          <i data-lucide="users" class="w-10 h-10 text-fire-500"></i>
+        </div>
+        <h2 class="text-xl font-semibold mb-1">You've been invited to join</h2>
+        <p id="team-name" class="text-fire-400 font-medium text-lg"></p>
+        <p class="text-zinc-500 text-sm mt-1">as <span id="invite-role" class="text-zinc-400"></span></p>
+      </div>
+
+      <!-- Tab Toggle -->
+      <div class="flex bg-surface-300 rounded-lg p-1 mb-6">
+        <button id="tab-signin" onclick="switchTab('signin')" class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all bg-surface-50 text-white">
+          Sign In
+        </button>
+        <button id="tab-signup" onclick="switchTab('signup')" class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all text-zinc-400 hover:text-zinc-300">
+          Sign Up
+        </button>
+      </div>
+
+      <form id="auth-form" onsubmit="handleAuth(event)" class="space-y-4">
+        <!-- Display Name (sign up only) -->
+        <div id="field-name" class="hidden">
+          <label for="display-name" class="block text-sm font-medium text-zinc-400 mb-1.5">Display Name</label>
+          <input type="text" id="display-name" placeholder="Your name"
+            class="w-full bg-surface-200 border border-surface-400 rounded-lg px-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-fire-500 focus:ring-1 focus:ring-fire-500 transition-colors">
+        </div>
+
+        <div>
+          <label for="email" class="block text-sm font-medium text-zinc-400 mb-1.5">Email</label>
+          <input type="email" id="email" required placeholder="you@example.com"
+            class="w-full bg-surface-200 border border-surface-400 rounded-lg px-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-fire-500 focus:ring-1 focus:ring-fire-500 transition-colors">
+        </div>
+
+        <div>
+          <label for="password" class="block text-sm font-medium text-zinc-400 mb-1.5">Password</label>
+          <input type="password" id="password" required placeholder="Enter your password" minlength="6"
+            class="w-full bg-surface-200 border border-surface-400 rounded-lg px-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-fire-500 focus:ring-1 focus:ring-fire-500 transition-colors">
+        </div>
+
+        <!-- Error message -->
+        <div id="auth-error" class="hidden text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2.5"></div>
+
+        <button type="submit" id="auth-submit"
+          class="w-full bg-fire-500 hover:bg-fire-600 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+          <span id="auth-submit-text">Sign In & Accept Invite</span>
+          <i data-lucide="loader-2" id="auth-spinner" class="w-4 h-4 animate-spin hidden"></i>
+        </button>
+      </form>
+    </div>
+
+    <!-- Processing -->
+    <div id="state-processing" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="loader-2" class="w-8 h-8 text-fire-500 animate-spin"></i>
+      </div>
+      <p class="text-zinc-300 font-medium">Accepting invitation...</p>
+      <p class="text-zinc-500 text-sm mt-1">Setting up your team access</p>
+    </div>
+
+    <!-- Success -->
+    <div id="state-success" class="hidden bg-surface-100 border border-surface-300 rounded-2xl p-8 text-center">
+      <div class="flex justify-center mb-4">
+        <i data-lucide="check-circle-2" class="w-12 h-12 text-green-500"></i>
+      </div>
+      <h2 class="text-xl font-semibold mb-2">You're in!</h2>
+      <p class="text-zinc-400 mb-6">You've successfully joined <span id="success-team-name" class="text-fire-400 font-medium"></span>.</p>
+      <a href="/getting-started"
+        class="inline-flex items-center gap-2 bg-fire-500 hover:bg-fire-600 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors">
+        <i data-lucide="download" class="w-4 h-4"></i>
+        Download CodeFire
+      </a>
+      <p class="text-zinc-600 text-xs mt-4">Open CodeFire and sign in to access your team.</p>
+    </div>
+
+  </div>
+
+  <script>
+    // ─── Configuration ───────────────────────────────────────────────
+    const SUPABASE_URL = 'https://hofreldxofygaerodowt.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnJlbGR4b2Z5Z2Flcm9kb3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4Mjc2NjksImV4cCI6MjA4ODQwMzY2OX0.MBwqQBeDfu9uxb99tYTZD54P_U3tjuh2zddMUjTlCuA';
+
+    // ─── State ───────────────────────────────────────────────────────
+    let currentTab = 'signin';
+    let invite = null;
+    let accessToken = null;
+    let currentUser = null;
+
+    // ─── Helpers ─────────────────────────────────────────────────────
+    function show(id) {
+      ['state-loading', 'state-invalid', 'state-auth', 'state-processing', 'state-success']
+        .forEach(s => document.getElementById(s).classList.add('hidden'));
+      document.getElementById(id).classList.remove('hidden');
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('auth-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideError() {
+      document.getElementById('auth-error').classList.add('hidden');
+    }
+
+    function setSubmitLoading(loading) {
+      const btn = document.getElementById('auth-submit');
+      const text = document.getElementById('auth-submit-text');
+      const spinner = document.getElementById('auth-spinner');
+      btn.disabled = loading;
+      spinner.classList.toggle('hidden', !loading);
+      text.textContent = loading
+        ? (currentTab === 'signin' ? 'Signing in...' : 'Creating account...')
+        : (currentTab === 'signin' ? 'Sign In & Accept Invite' : 'Sign Up & Accept Invite');
+    }
+
+    // ─── Tab Switching ───────────────────────────────────────────────
+    function switchTab(tab) {
+      currentTab = tab;
+      const signinTab = document.getElementById('tab-signin');
+      const signupTab = document.getElementById('tab-signup');
+      const nameField = document.getElementById('field-name');
+      const submitText = document.getElementById('auth-submit-text');
+
+      if (tab === 'signin') {
+        signinTab.className = 'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all bg-surface-50 text-white';
+        signupTab.className = 'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all text-zinc-400 hover:text-zinc-300';
+        nameField.classList.add('hidden');
+        submitText.textContent = 'Sign In & Accept Invite';
+      } else {
+        signupTab.className = 'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all bg-surface-50 text-white';
+        signinTab.className = 'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all text-zinc-400 hover:text-zinc-300';
+        nameField.classList.remove('hidden');
+        submitText.textContent = 'Sign Up & Accept Invite';
+      }
+      hideError();
+    }
+
+    // ─── Check Invite ────────────────────────────────────────────────
+    async function checkInvite() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+
+      if (!token) {
+        document.getElementById('invalid-message').textContent = 'No invitation token found in the URL.';
+        show('state-invalid');
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/team_invites?id=eq.${encodeURIComponent(token)}&status=eq.pending&select=*,teams(name)`,
+          {
+            headers: {
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            }
+          }
+        );
+
+        if (!res.ok) throw new Error('Failed to fetch invitation');
+
+        const data = await res.json();
+        if (!data || data.length === 0) {
+          document.getElementById('invalid-message').textContent = 'This invitation has expired or has already been used.';
+          show('state-invalid');
+          return;
+        }
+
+        invite = data[0];
+
+        // Check if invite has expired
+        if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+          document.getElementById('invalid-message').textContent = 'This invitation has expired.';
+          show('state-invalid');
+          return;
+        }
+
+        // Populate team info
+        const teamName = invite.teams?.name || 'a team';
+        document.getElementById('team-name').textContent = escapeHtml(teamName);
+        document.getElementById('invite-role').textContent = escapeHtml(invite.role || 'member');
+
+        // Pre-fill email if present on invite
+        if (invite.email) {
+          document.getElementById('email').value = invite.email;
+        }
+
+        show('state-auth');
+      } catch (err) {
+        console.error('Error checking invite:', err);
+        document.getElementById('invalid-message').textContent = 'Something went wrong. Please try again later.';
+        show('state-invalid');
+      }
+    }
+
+    // ─── Auth Handler ────────────────────────────────────────────────
+    async function handleAuth(e) {
+      e.preventDefault();
+      hideError();
+      setSubmitLoading(true);
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const displayName = document.getElementById('display-name').value.trim();
+
+      try {
+        if (currentTab === 'signup') {
+          // Sign Up
+          const signupRes = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({
+              email,
+              password,
+              data: { display_name: displayName || email.split('@')[0] }
+            })
+          });
+
+          const signupData = await signupRes.json();
+
+          if (!signupRes.ok) {
+            throw new Error(signupData.error_description || signupData.msg || 'Sign up failed');
+          }
+
+          // If email confirmation is required, the user won't have a session yet
+          if (!signupData.access_token) {
+            // Try signing in immediately (works if email confirmation is disabled)
+            const signinRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({ email, password })
+            });
+
+            const signinData = await signinRes.json();
+
+            if (!signinRes.ok) {
+              throw new Error('Account created! Please check your email to confirm, then use the sign in tab.');
+            }
+
+            accessToken = signinData.access_token;
+            currentUser = signinData.user;
+          } else {
+            accessToken = signupData.access_token;
+            currentUser = signupData.user;
+          }
+        } else {
+          // Sign In
+          const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ email, password })
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data.error_description || data.msg || 'Invalid email or password');
+          }
+
+          accessToken = data.access_token;
+          currentUser = data.user;
+        }
+
+        // Auth successful — accept the invite
+        await acceptInvite();
+
+      } catch (err) {
+        console.error('Auth error:', err);
+        showError(err.message);
+        setSubmitLoading(false);
+      }
+    }
+
+    // ─── Accept Invite ───────────────────────────────────────────────
+    async function acceptInvite() {
+      show('state-processing');
+
+      try {
+        // Verify email matches invite
+        if (invite.email && currentUser.email.toLowerCase() !== invite.email.toLowerCase()) {
+          show('state-auth');
+          showError(`This invitation was sent to ${escapeHtml(invite.email)}. Please sign in with that email address.`);
+          setSubmitLoading(false);
+          return;
+        }
+
+        // Update invite status to accepted
+        const updateRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/team_invites?id=eq.${encodeURIComponent(invite.id)}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${accessToken}`,
+              'Prefer': 'return=minimal',
+            },
+            body: JSON.stringify({ status: 'accepted' })
+          }
+        );
+
+        if (!updateRes.ok) {
+          const err = await updateRes.json().catch(() => ({}));
+          throw new Error(err.message || 'Failed to accept invitation');
+        }
+
+        // Add user to team_members
+        const memberRes = await fetch(`${SUPABASE_URL}/rest/v1/team_members`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${accessToken}`,
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify({
+            team_id: invite.team_id,
+            user_id: currentUser.id,
+            role: invite.role || 'member',
+          })
+        });
+
+        if (!memberRes.ok) {
+          const err = await memberRes.json().catch(() => ({}));
+          // Ignore conflict (user already a member)
+          if (memberRes.status !== 409) {
+            throw new Error(err.message || 'Failed to join team');
+          }
+        }
+
+        // Success
+        const teamName = invite.teams?.name || 'the team';
+        document.getElementById('success-team-name').textContent = escapeHtml(teamName);
+        show('state-success');
+
+      } catch (err) {
+        console.error('Accept invite error:', err);
+        show('state-auth');
+        showError(err.message);
+        setSubmitLoading(false);
+      }
+    }
+
+    // ─── Init ────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      checkInvite();
+    });
+  </script>
+
+</body>
+</html>

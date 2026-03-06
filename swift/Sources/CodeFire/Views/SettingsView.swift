@@ -35,8 +35,13 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Briefing", systemImage: "bell.badge")
                 }
+
+            TeamSettingsTab(settings: settings)
+                .tabItem {
+                    Label("Team", systemImage: "person.3")
+                }
         }
-        .frame(width: 500, height: 550)
+        .frame(width: 500, height: 600)
     }
 }
 

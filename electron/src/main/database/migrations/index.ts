@@ -500,4 +500,40 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 21: Sync state tracking for premium sync
+  {
+    version: 21,
+    name: 'v20_createSyncState',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS syncState (
+          entityType TEXT NOT NULL,
+          localId TEXT NOT NULL,
+          remoteId TEXT,
+          lastSyncedAt DATETIME,
+          dirty INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (entityType, localId)
+        );
+
+        CREATE TRIGGER IF NOT EXISTS sync_task_dirty_update
+        AFTER UPDATE ON taskItems BEGIN
+          INSERT OR REPLACE INTO syncState (entityType, localId, remoteId, lastSyncedAt, dirty)
+          VALUES ('task', CAST(NEW.id AS TEXT),
+            (SELECT remoteId FROM syncState WHERE entityType='task' AND localId=CAST(NEW.id AS TEXT)),
+            (SELECT lastSyncedAt FROM syncState WHERE entityType='task' AND localId=CAST(NEW.id AS TEXT)),
+            1);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS sync_note_dirty_update
+        AFTER UPDATE ON notes BEGIN
+          INSERT OR REPLACE INTO syncState (entityType, localId, remoteId, lastSyncedAt, dirty)
+          VALUES ('note', CAST(NEW.id AS TEXT),
+            (SELECT remoteId FROM syncState WHERE entityType='note' AND localId=CAST(NEW.id AS TEXT)),
+            (SELECT lastSyncedAt FROM syncState WHERE entityType='note' AND localId=CAST(NEW.id AS TEXT)),
+            1);
+        END;
+      `)
+    },
+  },
 ]

@@ -310,6 +310,12 @@ export interface AppConfig {
   briefingStalenessHours: number
   briefingRSSFeeds: string[]
   briefingSubreddits: string[]
+
+  // Premium (Team Sync)
+  premiumEnabled: boolean
+  supabaseUrl: string
+  supabaseAnonKey: string
+  autoShareSessions: boolean
 }
 
 // ─── Snapshot & Pattern Models ────────────────────────────────────────────────

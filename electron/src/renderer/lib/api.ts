@@ -17,6 +17,19 @@ import type {
   ChatConversation,
   ChatMessage,
 } from '@shared/models'
+import type {
+  PremiumStatus,
+  Team,
+  TeamMember,
+  TeamInvite,
+  TeamGrant,
+  ActivityEvent,
+  SessionSummary,
+  ProjectDoc,
+  ReviewRequest,
+  Notification,
+  PresenceState,
+} from '@shared/premium-models'
 
 const invoke = window.api.invoke
 
@@ -457,6 +470,101 @@ export const api = {
     get: () => invoke('settings:get') as Promise<AppConfig>,
     set: (config: Partial<AppConfig>) =>
       invoke('settings:set', config) as Promise<{ success: boolean }>,
+  },
+
+  premium: {
+    getStatus: () => invoke('premium:getStatus') as Promise<PremiumStatus>,
+    signUp: (email: string, password: string, displayName: string) =>
+      invoke('premium:signUp', email, password, displayName) as Promise<PremiumStatus>,
+    signIn: (email: string, password: string) =>
+      invoke('premium:signIn', email, password) as Promise<PremiumStatus>,
+    signOut: () => invoke('premium:signOut') as Promise<void>,
+    createTeam: (name: string, slug: string) =>
+      invoke('premium:createTeam', name, slug) as Promise<Team>,
+    getTeam: () => invoke('premium:getTeam') as Promise<Team | null>,
+    listMembers: (teamId: string) =>
+      invoke('premium:listMembers', teamId) as Promise<TeamMember[]>,
+    inviteMember: (teamId: string, email: string, role: 'admin' | 'member') =>
+      invoke('premium:inviteMember', teamId, email, role) as Promise<TeamInvite>,
+    removeMember: (teamId: string, userId: string) =>
+      invoke('premium:removeMember', teamId, userId) as Promise<void>,
+    acceptInvite: (token: string) =>
+      invoke('premium:acceptInvite', token) as Promise<void>,
+    syncProject: (teamId: string, projectId: string, name: string, repoUrl?: string) =>
+      invoke('premium:syncProject', teamId, projectId, name, repoUrl) as Promise<void>,
+    unsyncProject: (projectId: string) =>
+      invoke('premium:unsyncProject', projectId) as Promise<void>,
+    createCheckout: (teamId: string, plan: 'starter' | 'agency', extraSeats?: number) =>
+      invoke('premium:createCheckout', teamId, plan, extraSeats) as Promise<{ url: string }>,
+    getBillingPortal: (teamId: string) =>
+      invoke('premium:getBillingPortal', teamId) as Promise<{ url: string }>,
+
+    // Notifications
+    getNotifications: (limit?: number) =>
+      invoke('premium:getNotifications', limit) as Promise<Notification[]>,
+    markNotificationRead: (notificationId: string) =>
+      invoke('premium:markNotificationRead', notificationId) as Promise<void>,
+    markAllNotificationsRead: () =>
+      invoke('premium:markAllNotificationsRead') as Promise<void>,
+
+    // Activity feed
+    getActivityFeed: (projectId: string, limit?: number) =>
+      invoke('premium:getActivityFeed', projectId, limit) as Promise<ActivityEvent[]>,
+
+    // Session summaries
+    listSessionSummaries: (projectId: string) =>
+      invoke('premium:listSessionSummaries', projectId) as Promise<SessionSummary[]>,
+    shareSessionSummary: (data: {
+      projectId: string
+      sessionSlug?: string
+      model?: string
+      gitBranch?: string
+      summary: string
+      filesChanged?: string[]
+      durationMins?: number
+      startedAt?: string
+      endedAt?: string
+    }) => invoke('premium:shareSessionSummary', data) as Promise<SessionSummary>,
+
+    // Presence
+    joinPresence: (projectId: string) =>
+      invoke('premium:joinPresence', projectId) as Promise<void>,
+    leavePresence: (projectId: string) =>
+      invoke('premium:leavePresence', projectId) as Promise<void>,
+    getPresence: (projectId: string) =>
+      invoke('premium:getPresence', projectId) as Promise<PresenceState[]>,
+
+    // Project Docs (Wiki)
+    listProjectDocs: (projectId: string) =>
+      invoke('premium:listProjectDocs', projectId) as Promise<ProjectDoc[]>,
+    getProjectDoc: (docId: string) =>
+      invoke('premium:getProjectDoc', docId) as Promise<ProjectDoc | null>,
+    createProjectDoc: (data: { projectId: string; title: string; content: string }) =>
+      invoke('premium:createProjectDoc', data) as Promise<ProjectDoc>,
+    updateProjectDoc: (docId: string, data: { title?: string; content?: string }) =>
+      invoke('premium:updateProjectDoc', docId, data) as Promise<ProjectDoc>,
+    deleteProjectDoc: (docId: string) =>
+      invoke('premium:deleteProjectDoc', docId) as Promise<void>,
+
+    // Review requests
+    requestReview: (data: { projectId: string; taskId: string; assignedTo: string; comment?: string }) =>
+      invoke('premium:requestReview', data) as Promise<ReviewRequest>,
+    resolveReview: (reviewId: string, status: string) =>
+      invoke('premium:resolveReview', reviewId, status) as Promise<ReviewRequest>,
+    listReviewRequests: (projectId: string) =>
+      invoke('premium:listReviewRequests', projectId) as Promise<ReviewRequest[]>,
+
+    // Admin
+    isSuperAdmin: () => invoke('premium:admin:isSuperAdmin') as Promise<boolean>,
+    searchUsers: (email: string) =>
+      invoke('premium:admin:searchUsers', email) as Promise<Array<{ id: string; email: string; display_name: string }>>,
+    listGrants: () => invoke('premium:admin:listGrants') as Promise<TeamGrant[]>,
+    createGrant: (grant: {
+      teamId: string; grantType: string; planTier: string;
+      seatLimit?: number; projectLimit?: number; repoUrl?: string;
+      note?: string; expiresAt?: string;
+    }) => invoke('premium:admin:grantTeam', grant) as Promise<TeamGrant>,
+    revokeGrant: (grantId: string) => invoke('premium:admin:revokeGrant', grantId) as Promise<void>,
   },
 
   github: {

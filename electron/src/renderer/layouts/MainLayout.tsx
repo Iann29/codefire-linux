@@ -8,6 +8,7 @@ import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
 import MCPIndicator from '@renderer/components/StatusBar/MCPIndicator'
 import AllProjectsView from '@renderer/views/AllProjectsView'
 import { useMCPStatus } from '@renderer/hooks/useMCPStatus'
+import NotificationBell from '@renderer/components/NotificationBell'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -38,6 +39,7 @@ export default function MainLayout() {
 
           <div className="flex-1" />
 
+          <NotificationBell />
           <MCPIndicator status={mcpStatus} sessionCount={mcpSessionCount} onConnect={startMCP} onDisconnect={stopMCP} />
         </div>
 

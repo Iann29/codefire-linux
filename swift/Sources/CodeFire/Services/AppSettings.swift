@@ -54,6 +54,17 @@ class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(networkBodyLimit, forKey: "networkBodyLimit") }
     }
 
+    // Premium
+    @Published var premiumEnabled: Bool {
+        didSet { UserDefaults.standard.set(premiumEnabled, forKey: "premiumEnabled") }
+    }
+    @Published var supabaseUrl: String {
+        didSet { UserDefaults.standard.set(supabaseUrl, forKey: "supabaseUrl") }
+    }
+    @Published var supabaseAnonKey: String {
+        didSet { UserDefaults.standard.set(supabaseAnonKey, forKey: "supabaseAnonKey") }
+    }
+
     // Demo Mode
     @Published var demoMode: Bool {
         didSet {
@@ -125,6 +136,10 @@ class AppSettings: ObservableObject {
 
         self.browserAllowedDomains = defaults.stringArray(forKey: "browserAllowedDomains") ?? []
         self.networkBodyLimit = defaults.object(forKey: "networkBodyLimit") as? Int ?? 51200
+
+        self.premiumEnabled = defaults.object(forKey: "premiumEnabled") as? Bool ?? false
+        self.supabaseUrl = defaults.string(forKey: "supabaseUrl") ?? "https://hofreldxofygaerodowt.supabase.co"
+        self.supabaseAnonKey = defaults.string(forKey: "supabaseAnonKey") ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnJlbGR4b2Z5Z2Flcm9kb3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4Mjc2NjksImV4cCI6MjA4ODQwMzY2OX0.MBwqQBeDfu9uxb99tYTZD54P_U3tjuh2zddMUjTlCuA"
 
         self.demoMode = defaults.object(forKey: "demoMode") as? Bool ?? false
         self.checkForUpdates = defaults.object(forKey: "checkForUpdates") as? Bool ?? true

@@ -27,6 +27,9 @@ class AppState: ObservableObject {
         case dashboard = "Details"
         case visualize = "Visualize"
         case recordings = "Recordings"
+        case activity = "Activity"
+        case docs = "Docs"
+        case reviews = "Reviews"
 
         var icon: String {
             switch self {
@@ -43,6 +46,9 @@ class AppState: ObservableObject {
             case .dashboard: return "info.circle"
             case .visualize: return "chart.dots.scatter"
             case .recordings: return "waveform"
+            case .activity: return "waveform.path.ecg"
+            case .docs: return "book"
+            case .reviews: return "arrow.triangle.pull"
             }
         }
     }

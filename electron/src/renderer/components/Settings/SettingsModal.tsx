@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Check, Settings, Terminal, Cpu, Mail, Globe, Newspaper } from 'lucide-react'
+import { X, Check, Settings, Terminal, Cpu, Mail, Globe, Newspaper, Users, Shield } from 'lucide-react'
 import type { AppConfig } from '@shared/models'
 import { api } from '../../lib/api'
 import SettingsTabGeneral from './SettingsTabGeneral'
@@ -8,14 +8,17 @@ import SettingsTabEngine from './SettingsTabEngine'
 import SettingsTabGmail from './SettingsTabGmail'
 import SettingsTabBrowser from './SettingsTabBrowser'
 import SettingsTabBriefing from './SettingsTabBriefing'
+import SettingsTabTeam from './SettingsTabTeam'
+import SettingsTabAdmin from './SettingsTabAdmin'
 
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
 }
 
-const TABS = [
+const BASE_TABS = [
   { id: 'general', label: 'General', icon: Settings },
+  { id: 'team', label: 'Team', icon: Users },
   { id: 'terminal', label: 'Terminal', icon: Terminal },
   { id: 'engine', label: 'Engine', icon: Cpu },
   { id: 'gmail', label: 'Gmail', icon: Mail },
@@ -23,19 +26,27 @@ const TABS = [
   { id: 'briefing', label: 'Briefing', icon: Newspaper },
 ] as const
 
-type TabId = (typeof TABS)[number]['id']
+const ADMIN_TAB = { id: 'admin' as const, label: 'Admin', icon: Shield }
+
+type TabId = (typeof BASE_TABS)[number]['id'] | 'admin'
 
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>('general')
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [saved, setSaved] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
   useEffect(() => {
     if (open) {
       api.settings.get().then(setConfig).catch(() => {})
+      api.premium.isSuperAdmin().then(setIsSuperAdmin).catch(() => setIsSuperAdmin(false))
       setSaved(false)
     }
   }, [open])
+
+  const tabs = isSuperAdmin
+    ? [...BASE_TABS, ADMIN_TAB]
+    : BASE_TABS
 
   if (!open || !config) return null
 
@@ -55,6 +66,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     switch (activeTab) {
       case 'general':
         return <SettingsTabGeneral {...props} />
+      case 'team':
+        return <SettingsTabTeam {...props} />
       case 'terminal':
         return <SettingsTabTerminal {...props} />
       case 'engine':
@@ -65,6 +78,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         return <SettingsTabBrowser {...props} />
       case 'briefing':
         return <SettingsTabBriefing {...props} />
+      case 'admin':
+        return <SettingsTabAdmin {...props} />
     }
   }
 
@@ -86,7 +101,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         <div className="flex flex-1 min-h-0">
           {/* Sidebar */}
           <nav className="w-[160px] shrink-0 border-r border-neutral-800 py-2">
-            {TABS.map((tab) => {
+            {tabs.map((tab) => {
               const Icon = tab.icon
               const active = activeTab === tab.id
               return (
