@@ -38,13 +38,13 @@ export class TaskDAO {
     if (status) {
       return this.db
         .prepare(
-          'SELECT * FROM taskItems WHERE status = ? ORDER BY createdAt DESC'
+          'SELECT * FROM taskItems WHERE isGlobal = 1 AND status = ? ORDER BY createdAt DESC'
         )
         .all(status) as TaskItem[]
     }
     return this.db
       .prepare(
-        'SELECT * FROM taskItems ORDER BY createdAt DESC'
+        'SELECT * FROM taskItems WHERE isGlobal = 1 ORDER BY createdAt DESC'
       )
       .all() as TaskItem[]
   }
