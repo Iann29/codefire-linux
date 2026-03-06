@@ -13,7 +13,7 @@ If you discover a security vulnerability in CodeFire, **please do not open a pub
 
 ### How to Report
 
-**Email**: [security@websitebutlers.com](mailto:security@websitebutlers.com)
+**Email**: [support@websitebutlers.com](mailto:support@websitebutlers.com)
 
 Include:
 - Description of the vulnerability
