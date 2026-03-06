@@ -16,13 +16,10 @@ CodeFire Teams adds real-time collaboration to CodeFire: shared projects, tasks,
 
 **Settings > Team**
 
-1. Toggle **"Enable premium features"** to ON
-2. Enter the connection details:
-   - **Supabase URL:** `https://hofreldxofygaerodowt.supabase.co`
-   - **Supabase Anon Key:** `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvZnJlbGR4b2Z5Z2Flcm9kb3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4Mjc2NjksImV4cCI6MjA4ODQwMzY2OX0.MBwqQBeDfu9uxb99tYTZD54P_U3tjuh2zddMUjTlCuA`
-3. Click **Save**
+1. Click **"Enable Premium"**
+2. That's it — the app connects to the CodeFire Teams backend automatically
 
-> These are sandbox credentials. In production, the URL and key will be hardcoded into the app.
+> The Supabase connection credentials (URL and anon key) are embedded in the app. The anon key is a public credential — Row Level Security (RLS) protects all data.
 
 ---
 
@@ -229,8 +226,8 @@ Use any future expiration date and any 3-digit CVC.
 ## Troubleshooting
 
 **"Premium not configured" error**
-- Make sure you've entered both the Supabase URL and Anon Key in Settings > Team > Connection
-- Click Save after entering the values
+- Make sure premium is enabled in Settings > Team
+- Try toggling it off and on again
 
 **Sign-in fails**
 - Check your email and password

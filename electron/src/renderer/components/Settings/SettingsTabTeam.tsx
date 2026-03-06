@@ -143,21 +143,6 @@ export default function SettingsTabTeam({ config, onChange }: Props) {
           </div>
         </Section>
 
-        <Section title="Connection">
-          <TextInput
-            label="Supabase URL"
-            value={config.supabaseUrl}
-            onChange={(v) => onChange({ supabaseUrl: v })}
-            placeholder="https://your-project.supabase.co"
-          />
-          <TextInput
-            label="Supabase Anon Key"
-            value={config.supabaseAnonKey}
-            onChange={(v) => onChange({ supabaseAnonKey: v })}
-            placeholder="eyJ..."
-            secret
-          />
-        </Section>
       </div>
     )
   }
@@ -471,21 +456,6 @@ export default function SettingsTabTeam({ config, onChange }: Props) {
         </>
       )}
 
-      <Section title="Connection">
-        <TextInput
-          label="Supabase URL"
-          value={config.supabaseUrl}
-          onChange={(v) => onChange({ supabaseUrl: v })}
-          placeholder="https://your-project.supabase.co"
-        />
-        <TextInput
-          label="Supabase Anon Key"
-          value={config.supabaseAnonKey}
-          onChange={(v) => onChange({ supabaseAnonKey: v })}
-          placeholder="eyJ..."
-          secret
-        />
-      </Section>
     </div>
   )
 }

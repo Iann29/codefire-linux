@@ -4,9 +4,6 @@ struct TeamSettingsTab: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var premiumService = PremiumService.shared
 
-    @State private var serverUrl: String = UserDefaults.standard.string(forKey: "premiumServerUrl") ?? ""
-    @State private var apiKey: String = ""
-
     // Auth form
     @State private var authEmail: String = ""
     @State private var authPassword: String = ""
@@ -43,29 +40,18 @@ struct TeamSettingsTab: View {
     private var enableSection: some View {
         GroupBox("Premium Teams") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Connect to a CodeFire Teams server to enable collaboration features: shared activity feeds, session summaries, project docs, and code reviews.")
+                Text("Enable collaborative features: shared activity feeds, session summaries, project docs, and code reviews with your team.")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
 
-                TextField("Server URL", text: $serverUrl)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .onChange(of: serverUrl) { _, val in
-                        UserDefaults.standard.set(val, forKey: "premiumServerUrl")
-                    }
-
-                SecureField("API Key (optional)", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-
-                Text("e.g. https://teams.codefire.dev")
-                    .font(.system(size: 10))
+                Text("Free during alpha. No credit card required to try.")
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
 
                 Button("Enable Premium") {
+                    settings.premiumEnabled = true
                     premiumService.status.enabled = true
                 }
-                .disabled(serverUrl.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(8)
         }
