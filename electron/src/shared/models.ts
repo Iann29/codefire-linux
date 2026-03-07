@@ -269,6 +269,31 @@ export interface Recording {
   createdAt: string
 }
 
+// ─── Rate Limit Models ───────────────────────────────────────────────────────
+
+export interface RateLimitInfo {
+  provider: string
+  providerName: string
+  retryAfterMs: number | null
+  remaining: number | null
+  limit: number | null
+  resetAt: number | null // epoch ms
+  detectedAt: number // epoch ms
+  fallbackProvider: string | null
+}
+
+// ─── AI Provider Type ────────────────────────────────────────────────────────
+
+export type AIProviderType = 'openrouter' | 'custom' | 'claude-subscription' | 'openai-subscription' | 'gemini-subscription' | 'kimi-subscription'
+
+// ─── Model Routing ──────────────────────────────────────────────────────────
+
+export interface ModelRoutingRule {
+  pattern: string       // prefix/glob-like: "claude-opus*", "gpt-*", "gemini-*"
+  provider: AIProviderType  // which provider to route to
+  label: string         // human description: "Opus via Claude Max"
+}
+
 // ─── App Config ──────────────────────────────────────────────────────────────
 
 export interface AppConfig {
@@ -285,7 +310,7 @@ export interface AppConfig {
   defaultTerminalPath: string
 
   // Engine
-  aiProvider: 'openrouter' | 'custom' | 'claude-subscription' | 'openai-subscription' | 'gemini-subscription' | 'kimi-subscription'
+  aiProvider: AIProviderType
   openRouterKey: string
   customEndpointUrl: string
   customEndpointKey: string
@@ -310,9 +335,16 @@ export interface AppConfig {
   gmailSyncEnabled: boolean
   gmailSyncInterval: number
 
+  // Model routing preferences
+  modelRouting: ModelRoutingRule[]
+
+  // Provider fallback
+  fallbackProvider: 'openrouter' | 'none'
+
   // Browser
   browserAllowedDomains: string[]
   networkBodyLimit: number
+  browserConfirmDestructive: boolean
 
   // Briefing
   briefingStalenessHours: number

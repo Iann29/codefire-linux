@@ -1,9 +1,10 @@
-import type {
-  ProviderAdapter,
-  ChatCompletionRequest,
-  ChatCompletionResponse,
-  ModelInfo,
-  ProviderHealth,
+import {
+  ProviderHttpError,
+  type ProviderAdapter,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type ModelInfo,
+  type ProviderHealth,
 } from './BaseProvider'
 import type { OAuthEngine } from './OAuthEngine'
 import { openaiToAnthropic, anthropicToOpenai } from './format-translators'
@@ -12,15 +13,24 @@ import { CLAUDE_OAUTH } from './oauth-configs'
 const PROVIDER_ID = 'claude-subscription'
 const API_VERSION = '2024-10-22'
 
+/** Headers required for Claude Max subscription tokens (OAuth-derived / setup-token) */
+const SUBSCRIPTION_HEADERS: Record<string, string> = {
+  'anthropic-beta': 'oauth-2025-04-20',
+  'user-agent': 'claude-cli/2.1.71',
+}
+
 export class ClaudeSubscriptionAdapter implements ProviderAdapter {
   readonly id = PROVIDER_ID
   readonly name = 'Claude (Subscription)'
+  readonly accountIndex: number
 
-  constructor(private readonly oauthEngine: OAuthEngine) {}
+  constructor(private readonly oauthEngine: OAuthEngine, accountIndex: number = 0) {
+    this.accountIndex = accountIndex
+  }
 
   async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
-    if (!token) throw new Error('Claude subscription not connected. Please sign in via Settings > Engine.')
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
+    if (!token) throw new Error('Claude subscription not connected. Run "claude setup-token" and paste the token in Settings > Engine.')
 
     const anthropicRequest = openaiToAnthropic(request)
 
@@ -30,6 +40,7 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
         'anthropic-version': API_VERSION,
+        ...SUBSCRIPTION_HEADERS,
       },
       body: JSON.stringify(anthropicRequest),
       signal: request.signal,
@@ -37,7 +48,11 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
 
     if (!res.ok) {
       const text = await res.text().catch(() => `HTTP ${res.status}`)
-      throw new Error(`Claude API error: ${text.slice(0, 400)}`)
+      throw new ProviderHttpError(
+        `Claude API error: ${text.slice(0, 400)}`,
+        res.status,
+        res.headers,
+      )
     }
 
     const anthropicResponse = await res.json()
@@ -45,11 +60,9 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return []
 
-    // Anthropic doesn't have a public models list endpoint with subscription tokens.
-    // Return models based on typical subscription tiers.
     return [
       { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
       { id: 'claude-haiku-4-20250414', name: 'Claude Haiku 4' },
@@ -58,7 +71,7 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
   }
 
   async healthCheck(): Promise<ProviderHealth> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return { ok: false, error: 'Not connected' }
 
     const start = Date.now()
@@ -69,6 +82,7 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
           'anthropic-version': API_VERSION,
+          ...SUBSCRIPTION_HEADERS,
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-20250414',

@@ -1,9 +1,10 @@
-import type {
-  ProviderAdapter,
-  ChatCompletionRequest,
-  ChatCompletionResponse,
-  ModelInfo,
-  ProviderHealth,
+import {
+  ProviderHttpError,
+  type ProviderAdapter,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type ModelInfo,
+  type ProviderHealth,
 } from './BaseProvider'
 import { openaiToAnthropic, anthropicToOpenai } from './format-translators'
 import { KIMI_CONFIG } from './oauth-configs'
@@ -40,7 +41,11 @@ export class KimiAdapter implements ProviderAdapter {
 
     if (!res.ok) {
       const text = await res.text().catch(() => `HTTP ${res.status}`)
-      throw new Error(`Kimi API error: ${text.slice(0, 400)}`)
+      throw new ProviderHttpError(
+        `Kimi API error: ${text.slice(0, 400)}`,
+        res.status,
+        res.headers,
+      )
     }
 
     const anthropicResponse = await res.json()

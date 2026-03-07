@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import logoIcon from '../../../resources/icon.png'
 import { api } from '@renderer/lib/api'
-import TerminalPanel from '@renderer/components/Terminal/TerminalPanel'
-import CodeFireChat from '@renderer/components/Chat/CodeFireChat'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
 import MCPIndicator from '@renderer/components/StatusBar/MCPIndicator'
 import AllProjectsView from '@renderer/views/AllProjectsView'
 import { useMCPStatus } from '@renderer/hooks/useMCPStatus'
 import NotificationBell from '@renderer/components/NotificationBell'
+
+const TerminalPanel = lazy(() => import('@renderer/components/Terminal/TerminalPanel'))
+const CodeFireChat = lazy(() => import('@renderer/components/Chat/CodeFireChat'))
 
 export default function MainLayout() {
   const { mcpStatus, mcpSessionCount, startMCP, stopMCP } = useMCPStatus()
@@ -52,13 +53,17 @@ export default function MainLayout() {
             <Panel id="terminal-chat" defaultSize="40%" minSize="20%">
               <Group orientation="vertical" id="main-terminal-chat-split">
                 <Panel id="terminal" defaultSize="50%" minSize="15%">
-                  <TerminalPanel key="__global__" projectId="__global__" projectPath={terminalProjectPath} />
+                  <Suspense fallback={<div className="h-full bg-neutral-900" />}>
+                    <TerminalPanel key="__global__" projectId="__global__" projectPath={terminalProjectPath} />
+                  </Suspense>
                 </Panel>
 
                 <Separator className="h-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
 
                 <Panel id="chat" defaultSize="50%" minSize="15%">
-                  <CodeFireChat />
+                  <Suspense fallback={<div className="h-full bg-neutral-900" />}>
+                    <CodeFireChat />
+                  </Suspense>
                 </Panel>
               </Group>
             </Panel>

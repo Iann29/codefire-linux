@@ -1,9 +1,10 @@
-import type {
-  ProviderAdapter,
-  ChatCompletionRequest,
-  ChatCompletionResponse,
-  ModelInfo,
-  ProviderHealth,
+import {
+  ProviderHttpError,
+  type ProviderAdapter,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type ModelInfo,
+  type ProviderHealth,
 } from './BaseProvider'
 import type { OAuthEngine } from './OAuthEngine'
 import { OPENAI_OAUTH } from './oauth-configs'
@@ -13,11 +14,14 @@ const PROVIDER_ID = 'openai-subscription'
 export class OpenAISubscriptionAdapter implements ProviderAdapter {
   readonly id = PROVIDER_ID
   readonly name = 'ChatGPT (Subscription)'
+  readonly accountIndex: number
 
-  constructor(private readonly oauthEngine: OAuthEngine) {}
+  constructor(private readonly oauthEngine: OAuthEngine, accountIndex: number = 0) {
+    this.accountIndex = accountIndex
+  }
 
   async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) throw new Error('OpenAI subscription not connected. Please sign in via Settings > Engine.')
 
     // OpenAI format is our internal format — minimal translation
@@ -39,14 +43,18 @@ export class OpenAISubscriptionAdapter implements ProviderAdapter {
 
     if (!res.ok) {
       const text = await res.text().catch(() => `HTTP ${res.status}`)
-      throw new Error(`OpenAI API error: ${text.slice(0, 400)}`)
+      throw new ProviderHttpError(
+        `OpenAI API error: ${text.slice(0, 400)}`,
+        res.status,
+        res.headers,
+      )
     }
 
     return (await res.json()) as ChatCompletionResponse
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return []
 
     try {
@@ -73,7 +81,7 @@ export class OpenAISubscriptionAdapter implements ProviderAdapter {
   }
 
   async healthCheck(): Promise<ProviderHealth> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return { ok: false, error: 'Not connected' }
 
     const start = Date.now()

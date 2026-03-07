@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square } from 'lucide-react'
-import type { ChatConversation, ChatMessage, Session } from '@shared/models'
+import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square, Cpu, X, AlertTriangle } from 'lucide-react'
+import type { ChatConversation, ChatMessage, Session, RateLimitInfo } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import PlanRail from './PlanRail'
 
@@ -11,11 +11,6 @@ type ChatMode = 'context' | 'agent'
 interface CodeFireChatProps {
   projectId?: string
   projectName?: string
-}
-
-interface ToolCall {
-  id: string
-  function: { name: string; arguments: string }
 }
 
 interface ToolExecution {
@@ -38,362 +33,129 @@ interface AgentRuntimeOptions {
   contextCompaction: boolean
 }
 
-// ─── Agent Tool Definitions ──────────────────────────────────────────────────
+// ─── Chat Model Options ──────────────────────────────────────────────────────
 
-const AGENT_TOOLS = [
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_tasks',
-      description: 'List tasks for the current project or globally. Returns task title, status, priority, and labels.',
-      parameters: {
-        type: 'object',
-        properties: {
-          status: { type: 'string', description: 'Filter by status: todo, in_progress, done, blocked. Omit for all.' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'create_task',
-      description: 'Create a new task in the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: 'Task title' },
-          description: { type: 'string', description: 'Task description' },
-          priority: { type: 'number', description: '0=none, 1=low, 2=medium, 3=high, 4=urgent' },
-          labels: { type: 'array', items: { type: 'string' }, description: 'Labels like bug, feature, refactor' },
-        },
-        required: ['title'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'update_task',
-      description: 'Update an existing task by ID.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'number', description: 'Task ID' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          status: { type: 'string', description: 'todo, in_progress, done, blocked' },
-          priority: { type: 'number' },
-          labels: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['id'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'search_code',
-      description: 'Search the project codebase using semantic/hybrid search. Returns matching code chunks with file paths and line numbers.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search query' },
-          limit: { type: 'number', description: 'Max results (default 5)' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_notes',
-      description: 'List notes for the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          pinned_only: { type: 'boolean', description: 'Only return pinned notes' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'create_note',
-      description: 'Create a new note in the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: 'Note title' },
-          content: { type: 'string', description: 'Note content (markdown)' },
-          pinned: { type: 'boolean', description: 'Pin this note' },
-        },
-        required: ['title', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'search_notes',
-      description: 'Search notes by keyword.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search query' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_sessions',
-      description: 'List recent coding sessions for this project. Shows session summaries, dates, models used.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'search_sessions',
-      description: 'Search coding sessions by keyword.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search query' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'git_status',
-      description: 'Get git status for the project (branch, changed files).',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'git_log',
-      description: 'Get recent git commits.',
-      parameters: {
-        type: 'object',
-        properties: {
-          limit: { type: 'number', description: 'Number of commits (default 10)' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'git_diff',
-      description: 'Get git diff (staged or unstaged changes).',
-      parameters: {
-        type: 'object',
-        properties: {
-          staged: { type: 'boolean', description: 'Show staged changes only' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_projects',
-      description: 'List all CodeFire-tracked projects.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'browser_navigate',
-      description: 'Navigate the CodeFire browser to a URL. Use this to look up documentation, APIs, or web content.',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: { type: 'string', description: 'URL to navigate to' },
-        },
-        required: ['url'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'read_file',
-      description: 'Read the contents of a file in the project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Absolute file path' },
-        },
-        required: ['path'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'list_files',
-      description: 'List files and directories at a given path.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Directory path' },
-        },
-        required: ['path'],
-      },
-    },
-  },
+type ModelCapability = 'tools' | 'vision' | 'streaming'
+
+interface ChatModelOption {
+  value: string
+  label: string
+  provider?: string // subscription provider that offers this model natively
+  capabilities?: ModelCapability[]
+}
+
+const CHAT_MODELS: ChatModelOption[] = [
+  // OpenRouter models (available to all)
+  { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash', capabilities: ['vision', 'streaming'] },
+  { value: 'qwen/qwen3.5-plus-02-15', label: 'Qwen 3.5 Plus', capabilities: ['tools', 'streaming'] },
+  { value: 'qwen/qwen3-coder-next', label: 'Qwen3 Coder Next', capabilities: ['tools', 'streaming'] },
+  { value: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', capabilities: ['tools', 'streaming'] },
+  { value: 'minimax/minimax-m2.5', label: 'MiniMax M2.5', capabilities: ['streaming'] },
+  { value: 'z-ai/glm-5', label: 'GLM-5', capabilities: ['tools', 'streaming'] },
+  { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', capabilities: ['tools', 'streaming'] },
+  { value: 'openai/gpt-5.4', label: 'GPT-5.4', capabilities: ['tools', 'vision', 'streaming'] },
+  // Subscription-native models
+  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'claude-haiku-4-20250414', label: 'Claude Haiku 4', provider: 'claude-subscription', capabilities: ['vision', 'streaming'] },
+  { value: 'claude-opus-4-20250514', label: 'Claude Opus 4', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'o3', label: 'o3', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'o4-mini', label: 'o4 Mini', provider: 'openai-subscription', capabilities: ['streaming'] },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'gemini-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'gemini-subscription', capabilities: ['vision', 'streaming'] },
 ]
 
-// ─── Tool Executor ───────────────────────────────────────────────────────────
+// ─── Model Aliases ────────────────────────────────────────────────────────────
 
-async function executeToolCall(
-  name: string,
-  args: Record<string, unknown>,
-  projectId: string | undefined,
-  projectPath: string | undefined
-): Promise<string> {
-  try {
-    switch (name) {
-      case 'list_tasks': {
-        const tasks = projectId
-          ? await api.tasks.list(projectId, args.status as string | undefined)
-          : await api.tasks.listGlobal(args.status as string | undefined)
-        return JSON.stringify(tasks.slice(0, 30).map(t => ({
-          id: t.id, title: t.title, status: t.status,
-          priority: t.priority, labels: t.labels,
-          description: t.description?.slice(0, 200),
-        })), null, 2)
-      }
-      case 'create_task': {
-        const task = await api.tasks.create({
-          projectId: projectId || '__global__',
-          title: args.title as string,
-          description: args.description as string | undefined,
-          priority: args.priority as number | undefined,
-          labels: args.labels as string[] | undefined,
-          isGlobal: !projectId,
-        })
-        return JSON.stringify({ success: true, id: task.id, title: task.title })
-      }
-      case 'update_task': {
-        const { id, ...updates } = args
-        const task = await api.tasks.update(id as number, updates)
-        return task ? JSON.stringify({ success: true, id: task.id, title: task.title, status: task.status })
-          : JSON.stringify({ error: 'Task not found' })
-      }
-      case 'search_code': {
-        if (!projectId) return JSON.stringify({ error: 'No project selected' })
-        const results = await api.search.query(projectId, args.query as string, {
-          limit: (args.limit as number) || 5,
-        })
-        return JSON.stringify(results.map(r => ({
-          file: r.filePath, symbol: r.symbolName, type: r.chunkType,
-          lines: r.startLine && r.endLine ? `${r.startLine}-${r.endLine}` : null,
-          content: r.content.slice(0, 500), score: r.score.toFixed(3),
-        })), null, 2)
-      }
-      case 'list_notes': {
-        if (!projectId) return JSON.stringify({ error: 'No project selected' })
-        const notes = await api.notes.list(projectId, args.pinned_only as boolean | undefined)
-        return JSON.stringify(notes.slice(0, 20).map(n => ({
-          id: n.id, title: n.title, pinned: n.pinned,
-          content: n.content.slice(0, 300),
-          updatedAt: n.updatedAt,
-        })), null, 2)
-      }
-      case 'create_note': {
-        const note = await api.notes.create({
-          projectId: projectId || '__global__',
-          title: args.title as string,
-          content: args.content as string,
-          pinned: args.pinned as boolean | undefined,
-          isGlobal: !projectId,
-        })
-        return JSON.stringify({ success: true, id: note.id, title: note.title })
-      }
-      case 'search_notes': {
-        if (!projectId) return JSON.stringify({ error: 'No project selected' })
-        const notes = await api.notes.search(projectId, args.query as string)
-        return JSON.stringify(notes.slice(0, 10).map(n => ({
-          id: n.id, title: n.title,
-          content: n.content.slice(0, 300),
-        })), null, 2)
-      }
-      case 'list_sessions': {
-        if (!projectId) return JSON.stringify({ error: 'No project selected' })
-        const sessions = await api.sessions.list(projectId)
-        return JSON.stringify(sessions.slice(0, 15).map(s => ({
-          id: s.id, summary: s.summary?.slice(0, 200),
-          startedAt: s.startedAt, model: s.model,
-          messageCount: s.messageCount,
-        })), null, 2)
-      }
-      case 'search_sessions': {
-        const sessions = await api.sessions.search(args.query as string)
-        return JSON.stringify(sessions.slice(0, 10).map(s => ({
-          id: s.id, summary: s.summary?.slice(0, 200),
-          startedAt: s.startedAt, model: s.model,
-        })), null, 2)
-      }
-      case 'git_status': {
-        if (!projectPath) return JSON.stringify({ error: 'No project path' })
-        return JSON.stringify(await api.git.status(projectPath))
-      }
-      case 'git_log': {
-        if (!projectPath) return JSON.stringify({ error: 'No project path' })
-        const log = await api.git.log(projectPath, { limit: (args.limit as number) || 10 })
-        return JSON.stringify(log, null, 2)
-      }
-      case 'git_diff': {
-        if (!projectPath) return JSON.stringify({ error: 'No project path' })
-        const diff = await api.git.diff(projectPath, { staged: args.staged as boolean | undefined })
-        return diff.slice(0, 5000) || '(no changes)'
-      }
-      case 'list_projects': {
-        const projects = await api.projects.list()
-        return JSON.stringify(projects.map(p => ({
-          id: p.id, name: p.name, path: p.path,
-          lastOpened: p.lastOpened,
-        })), null, 2)
-      }
-      case 'browser_navigate': {
-        // Browser commands are executed by inserting into browserCommands table
-        // which the BrowserView component polls. Use the chat:browserCommand IPC.
-        try {
-          await window.api.invoke('chat:browserCommand', 'browser_navigate', JSON.stringify({ url: args.url }))
-          return JSON.stringify({ success: true, navigating_to: args.url })
-        } catch {
-          return JSON.stringify({ info: 'Browser navigation requested. Open the Browser tab in CodeFire to see the result.', url: args.url })
-        }
-      }
-      case 'read_file': {
-        const content = await api.files.read(args.path as string)
-        return content.slice(0, 8000)
-      }
-      case 'list_files': {
-        const files = await api.files.list(args.path as string)
-        return JSON.stringify(files.map(f => ({
-          name: f.name, isDirectory: f.isDirectory, size: f.size,
-        })), null, 2)
-      }
-      default:
-        return JSON.stringify({ error: `Unknown tool: ${name}` })
-    }
-  } catch (err) {
-    return JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
+interface ModelAlias {
+  model: string
+  provider?: string
+  description: string
+}
+
+const MODEL_ALIASES: Record<string, ModelAlias> = {
+  best: { model: 'claude-opus-4-20250514', provider: 'claude-subscription', description: 'Claude Opus 4' },
+  fast: { model: 'claude-haiku-4-20250414', provider: 'claude-subscription', description: 'Claude Haiku 4' },
+  cheap: { model: 'google/gemini-3-flash-preview', description: 'Gemini 3 Flash' },
+  smart: { model: 'google/gemini-3.1-pro-preview', description: 'Gemini 3.1 Pro' },
+  code: { model: 'qwen/qwen3-coder-next', description: 'Qwen3 Coder Next' },
+}
+
+/** Resolve a model alias to the real model value, or return the original */
+function resolveModelAlias(modelValue: string): string {
+  const alias = MODEL_ALIASES[modelValue]
+  return alias ? alias.model : modelValue
+}
+
+/** Get capability badge chars for a model */
+function getCapabilityBadges(capabilities?: ModelCapability[]): { char: string; title: string; key: ModelCapability }[] {
+  if (!capabilities || capabilities.length === 0) return []
+  const badges: { char: string; title: string; key: ModelCapability }[] = []
+  if (capabilities.includes('tools')) badges.push({ char: 'T', title: 'Tools', key: 'tools' })
+  if (capabilities.includes('vision')) badges.push({ char: 'V', title: 'Vision', key: 'vision' })
+  if (capabilities.includes('streaming')) badges.push({ char: 'S', title: 'Streaming', key: 'streaming' })
+  return badges
+}
+
+/** Build alias entries as ChatModelOption items, filtered by provider availability */
+function getAliasOptions(provider: string): ChatModelOption[] {
+  return Object.entries(MODEL_ALIASES)
+    .filter(([, alias]) => {
+      // If the alias points to a subscription model and the user is not on that subscription, hide it
+      if (alias.provider && provider !== alias.provider) return false
+      return true
+    })
+    .map(([name, alias]) => {
+      const target = CHAT_MODELS.find((m) => m.value === alias.model)
+      return {
+        value: `__alias__${name}`,
+        label: `${name}`,
+        provider: alias.provider,
+        capabilities: target?.capabilities,
+        _aliasTarget: alias.model,
+        _aliasDescription: alias.description,
+      } as ChatModelOption & { _aliasTarget: string; _aliasDescription: string }
+    })
+}
+
+/** Get models relevant to the current provider, grouped */
+function getModelsForProvider(provider: string): { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] {
+  const groups: { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] = []
+
+  // Aliases group first
+  const aliases = getAliasOptions(provider)
+  if (aliases.length > 0) {
+    groups.push({ group: 'Quick Aliases', models: aliases })
   }
+
+  if (provider.endsWith('-subscription')) {
+    const native = CHAT_MODELS.filter((m) => m.provider === provider)
+    const openrouter = CHAT_MODELS.filter((m) => !m.provider)
+    if (native.length > 0) {
+      const label = provider.replace('-subscription', '').replace(/^./, (c) => c.toUpperCase())
+      groups.push({ group: `${label} (subscription)`, models: native })
+    }
+    groups.push({ group: 'OpenRouter', models: openrouter })
+    return groups
+  }
+  // OpenRouter or custom: show only non-subscription models
+  groups.push({ group: '', models: CHAT_MODELS.filter((m) => !m.provider) })
+  return groups
+}
+
+function getModelShortName(modelValue: string): string {
+  const found = CHAT_MODELS.find((m) => m.value === modelValue)
+  if (found) return found.label
+  // Check if it's a resolved alias
+  const resolvedModel = resolveModelAlias(modelValue)
+  if (resolvedModel !== modelValue) {
+    const resolvedFound = CHAT_MODELS.find((m) => m.value === resolvedModel)
+    if (resolvedFound) return resolvedFound.label
+  }
+  // Fallback: strip provider/ prefix or clean up model id
+  const parts = modelValue.split('/')
+  return parts.length > 1 ? parts.slice(1).join('/') : modelValue.replace(/-\d{8,}$/, '')
 }
 
 // ─── Context Builder (Mode 1 — matches Swift ContextAssembler) ───────────────
@@ -566,32 +328,89 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
   const [chatMode, setChatMode] = useState<ChatMode>('context')
-  const [agentRuntimeV2Enabled, setAgentRuntimeV2Enabled] = useState(true)
+  const [chatModel, setChatModel] = useState('google/gemini-3.1-pro-preview')
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const [aiProvider, setAiProvider] = useState<string>('openrouter')
   const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([])
   const [awaitingVerification, setAwaitingVerification] = useState(false)
   const [lastBrowserAction, setLastBrowserAction] = useState<string | null>(null)
-  const [projectPath, setProjectPath] = useState<string | undefined>()
+  const [compactionInfo, setCompactionInfo] = useState<{ trimmedCount: number; before: number; after: number } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ runId: string; action: string; details: Record<string, unknown> } | null>(null)
+  const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null)
+  const [rateLimitDismissed, setRateLimitDismissed] = useState(false)
+  const [rateLimitCountdown, setRateLimitCountdown] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const modelDropdownRef = useRef<HTMLDivElement>(null)
   const activeRunIdRef = useRef<string | null>(null)
   const pendingRunsRef = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void }>())
   // Load config for chat defaults
   useEffect(() => {
     window.api.invoke('settings:get').then((config: any) => {
       if (config?.chatMode) setChatMode(config.chatMode)
-      if (typeof config?.agentRuntimeV2 === 'boolean') setAgentRuntimeV2Enabled(config.agentRuntimeV2)
+      if (config?.chatModel) setChatModel(config.chatModel)
+      if (config?.aiProvider) setAiProvider(config.aiProvider)
     })
   }, [])
 
-  // Load project path
+  // Rate limit event listeners
   useEffect(() => {
-    if (projectId) {
-      api.projects.get(projectId).then(p => setProjectPath(p?.path))
+    const cleanupRateLimited = window.api.on('provider:rateLimited', (info: any) => {
+      setRateLimitInfo(info as RateLimitInfo)
+      setRateLimitDismissed(false)
+    })
+
+    const cleanupRateLimitCleared = window.api.on('provider:rateLimitCleared', (_payload: any) => {
+      setRateLimitInfo(null)
+      setRateLimitDismissed(false)
+      setRateLimitCountdown('')
+    })
+
+    return () => {
+      cleanupRateLimited()
+      cleanupRateLimitCleared()
     }
-  }, [projectId])
+  }, [])
+
+  // Rate limit countdown timer
+  useEffect(() => {
+    if (!rateLimitInfo || rateLimitDismissed) return
+
+    function updateCountdown() {
+      if (!rateLimitInfo) return
+      const expiresAt = rateLimitInfo.resetAt
+        ?? (rateLimitInfo.retryAfterMs ? rateLimitInfo.detectedAt + rateLimitInfo.retryAfterMs : null)
+
+      if (!expiresAt) {
+        setRateLimitCountdown('')
+        return
+      }
+
+      const remaining = Math.max(0, expiresAt - Date.now())
+      if (remaining <= 0) {
+        setRateLimitInfo(null)
+        setRateLimitCountdown('')
+        return
+      }
+
+      const totalSeconds = Math.ceil(remaining / 1000)
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+
+      if (minutes > 0) {
+        setRateLimitCountdown(`~${minutes}m ${seconds.toString().padStart(2, '0')}s`)
+      } else {
+        setRateLimitCountdown(`${seconds}s`)
+      }
+    }
+
+    updateCountdown()
+    const intervalId = setInterval(updateCountdown, 1000)
+    return () => clearInterval(intervalId)
+  }, [rateLimitInfo, rateLimitDismissed])
 
   // Load conversations and sessions
   const loadConversations = useCallback(async () => {
@@ -634,12 +453,15 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setShowDropdown(false)
       }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false)
+      }
     }
-    if (showDropdown) {
+    if (showDropdown || showModelDropdown) {
       document.addEventListener('mousedown', handleClickOutside)
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showDropdown])
+  }, [showDropdown, showModelDropdown])
 
   useEffect(() => {
     const cleanupStream = window.api.on('agent:stream', (payload: any) => {
@@ -699,6 +521,27 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       setLastBrowserAction(typeof payload?.lastBrowserAction === 'string' ? payload.lastBrowserAction : null)
     })
 
+    const cleanupCompacted = window.api.on('agent:compacted', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      const trimmedCount = typeof payload?.trimmedCount === 'number' ? payload.trimmedCount : 0
+      const before = typeof payload?.contextUsage?.before === 'number' ? payload.contextUsage.before : 0
+      const after = typeof payload?.contextUsage?.after === 'number' ? payload.contextUsage.after : 0
+      setCompactionInfo({ trimmedCount, before, after })
+    })
+
+    const cleanupConfirmAction = window.api.on('agent:confirmAction', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      const action = String(payload?.action ?? '')
+      const details = typeof payload?.details === 'object' && payload.details !== null
+        ? payload.details as Record<string, unknown>
+        : {}
+      setConfirmAction({ runId, action, details })
+    })
+
     const cleanupDone = window.api.on('agent:done', (payload: any) => {
       const runId = String(payload?.runId ?? '')
       if (!runId || runId !== activeRunIdRef.current) return
@@ -711,6 +554,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       setStreamedContent('')
       setToolExecutions([])
       setAwaitingVerification(false)
+      setCompactionInfo(null)
+      setConfirmAction(null)
 
       activeRunIdRef.current = null
       setActiveRunId(null)
@@ -732,6 +577,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       setStreamedContent('')
       setToolExecutions([])
       setAwaitingVerification(false)
+      setCompactionInfo(null)
+      setConfirmAction(null)
 
       const message = String(payload?.error ?? 'Unknown agent error')
       pending?.reject(new Error(message))
@@ -742,6 +589,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       cleanupToolStart()
       cleanupToolResult()
       cleanupPlanUpdate()
+      cleanupCompacted()
+      cleanupConfirmAction()
       cleanupDone()
       cleanupError()
       pendingRunsRef.current.forEach(({ reject }) => reject(new Error('Agent run interrupted')))
@@ -749,6 +598,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       activeRunIdRef.current = null
       setActiveRunId(null)
       setAwaitingVerification(false)
+      setConfirmAction(null)
     }
   }, [])
 
@@ -792,6 +642,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     setPlanSteps([])
     setAwaitingVerification(false)
     setLastBrowserAction(null)
+    setCompactionInfo(null)
 
     // Ensure conversation
     let convId = activeConversationId
@@ -825,7 +676,6 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     // Get API key
     let apiKey: string | undefined
     let model: string
-    let useAgentRuntimeV2 = agentRuntimeV2Enabled
     let runtimeOptions: AgentRuntimeOptions = {
       maxToolCalls: 30,
       temperature: 0.7,
@@ -836,18 +686,13 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       const config = (await window.api.invoke('settings:get')) as {
         openRouterKey?: string
         chatModel?: string
-        agentRuntimeV2?: boolean
         agentMaxToolCalls?: number
         agentTemperature?: number
         agentPlanEnforcement?: boolean
         agentContextCompaction?: boolean
       } | undefined
       apiKey = config?.openRouterKey
-      model = config?.chatModel || 'anthropic/claude-sonnet-4-20250514'
-      if (typeof config?.agentRuntimeV2 === 'boolean') {
-        useAgentRuntimeV2 = config.agentRuntimeV2
-        setAgentRuntimeV2Enabled(config.agentRuntimeV2)
-      }
+      model = resolveModelAlias(config?.chatModel || 'anthropic/claude-sonnet-4-20250514')
       runtimeOptions = {
         maxToolCalls: typeof config?.agentMaxToolCalls === 'number'
           ? Math.max(1, Math.min(60, Math.round(config.agentMaxToolCalls)))
@@ -880,11 +725,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
     try {
       if (chatMode === 'agent') {
-        if (useAgentRuntimeV2) {
-          await handleAgentModeMain(convId, content, userMsg, apiKey, model, runtimeOptions)
-        } else {
-          await handleAgentModeLegacy(convId, content, userMsg, apiKey, model, runtimeOptions)
-        }
+        await handleAgentModeMain(convId, content, userMsg, apiKey, model, runtimeOptions)
       } else {
         await handleContextMode(convId, content, userMsg, apiKey, model)
       }
@@ -946,7 +787,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   async function handleAgentModeMain(
     convId: number,
     userContent: string,
-    userMsg: ChatMessage,
+    _userMsg: ChatMessage,
     apiKey: string,
     model: string,
     runtimeOptions: AgentRuntimeOptions
@@ -970,12 +811,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         contextCompaction: runtimeOptions.contextCompaction,
       })
     } catch (error) {
-      // Keep legacy local loop as a startup fallback while main services initialize.
       activeRunIdRef.current = null
       setActiveRunId(null)
       setStreaming(false)
       setStreamedContent('')
-      return handleAgentModeLegacy(convId, userContent, userMsg, apiKey, model, runtimeOptions)
+      throw new Error('Agent service not ready. Please try again in a moment.')
     }
 
     activeRunIdRef.current = started.runId
@@ -986,117 +826,6 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     })
 
     updateConversationTitle(convId, userContent)
-  }
-
-  async function handleAgentModeLegacy(
-    convId: number,
-    _userContent: string,
-    userMsg: ChatMessage,
-    apiKey: string,
-    model: string,
-    runtimeOptions: AgentRuntimeOptions
-  ) {
-    const systemPrompt = isGlobal
-      ? 'You are the CodeFire agent — a smart assistant integrated into CodeFire, a companion app for AI coding agents. You have tools to manage tasks, notes, sessions, search code, browse the web, read files, and interact with git. Use tools when the user\'s request requires data or actions. Be concise.'
-      : `You are the CodeFire agent for the "${projectName}" project. You have tools to manage tasks, notes, sessions, search code, browse the web, read files, and interact with git. Use tools when the user's request requires data or actions. Be concise.`
-
-    // Build conversation messages for the API
-    const allMessages = [...messages, userMsg]
-    let historyChars = 0
-    const apiMessages: Array<{ role: string; content: string }> = []
-    for (let i = allMessages.length - 1; i >= 0; i--) {
-      const m = allMessages[i]
-      if (historyChars + m.content.length > 25000) break
-      apiMessages.unshift({ role: m.role, content: m.content })
-      historyChars += m.content.length
-    }
-
-    // Agentic loop — max 10 iterations
-    let loopMessages: Array<Record<string, unknown>> = [
-      { role: 'system', content: systemPrompt },
-      ...apiMessages,
-    ]
-
-    for (let iteration = 0; iteration < runtimeOptions.maxToolCalls; iteration++) {
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'X-Title': 'CodeFire',
-        },
-        body: JSON.stringify({
-          model,
-          messages: loopMessages,
-          tools: AGENT_TOOLS,
-          temperature: runtimeOptions.temperature,
-          max_tokens: 4096,
-        }),
-      })
-
-      if (!resp.ok) {
-        const errorText = await resp.text().catch(() => `HTTP ${resp.status}`)
-        throw new Error(`API error: ${errorText.slice(0, 200)}`)
-      }
-
-      const json = await resp.json()
-      const choice = json.choices?.[0]
-      if (!choice) throw new Error('No response from model')
-
-      const message = choice.message
-      const toolCalls: ToolCall[] = message.tool_calls || []
-
-      if (toolCalls.length === 0) {
-        // No tool calls — final text response
-        const content = message.content || ''
-        if (content) {
-          const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content })
-          setMessages((prev) => [...prev, assistantMsg])
-          updateConversationTitle(convId, _userContent)
-        }
-        return
-      }
-
-      // Execute tool calls
-      loopMessages.push({
-        role: 'assistant',
-        content: message.content || null,
-        tool_calls: toolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: tc.function,
-        })),
-      })
-
-      for (const tc of toolCalls) {
-        const fnName = tc.function.name
-        let args: Record<string, unknown> = {}
-        try { args = JSON.parse(tc.function.arguments || '{}') } catch { /* empty */ }
-
-        // Show tool execution in UI
-        setToolExecutions((prev) => [...prev, { name: fnName, args, status: 'running' }])
-
-        const result = await executeToolCall(fnName, args, projectId, projectPath)
-
-        setToolExecutions((prev) =>
-          prev.map(te => te.name === fnName && te.status === 'running'
-            ? { ...te, result: result.slice(0, 200), status: 'done' as const }
-            : te
-          )
-        )
-
-        loopMessages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: result,
-        })
-      }
-    }
-
-    // Reached max iterations
-    const fallback = 'I reached the maximum number of tool calls. Here\'s what I found so far — please ask a more specific question if you need more.'
-    const msg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: fallback })
-    setMessages((prev) => [...prev, msg])
   }
 
   // ─── Streaming helper ──────────────────────────────────────────────────────
@@ -1214,6 +943,86 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           {chatMode === 'agent' ? <Zap size={10} /> : <BookOpen size={10} />}
           {chatMode === 'agent' ? 'Agent' : 'Context'}
         </button>
+
+        {/* Model selector */}
+        <div className="relative shrink-0" ref={modelDropdownRef}>
+          <button
+            onClick={() => setShowModelDropdown((v) => !v)}
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-300 transition-colors"
+            title={`Model: ${chatModel}`}
+          >
+            <Cpu size={10} />
+            <span className="max-w-[80px] truncate">{getModelShortName(chatModel)}</span>
+            {aiProvider.endsWith('-subscription') && (
+              <span className="text-[8px] text-green-500 font-bold" title="Using your subscription">SUB</span>
+            )}
+            <ChevronDown size={8} className="text-neutral-500" />
+          </button>
+
+          {showModelDropdown && (
+            <div className="absolute top-full left-0 mt-1 w-64 max-h-80 overflow-y-auto bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50 py-1">
+              {getModelsForProvider(aiProvider).map(({ group, models }) => (
+                <div key={group || 'default'}>
+                  {group && (
+                    <div className="px-3 py-1 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider border-t border-neutral-800 first:border-t-0 mt-1 first:mt-0">
+                      {group}
+                    </div>
+                  )}
+                  {models.map((m) => {
+                    const isAlias = m.value.startsWith('__alias__')
+                    const aliasName = isAlias ? m.value.replace('__alias__', '') : null
+                    const aliasTarget = isAlias ? (m as ChatModelOption & { _aliasTarget?: string })._aliasTarget : null
+                    const aliasDescription = isAlias ? (m as ChatModelOption & { _aliasDescription?: string })._aliasDescription : null
+                    const isActive = isAlias ? chatModel === aliasTarget : m.value === chatModel
+                    const badges = getCapabilityBadges(m.capabilities)
+
+                    return (
+                      <button
+                        key={m.value}
+                        onClick={() => {
+                          const modelToSet = isAlias && aliasTarget ? aliasTarget : m.value
+                          setChatModel(modelToSet)
+                          api.settings.set({ chatModel: modelToSet })
+                          setShowModelDropdown(false)
+                        }}
+                        className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] transition-colors ${
+                          isActive
+                            ? 'bg-neutral-800 text-codefire-orange'
+                            : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300'
+                        }`}
+                      >
+                        {isAlias ? (
+                          <span className="truncate flex-1 text-left">
+                            <span className="font-semibold">{aliasName}</span>
+                            <span className="text-neutral-500"> {'\u2192'} {aliasDescription}</span>
+                          </span>
+                        ) : (
+                          <span className="truncate">{m.label}</span>
+                        )}
+                        {badges.length > 0 && (
+                          <span className="flex items-center gap-0.5 shrink-0">
+                            {badges.map((b) => (
+                              <span
+                                key={b.key}
+                                title={b.title}
+                                className="text-[8px] text-neutral-600 font-mono leading-none px-0.5 rounded bg-neutral-800"
+                              >
+                                {b.char}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {isActive && (
+                          <span className="ml-auto text-[9px] text-codefire-orange/60 shrink-0">active</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Conversation dropdown */}
         <div className="relative flex-1 min-w-0" ref={dropdownRef}>
@@ -1363,12 +1172,44 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 ))}
               </div>
             )}
+            {confirmAction && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded bg-yellow-900/20 border border-yellow-800/40">
+                <span className="text-[10px] text-yellow-300 flex-1">
+                  Confirm: {confirmAction.action}?
+                </span>
+                <button
+                  onClick={() => {
+                    window.api.send('agent:confirmResponse', { runId: confirmAction.runId, confirmed: true })
+                    setConfirmAction(null)
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded bg-green-600/20 text-green-400 hover:bg-green-600/30"
+                >
+                  Allow
+                </button>
+                <button
+                  onClick={() => {
+                    window.api.send('agent:confirmResponse', { runId: confirmAction.runId, confirmed: false })
+                    setConfirmAction(null)
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                >
+                  Deny
+                </button>
+              </div>
+            )}
             {chatMode === 'agent' && planSteps.length > 0 && (
               <PlanRail
                 steps={planSteps}
                 awaitingVerification={awaitingVerification}
                 lastBrowserAction={lastBrowserAction}
               />
+            )}
+            {compactionInfo && (
+              <div className="flex items-center gap-2 px-2 py-1 rounded bg-blue-900/20 border border-blue-800/30">
+                <span className="text-[10px] text-blue-400">
+                  Context compacted: {compactionInfo.trimmedCount} messages summarized ({Math.round(compactionInfo.before / 1000)}k → {Math.round(compactionInfo.after / 1000)}k tokens)
+                </span>
+              </div>
             )}
             {sending && !streaming && toolExecutions.length === 0 && (
               <div className="flex items-center gap-2 px-2 py-1.5">
@@ -1382,6 +1223,36 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Rate limit banner */}
+      {rateLimitInfo && !rateLimitDismissed && (
+        <div className="px-3 py-2 bg-yellow-500/10 border-t border-yellow-500/20 shrink-0">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={12} className="text-yellow-400 shrink-0" />
+            <p className="text-[11px] text-yellow-300 flex-1">
+              <span className="font-medium">{rateLimitInfo.providerName}</span> rate limited
+              {rateLimitInfo.fallbackProvider && (
+                <span> — using <span className="font-medium">{rateLimitInfo.fallbackProvider}</span></span>
+              )}
+              {rateLimitCountdown && (
+                <span className="text-yellow-400/70"> (back in {rateLimitCountdown})</span>
+              )}
+            </p>
+            {rateLimitInfo.limit !== null && rateLimitInfo.remaining !== null && (
+              <span className="text-[9px] text-yellow-500/60 shrink-0">
+                {rateLimitInfo.remaining}/{rateLimitInfo.limit}
+              </span>
+            )}
+            <button
+              onClick={() => setRateLimitDismissed(true)}
+              className="text-yellow-500/50 hover:text-yellow-400 transition-colors shrink-0"
+              title="Dismiss"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Error banner */}
       {errorMessage && (

@@ -137,8 +137,11 @@ export type ProviderChannel =
   | 'provider:listModels'
   | 'provider:healthCheck'
   | 'provider:startOAuth'
+  | 'provider:submitOAuthCode'
+  | 'provider:saveDirectToken'
   | 'provider:listAccounts'
   | 'provider:removeAccount'
+  | 'provider:getRateLimitState'
 
 export type PremiumChannel =
   | 'premium:getStatus'

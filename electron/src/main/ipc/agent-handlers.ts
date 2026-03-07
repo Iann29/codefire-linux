@@ -9,37 +9,50 @@ const providerRouter = new ProviderRouter()
 const tokenStore = new TokenStore()
 const oauthEngine = new OAuthEngine(tokenStore)
 providerRouter.setOAuthEngine(oauthEngine)
+providerRouter.setTokenStore(tokenStore)
 
 export { providerRouter, tokenStore, oauthEngine }
 
+// ── Provider handlers (registered eagerly — renderer calls these on startup) ──
+
+ipcMain.handle('provider:listModels', async () => {
+  const config = readConfig()
+  return providerRouter.listModels(config)
+})
+
+ipcMain.handle('provider:healthCheck', async () => {
+  const config = readConfig()
+  return providerRouter.healthCheck(config)
+})
+
+ipcMain.handle('provider:startOAuth', async (_event, providerId: string) => {
+  return oauthEngine.startOAuthFlow(providerId)
+})
+
+ipcMain.handle('provider:submitOAuthCode', async (_event, providerId: string, code: string) => {
+  return oauthEngine.submitOAuthCode(providerId, code)
+})
+
+ipcMain.handle('provider:saveDirectToken', async (_event, providerId: string, token: string) => {
+  return oauthEngine.saveDirectToken(providerId, token)
+})
+
+ipcMain.handle('provider:listAccounts', async () => {
+  return oauthEngine.listAccounts()
+})
+
+ipcMain.handle('provider:removeAccount', async (_event, providerId: string, accountIndex?: number) => {
+  await oauthEngine.revokeTokens(providerId, accountIndex ?? 0)
+  return { success: true }
+})
+
+ipcMain.handle('provider:getRateLimitState', () => {
+  return providerRouter.getRateLimitState()
+})
+
+// ── Agent handlers (registered when AgentService is ready) ──
+
 export function registerAgentHandlers(agentService: AgentService): void {
-  // ── Provider handlers ──
-
-  ipcMain.handle('provider:listModels', async () => {
-    const config = readConfig()
-    return providerRouter.listModels(config)
-  })
-
-  ipcMain.handle('provider:healthCheck', async () => {
-    const config = readConfig()
-    return providerRouter.healthCheck(config)
-  })
-
-  ipcMain.handle('provider:startOAuth', async (_event, providerId: string) => {
-    return oauthEngine.startOAuthFlow(providerId)
-  })
-
-  ipcMain.handle('provider:listAccounts', async () => {
-    return oauthEngine.listAccounts()
-  })
-
-  ipcMain.handle('provider:removeAccount', async (_event, providerId: string) => {
-    await oauthEngine.revokeTokens(providerId)
-    return { success: true }
-  })
-
-  // ── Agent handlers ──
-
   ipcMain.handle(
     'agent:start',
     (_event, payload: {

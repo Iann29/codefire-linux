@@ -44,9 +44,16 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   gmailSyncEnabled: false,
   gmailSyncInterval: 300,
 
+  // Model routing preferences
+  modelRouting: [],
+
+  // Provider fallback
+  fallbackProvider: 'openrouter' as const,
+
   // Browser
   browserAllowedDomains: [],
   networkBodyLimit: 51200,
+  browserConfirmDestructive: false,
 
   // Briefing
   briefingStalenessHours: 6,

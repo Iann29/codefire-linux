@@ -22,7 +22,7 @@ export class BrowserCommandExecutor {
 
   start(): void {
     if (this.timer) return
-    this.timer = setInterval(() => this.poll(), 100)
+    this.timer = setInterval(() => this.poll(), 500)
   }
 
   stop(): void {

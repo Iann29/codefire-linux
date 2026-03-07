@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Pin, PinOff, Trash2 } from 'lucide-react'
-import MDEditor from '@uiw/react-md-editor'
+import { useState, useEffect, useRef } from 'react'
+import { Pin, PinOff, Trash2, Eye, Pencil } from 'lucide-react'
 import type { Note } from '@shared/models'
 import { useAutoSave } from '@renderer/hooks/useNotes'
 
@@ -14,12 +13,15 @@ interface NoteEditorProps {
 export default function NoteEditor({ note, onUpdate, onDelete, onTogglePin }: NoteEditorProps) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [preview, setPreview] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Sync state when note changes
   useEffect(() => {
     if (note) {
       setTitle(note.title)
       setContent(note.content || '')
+      setPreview(false)
     }
   }, [note?.id])
 
@@ -34,10 +36,9 @@ export default function NoteEditor({ note, onUpdate, onDelete, onTogglePin }: No
     )
   }
 
-  const handleContentChange = (value: string | undefined) => {
-    const newContent = value ?? ''
-    setContent(newContent)
-    autoSave(newContent)
+  const handleContentChange = (value: string) => {
+    setContent(value)
+    autoSave(value)
   }
 
   const handleTitleBlur = () => {
@@ -46,8 +47,23 @@ export default function NoteEditor({ note, onUpdate, onDelete, onTogglePin }: No
     }
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      const ta = textareaRef.current
+      if (!ta) return
+      const start = ta.selectionStart
+      const end = ta.selectionEnd
+      const newContent = content.substring(0, start) + '  ' + content.substring(end)
+      handleContentChange(newContent)
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = start + 2
+      })
+    }
+  }
+
   return (
-    <div className="flex flex-col h-full" data-color-mode="dark">
+    <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800 shrink-0">
         <input
@@ -58,6 +74,15 @@ export default function NoteEditor({ note, onUpdate, onDelete, onTogglePin }: No
           onBlur={handleTitleBlur}
           placeholder="Note title..."
         />
+        <button
+          className={`p-1.5 rounded-cf transition-colors ${
+            preview ? 'text-codefire-orange bg-codefire-orange/10' : 'text-neutral-500 hover:text-neutral-300'
+          }`}
+          onClick={() => setPreview(!preview)}
+          title={preview ? 'Edit' : 'Preview'}
+        >
+          {preview ? <Pencil size={14} /> : <Eye size={14} />}
+        </button>
         <button
           className={`p-1.5 rounded-cf transition-colors
             ${note.pinned ? 'text-codefire-orange hover:text-codefire-orange-hover' : 'text-neutral-500 hover:text-neutral-300'}`}
@@ -77,20 +102,28 @@ export default function NoteEditor({ note, onUpdate, onDelete, onTogglePin }: No
         </button>
       </div>
 
-      {/* Markdown editor */}
+      {/* Editor / Preview */}
       <div className="flex-1 overflow-hidden">
-        <MDEditor
-          value={content}
-          onChange={handleContentChange}
-          preview="live"
-          height="100%"
-          visibleDragbar={false}
-          hideToolbar={false}
-          style={{
-            backgroundColor: 'transparent',
-            height: '100%',
-          }}
-        />
+        {preview ? (
+          <div
+            className="h-full overflow-y-auto p-4 prose prose-invert prose-sm max-w-none
+                       prose-headings:text-neutral-200 prose-p:text-neutral-300
+                       prose-a:text-codefire-orange prose-code:text-codefire-orange
+                       prose-pre:bg-neutral-800 prose-pre:border prose-pre:border-neutral-700"
+            dangerouslySetInnerHTML={{ __html: simpleMarkdown(content) }}
+          />
+        ) : (
+          <textarea
+            ref={textareaRef}
+            className="w-full h-full resize-none bg-transparent text-sm text-neutral-200
+                       font-mono p-4 focus:outline-none placeholder-neutral-600"
+            value={content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Write your note in markdown..."
+            spellCheck={false}
+          />
+        )}
       </div>
 
       {/* Footer */}
@@ -110,4 +143,81 @@ export default function NoteEditor({ note, onUpdate, onDelete, onTogglePin }: No
       </div>
     </div>
   )
+}
+
+/** Lightweight markdown → HTML (covers common patterns without heavy deps) */
+function simpleMarkdown(md: string): string {
+  const escape = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+  const lines = md.split('\n')
+  const out: string[] = []
+  let inCode = false
+  let inList = false
+
+  for (const raw of lines) {
+    if (raw.startsWith('```')) {
+      if (inCode) {
+        out.push('</code></pre>')
+        inCode = false
+      } else {
+        if (inList) { out.push('</ul>'); inList = false }
+        out.push('<pre><code>')
+        inCode = true
+      }
+      continue
+    }
+    if (inCode) {
+      out.push(escape(raw))
+      continue
+    }
+
+    let line = escape(raw)
+
+    // Headings
+    const hMatch = line.match(/^(#{1,6})\s+(.*)/)
+    if (hMatch) {
+      if (inList) { out.push('</ul>'); inList = false }
+      const level = hMatch[1].length
+      out.push(`<h${level}>${inline(hMatch[2])}</h${level}>`)
+      continue
+    }
+
+    // List items
+    if (/^[-*]\s+/.test(line)) {
+      if (!inList) { out.push('<ul>'); inList = true }
+      out.push(`<li>${inline(line.replace(/^[-*]\s+/, ''))}</li>`)
+      continue
+    }
+
+    if (inList && line.trim() === '') {
+      out.push('</ul>')
+      inList = false
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      out.push('<hr />')
+      continue
+    }
+
+    // Paragraph
+    if (line.trim()) {
+      out.push(`<p>${inline(line)}</p>`)
+    }
+  }
+
+  if (inCode) out.push('</code></pre>')
+  if (inList) out.push('</ul>')
+
+  return out.join('\n')
+}
+
+/** Inline markdown: bold, italic, code, links */
+function inline(s: string): string {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
 }

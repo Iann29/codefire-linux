@@ -2,7 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
-import { webContents } from 'electron'
+import { ipcMain, webContents } from 'electron'
 import type { ChatMessage } from '@shared/models'
 import { TaskDAO } from '../database/dao/TaskDAO'
 import { NoteDAO } from '../database/dao/NoteDAO'
@@ -15,6 +15,7 @@ import { readConfig } from './ConfigStore'
 import { ProviderRouter } from './providers/ProviderRouter'
 import type { ChatCompletionToolCall as ToolCall } from './providers/BaseProvider'
 import { ContextCompactor } from './ContextCompactor'
+import { AgentMetrics } from './AgentMetrics'
 
 type AgentEventChannel =
   | 'agent:stream'
@@ -49,6 +50,7 @@ export interface AgentRunStatus {
   runId?: string
   conversationId?: number
   startedAt?: string
+  metrics?: object
 }
 
 export interface AgentStartInput {
@@ -478,6 +480,129 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'browser_nuclear_type',
+      description: 'Type text into an element using nuclear interaction engine (robust for rich text editors like Draft.js, Lexical, ProseMirror, Slate, Quill, CKEditor, CodeMirror, Monaco). Tries multiple strategies with auto-detection and verification. Use when browser_type_element fails on complex editors.',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'number', description: 'DOM map element index' },
+          text: { type: 'string', description: 'Text to type' },
+          clearFirst: { type: 'boolean', description: 'Clear existing content before typing (default true)' },
+          pressEnter: { type: 'boolean', description: 'Press Enter after typing (default false)' },
+          charDelay: { type: 'number', description: 'Delay between chars in ms for keyboard strategy (default 20)' },
+          strategy: { type: 'string', enum: ['auto', 'keyboard', 'execCommand', 'inputEvent', 'clipboard', 'nativeSetter', 'direct'], description: 'Typing strategy (default auto)' },
+        },
+        required: ['index', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_nuclear_click',
+      description: 'Click an element using nuclear interaction engine (robust for overlays, React portals, synthetic event listeners). Tries 4 strategies: pointer chain, native click, elementFromPoint, interactive ancestor. Use when browser_click_element fails on complex UIs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'number', description: 'DOM map element index' },
+        },
+        required: ['index'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_fill_form',
+      description: 'Fill multiple form fields at once. Each field is identified by DOM map index.',
+      parameters: {
+        type: 'object',
+        properties: {
+          fields: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                index: { type: 'number', description: 'DOM map element index' },
+                value: { type: 'string', description: 'Value to set' },
+              },
+              required: ['index', 'value'],
+            },
+            description: 'Array of { index, value } pairs',
+          },
+        },
+        required: ['fields'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_drag_and_drop',
+      description: 'Drag an element to another element by DOM map indices.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sourceIndex: { type: 'number', description: 'DOM map index of source element' },
+          targetIndex: { type: 'number', description: 'DOM map index of target element' },
+        },
+        required: ['sourceIndex', 'targetIndex'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_list_tabs',
+      description: 'List all open browser tabs with their URL, title, and active status.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_open_tab',
+      description: 'Open a new browser tab with a URL. Limited to 5 tabs per session.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'URL to open in the new tab' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_close_tab',
+      description: 'Close a browser tab by its tab ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Tab ID to close (from browser_list_tabs)' },
+        },
+        required: ['tabId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_switch_tab',
+      description: 'Switch to a browser tab by its tab ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Tab ID to activate (from browser_list_tabs)' },
+        },
+        required: ['tabId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_file',
       description: 'Read a file from disk.',
       parameters: {
@@ -525,6 +650,14 @@ const BROWSER_TOOL_NAMES = new Set<string>([
   'browser_get_content',
   'browser_press_key',
   'browser_extract_table',
+  'browser_nuclear_type',
+  'browser_nuclear_click',
+  'browser_list_tabs',
+  'browser_open_tab',
+  'browser_close_tab',
+  'browser_switch_tab',
+  'browser_fill_form',
+  'browser_drag_and_drop',
 ])
 
 const VERIFICATION_BROWSER_TOOLS = new Set<string>([
@@ -534,6 +667,82 @@ const VERIFICATION_BROWSER_TOOLS = new Set<string>([
   'browser_console_logs',
 ])
 
+/** Tools that accept a URL argument and should be validated against domain rules. */
+export const URL_BEARING_TOOLS = new Set<string>(['browser_navigate', 'browser_open_tab'])
+
+/** Browser tools that can modify page state and may require user confirmation. */
+export const DESTRUCTIVE_BROWSER_TOOLS = new Set<string>([
+  'browser_nuclear_click',
+  'browser_nuclear_type',
+  'browser_fill_form',
+  'browser_drag_and_drop',
+])
+
+/** Timeout for user confirmation prompt (30 seconds). */
+const CONFIRMATION_TIMEOUT_MS = 30_000
+
+/** Domains blocked by default for browser agent safety. */
+export const DEFAULT_BLOCKED_DOMAINS = [
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  'mail.google.com',
+  'accounts.google.com',
+  'myaccount.google.com',
+  'pay.google.com',
+  'banking.',
+  'bank.',
+  'chase.com',
+  'wellsfargo.com',
+  'bankofamerica.com',
+  'citi.com',
+  'paypal.com',
+  'venmo.com',
+  'stripe.com',
+  'dashboard.stripe.com',
+  'admin.',
+  'console.aws.amazon.com',
+  'portal.azure.com',
+  'console.cloud.google.com',
+]
+
+/**
+ * Validate a URL against a blocklist (pure logic, no config dependency).
+ * Returns null if allowed, or an error string if blocked.
+ */
+export function validateBrowserUrl(
+  url: string,
+  blockedDomains: string[] = DEFAULT_BLOCKED_DOMAINS,
+  allowedDomains?: string[]
+): string | null {
+  let hostname: string
+  try {
+    hostname = new URL(url).hostname.toLowerCase()
+  } catch {
+    return `Invalid URL: ${url}`
+  }
+
+  // Check blocklist
+  for (const blocked of blockedDomains) {
+    if (hostname === blocked || hostname.endsWith('.' + blocked) || hostname.startsWith(blocked)) {
+      return `Domain "${hostname}" is blocked for browser agent safety. Remove from blocklist in settings if needed.`
+    }
+  }
+
+  // Check allowlist: if configured, only listed domains are allowed
+  if (allowedDomains && allowedDomains.length > 0) {
+    const isAllowed = allowedDomains.some((pattern) => {
+      const p = pattern.toLowerCase()
+      return hostname === p || hostname.endsWith('.' + p)
+    })
+    if (!isAllowed) {
+      return `Domain "${hostname}" is not in the allowed domains list. Add it in Settings > Browser > Allowed Domains.`
+    }
+  }
+
+  return null
+}
+
 export class AgentService {
   private readonly taskDAO: TaskDAO
   private readonly noteDAO: NoteDAO
@@ -541,6 +750,7 @@ export class AgentService {
   private readonly projectDAO: ProjectDAO
   private providerRouter: ProviderRouter
   private readonly contextCompactor = new ContextCompactor()
+  private readonly metrics = new AgentMetrics()
   private activeRun: ActiveRun | null = null
 
   constructor(
@@ -592,7 +802,7 @@ export class AgentService {
   }
 
   getStatus(): AgentRunStatus {
-    if (!this.activeRun) return { status: 'idle' }
+    if (!this.activeRun) return { status: 'idle', metrics: this.metrics.toJSON() }
     return {
       status: 'running',
       runId: this.activeRun.id,
@@ -602,9 +812,10 @@ export class AgentService {
   }
 
   private async executeRun(run: ActiveRun, input: AgentStartInput): Promise<void> {
+    this.metrics.recordRunStart()
     try {
       const config = readConfig()
-      const provider = this.providerRouter.resolveProvider(config, { apiKey: input.apiKey })
+      const providerOverrides = { apiKey: input.apiKey }
 
       const projectName = input.projectName || this.resolveProjectName(run.projectId)
       const projectPath = this.resolveProjectPath(run.projectId)
@@ -636,13 +847,13 @@ export class AgentService {
           }
         }
 
-        const response = await this.chatCompletionWithRetry(provider, {
+        const response = await this.chatCompletionWithRetry(config, {
           model,
           temperature,
           messages: loopMessages,
           tools: AGENT_TOOLS,
           signal: run.abortController.signal,
-        })
+        }, providerOverrides)
 
         const message = response.choices?.[0]?.message
         if (!message) throw new Error('No response from model')
@@ -716,6 +927,7 @@ export class AgentService {
           }
           const durationMs = Date.now() - startedAt
           console.log(`[AgentService] tool ${fnName} (${status}) ${durationMs}ms`)
+          this.metrics.recordToolCall(fnName, durationMs, status === 'error' ? 'error' : 'done')
 
           this.sendEvent(run, 'agent:toolResult', {
             runId: run.id,
@@ -740,7 +952,7 @@ export class AgentService {
           const summaryPrompt = this.contextCompactor.buildSummarizationPrompt(serialized)
 
           try {
-            const summaryResponse = await this.chatCompletionWithRetry(provider, {
+            const summaryResponse = await this.chatCompletionWithRetry(config, {
               model,
               temperature: 0.3,
               messages: [
@@ -748,7 +960,7 @@ export class AgentService {
                 { role: 'user', content: summaryPrompt },
               ],
               signal: run.abortController.signal,
-            })
+            }, providerOverrides)
 
             const summary = normalizeAssistantContent(summaryResponse.choices?.[0]?.message?.content) || 'Summary unavailable.'
             const result = this.contextCompactor.applyCompaction(loopMessages, summary, cutPoint)
@@ -797,6 +1009,7 @@ export class AgentService {
         })
       }
     } finally {
+      this.metrics.recordRunEnd()
       if (this.activeRun?.id === run.id) {
         this.activeRun = null
       }
@@ -828,16 +1041,19 @@ export class AgentService {
 
   /**
    * Retry engine: exponential backoff with jitter for transient errors (429, 5xx).
+   * Routes through ProviderRouter.chatCompletion() which handles fallback + circuit breaker.
    */
   private async chatCompletionWithRetry(
-    provider: { chatCompletion: (req: import('./providers/BaseProvider').ChatCompletionRequest) => Promise<import('./providers/BaseProvider').ChatCompletionResponse> },
-    request: import('./providers/BaseProvider').ChatCompletionRequest
+    config: import('@shared/models').AppConfig,
+    request: import('./providers/BaseProvider').ChatCompletionRequest,
+    overrides?: { apiKey?: string }
   ): Promise<import('./providers/BaseProvider').ChatCompletionResponse> {
     let lastError: Error | null = null
 
     for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
       try {
-        const response = await provider.chatCompletion(request)
+        // ProviderRouter.chatCompletion handles fallback + circuit breaker internally
+        const response = await this.providerRouter.chatCompletion(config, request, overrides)
         return response
       } catch (err) {
         if (isAbortError(err)) throw err
@@ -967,6 +1183,45 @@ export class AgentService {
     wc.send(channel, payload)
   }
 
+  /**
+   * Ask the renderer for confirmation before executing a destructive browser action.
+   * Returns true if the user confirms, false if denied or timed out.
+   */
+  private async requestConfirmation(
+    run: ActiveRun,
+    action: string,
+    details: Record<string, unknown>
+  ): Promise<boolean> {
+    const wc = webContents.fromId(run.senderWebContentsId)
+    if (!wc || wc.isDestroyed()) return false
+
+    wc.send('agent:confirmAction', { runId: run.id, action, details })
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+
+      const timeout = setTimeout(() => {
+        if (settled) return
+        settled = true
+        ipcMain.removeListener('agent:confirmResponse', handler)
+        resolve(false)
+      }, CONFIRMATION_TIMEOUT_MS)
+
+      const handler = (_event: Electron.IpcMainEvent, payload: unknown) => {
+        if (settled) return
+        const data = payload as { runId?: string; confirmed?: boolean } | null
+        if (!data || data.runId !== run.id) return
+
+        settled = true
+        clearTimeout(timeout)
+        ipcMain.removeListener('agent:confirmResponse', handler)
+        resolve(data.confirmed === true)
+      }
+
+      ipcMain.on('agent:confirmResponse', handler)
+    })
+  }
+
   private async executeToolCall(
     run: ActiveRun,
     name: string,
@@ -999,6 +1254,17 @@ export class AgentService {
         error: 'VERIFY_LAST_ACTION_FIRST. Call browser_dom_map or browser_get_element_info, then update_plan before the next browser action.',
         lastBrowserAction: run.lastBrowserAction,
       })
+    }
+
+    // Domain security: validate URLs for navigation tools
+    if (URL_BEARING_TOOLS.has(name)) {
+      const url = asString(args.url)
+      if (url) {
+        const blocked = this.validateBrowserUrl(url)
+        if (blocked) {
+          return JSON.stringify({ error: `DOMAIN_BLOCKED. ${blocked}` })
+        }
+      }
     }
 
     switch (name) {
@@ -1224,6 +1490,17 @@ export class AgentService {
 
       default: {
         if (this.isBrowserTool(name)) {
+          // Check if destructive confirmation is required
+          if (
+            readConfig().browserConfirmDestructive &&
+            DESTRUCTIVE_BROWSER_TOOLS.has(name)
+          ) {
+            const confirmed = await this.requestConfirmation(run, name, args)
+            if (!confirmed) {
+              return JSON.stringify({ error: 'ACTION_DENIED_BY_USER' })
+            }
+          }
+
           const result = await this.browserBridge.executeCommand({
             tool: name,
             args,
@@ -1306,6 +1583,15 @@ export class AgentService {
 
   private isBrowserTool(name: string): boolean {
     return BROWSER_TOOL_NAMES.has(name)
+  }
+
+  /**
+   * Validate a URL against domain allowlist/blocklist.
+   * Delegates to the standalone validateBrowserUrl function.
+   */
+  private validateBrowserUrl(url: string): string | null {
+    const config = readConfig()
+    return validateBrowserUrl(url, DEFAULT_BLOCKED_DOMAINS, config.browserAllowedDomains)
   }
 
   private browserTimeoutForTool(name: string): number {

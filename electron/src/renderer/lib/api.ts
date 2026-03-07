@@ -484,20 +484,26 @@ export const api = {
     healthCheck: () =>
       invoke('provider:healthCheck') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
     startOAuth: (providerId: string) =>
-      invoke('provider:startOAuth', providerId) as Promise<{ success: boolean; error?: string }>,
+      invoke('provider:startOAuth', providerId) as Promise<{ success: boolean; error?: string; accountIndex?: number; awaitingCode?: boolean }>,
+    submitOAuthCode: (providerId: string, code: string) =>
+      invoke('provider:submitOAuthCode', providerId, code) as Promise<{ success: boolean; error?: string; accountIndex?: number }>,
+    saveDirectToken: (providerId: string, token: string) =>
+      invoke('provider:saveDirectToken', providerId, token) as Promise<{ success: boolean; error?: string; accountIndex?: number }>,
     listAccounts: () =>
       invoke('provider:listAccounts') as Promise<
         Array<{
           providerId: string
+          accountIndex: number
           accountEmail: string | null
           accountName: string | null
+          subscriptionTier: string | null
           expiresAt: number
           isExpired: boolean
           needsRefresh: boolean
         }>
       >,
-    removeAccount: (providerId: string) =>
-      invoke('provider:removeAccount', providerId) as Promise<{ success: boolean }>,
+    removeAccount: (providerId: string, accountIndex?: number) =>
+      invoke('provider:removeAccount', providerId, accountIndex) as Promise<{ success: boolean }>,
   },
 
   update: {

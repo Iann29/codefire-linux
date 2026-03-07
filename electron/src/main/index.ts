@@ -110,10 +110,17 @@ function initDeferredServices() {
 
   // Register deferred IPC handlers
   registerSearchHandlers(db, searchEngine, contextEngine)
-  if (gmailService) registerGmailHandlers(gmailService)
+  if (gmailService) {
+    ipcMain.removeHandler('gmail:listRecentEmails')
+    registerGmailHandlers(gmailService)
+  }
 
   // Premium services (only if configured)
   if (config.premiumEnabled && config.supabaseUrl && config.supabaseAnonKey) {
+    // Remove all stubs before registering real handlers
+    for (const channel of Object.keys(premiumStubs)) {
+      ipcMain.removeHandler(channel)
+    }
     try {
       const { AuthService } = require('./services/premium/AuthService')
       const { TeamService } = require('./services/premium/TeamService')
@@ -182,6 +189,37 @@ if (!gotTheLock) {
 
 // Register essential IPC handlers immediately (db, window, terminal, git, MCP)
 registerAllHandlers(db, windowManager, terminalService, gitService, undefined, undefined, undefined, undefined, mcpManager, undefined)
+
+// Fallback stubs for premium and gmail — renderer calls these before deferred init.
+// Replaced by real handlers in initDeferredServices() if the services are configured.
+const premiumStub = () => null
+const premiumStubs: Record<string, (...args: any[]) => any> = {
+  'premium:getStatus': () => ({ authenticated: false, user: null, team: null, subscription: null }),
+  'premium:signUp': premiumStub, 'premium:signIn': premiumStub, 'premium:signOut': premiumStub,
+  'premium:createTeam': premiumStub, 'premium:getTeam': () => null,
+  'premium:listMembers': () => [], 'premium:inviteMember': premiumStub,
+  'premium:removeMember': premiumStub, 'premium:acceptInvite': premiumStub,
+  'premium:syncProject': premiumStub, 'premium:unsyncProject': premiumStub,
+  'premium:createCheckout': premiumStub, 'premium:getBillingPortal': premiumStub,
+  'premium:getNotifications': () => [], 'premium:markNotificationRead': premiumStub,
+  'premium:markAllNotificationsRead': premiumStub,
+  'premium:getActivityFeed': () => [], 'premium:listSessionSummaries': () => [],
+  'premium:shareSessionSummary': premiumStub,
+  'premium:joinPresence': premiumStub, 'premium:leavePresence': premiumStub,
+  'premium:getPresence': () => [],
+  'premium:listProjectDocs': () => [], 'premium:getProjectDoc': () => null,
+  'premium:createProjectDoc': premiumStub, 'premium:updateProjectDoc': premiumStub,
+  'premium:deleteProjectDoc': premiumStub,
+  'premium:requestReview': premiumStub, 'premium:resolveReview': premiumStub,
+  'premium:listReviewRequests': () => [],
+  'premium:admin:isSuperAdmin': () => false, 'premium:admin:searchUsers': () => [],
+  'premium:admin:listGrants': () => [], 'premium:admin:grantTeam': premiumStub,
+  'premium:admin:revokeGrant': premiumStub,
+}
+for (const [channel, handler] of Object.entries(premiumStubs)) {
+  ipcMain.handle(channel, handler)
+}
+ipcMain.handle('gmail:listRecentEmails', () => [])
 
 // Register Agent Arena handler
 import { openAgentArena } from './windows/AgentArenaWindow'

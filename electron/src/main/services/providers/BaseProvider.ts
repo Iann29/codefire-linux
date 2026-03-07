@@ -50,3 +50,22 @@ export interface ProviderAdapter {
   listModels(): Promise<ModelInfo[]>
   healthCheck(): Promise<ProviderHealth>
 }
+
+// ─── Provider HTTP Error ────────────────────────────────────────────────────
+
+/**
+ * Custom error thrown by adapters on non-OK HTTP responses.
+ * Carries the HTTP status code and response headers so the ProviderRouter
+ * can extract rate-limit information without re-parsing error messages.
+ */
+export class ProviderHttpError extends Error {
+  readonly status: number
+  readonly headers: Headers
+
+  constructor(message: string, status: number, headers: Headers) {
+    super(message)
+    this.name = 'ProviderHttpError'
+    this.status = status
+    this.headers = headers
+  }
+}

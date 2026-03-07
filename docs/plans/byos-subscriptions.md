@@ -1,6 +1,6 @@
 # CodeFire BYOS — Bring Your Own Subscription
 
-**Status:** Fases 1-3 implementadas, Fases 4-5 pendentes
+**Status:** COMPLETO — Fases 1-5 todas implementadas
 **Data:** 2026-03-07
 **Escopo:** Somente Electron (`electron/src/...`)
 **Dependencia:** Browser Agent Roadmap (Fase 1 — AgentService funcional)
@@ -240,39 +240,39 @@ Fontes de referencia para os OAuth flows:
 
 ### Settings > Providers
 
-- [ ] Redesenhar secao "Engine" em Settings para suportar multiplos providers:
-  - Lista de providers com cards:
-    - Logo do provider.
-    - Status: conectado/desconectado/expirado/erro.
-    - Modelo ativo.
-    - Tier da assinatura (Pro/Max/Plus quando detectavel).
-    - Botao "Connect" / "Disconnect".
-  - Provider ativo selecionavel (qual usar no agente).
-  - Fallback configuravel (ex: se Claude falhar, usar OpenRouter).
+- [x] Redesenhar secao "Engine" em Settings para suportar multiplos providers:
+  - [x] Dropdown com 6 opcoes: OpenRouter, Custom, Claude subscription, OpenAI subscription, Gemini subscription, Kimi subscription.
+  - [x] `SubscriptionProviderPanel` com status conectado/desconectado/conectando.
+  - [x] Botao "Connect" (inicia OAuth) / "Disconnect" (remove conta).
+  - [x] Mostra email/nome da conta conectada.
+  - [x] Cards com logo/icone do provider (PROVIDER_BRANDING com icones Lucide + cores por provider + badge "Active").
+  - [x] Tier da assinatura (Pro/Max/Plus) — `detectTier()` em OAuthEngine extrai de Claude `/v1/me`, OpenAI `/v1/me`, Gemini default "Advanced". Badge roxo no Settings.
+  - [x] Fallback configuravel: dropdown no Settings (openrouter/none), ProviderRouter respeita `config.fallbackProvider`.
 
 ### Connected Accounts
 
-- [ ] Mostrar info da conta apos OAuth:
-  - Email/nome da conta.
-  - Tier da assinatura.
-  - Ultimo uso / status do token.
-- [ ] Notificacao quando token expira e nao consegue renovar.
-- [ ] Botao "Re-authenticate" para refazer OAuth flow.
+- [x] Mostrar info da conta apos OAuth:
+  - [x] Email/nome da conta exibido no panel.
+  - [x] Tier da assinatura — badge roxo no header do SubscriptionProviderPanel.
+  - [x] Ultimo uso / status do token.
+- [x] Notificacao quando token expira e nao consegue renovar.
+- [x] Botao "Re-authenticate" para refazer OAuth flow.
 
 ### Onboarding / Wizard
 
-- [ ] Tela de primeiro uso ou quando nenhum provider esta configurado:
+- [x] Tela de primeiro uso ou quando nenhum provider esta configurado (`OnboardingWizard.tsx`):
   - "Choose how to connect to AI":
     - "Use your subscription" → lista providers com botao Connect (OAuth flow).
     - "Use API key" → campo de API key do OpenRouter (modo atual).
     - "Use custom endpoint" → URL + key (Ollama, LM Studio, etc.).
-- [ ] Indicador visual no chat quando usando subscription vs API key.
+- [x] Indicador visual no chat quando usando subscription vs API key (badge "SUB" no model selector).
 
 ### Model Selector
 
-- [ ] Dropdown de modelo no chat que mostra so modelos disponiveis no provider ativo.
-- [ ] Agrupado por provider quando multiplos estao conectados.
-- [ ] Indicador de capability (suporta tools, vision, streaming).
+- [x] Dropdown de modelo no chat header com lista de modelos disponiveis.
+- [x] Filtrar modelos por provider ativo — subscription providers mostram seus modelos nativos primeiro, OpenRouter models em seguida.
+- [x] Agrupado por provider no dropdown (ex: "Claude (subscription)" + "OpenRouter").
+- [x] Indicador de capability (badges T/V/S — tools, vision, streaming por modelo).
 
 **Criterios de aceite**
 
@@ -286,31 +286,28 @@ Fontes de referencia para os OAuth flows:
 
 ### Multi-Account
 
-- [ ] Suportar multiplas contas do mesmo provider (ex: 2 contas Claude Max).
-- [ ] Round-robin entre contas para distribuir rate limits.
-- [ ] UI para gerenciar multiplas contas por provider.
+- [x] Suportar multiplas contas do mesmo provider (ex: 2 contas Claude Max). TokenStore refatorado com chaves `providerId::index`, migration automatica de entradas legadas.
+- [x] Round-robin entre contas para distribuir rate limits. `getNextAccountIndex()` no ProviderRouter, pula contas com circuit breaker aberto (per-account tracking).
+- [x] UI para gerenciar multiplas contas por provider. SubscriptionProviderPanel lista todas as contas com Re-auth/Remove individual + botao "Add another account" + badge "Round-robin: N accounts".
 
 ### Provider Routing
 
-- [ ] Fallback automatico: se provider primario retornar 429/5xx, tentar proximo.
-- [ ] Configuracao de preferencia por modelo:
-  - "Para Opus use Claude Max"
-  - "Para modelos rapidos use OpenRouter"
-  - "Para modelos locais use Ollama"
-- [ ] Model aliases: `best` → Opus (Claude Max), `fast` → Haiku (Claude Max), `cheap` → GPT-4o-mini (OpenRouter).
+- [x] Fallback automatico: se provider primario retornar 429/5xx, tentar OpenRouter como fallback.
+- [x] Configuracao de preferencia por modelo via `modelRouting: ModelRoutingRule[]` no AppConfig. `resolveProviderForModel()` no ProviderRouter com glob matching (prefix, wildcard, exact). UI "Model Routing" no Settings com add/remove rules.
+- [x] Model aliases: `best` → Opus, `fast` → Haiku, `cheap` → Gemini Flash, `smart` → Gemini Pro, `code` → Qwen Coder. Aliases de subscription filtrados por provider ativo.
 
 ### Rate Limit Awareness
 
-- [ ] Detectar rate limit headers dos providers (Retry-After, x-ratelimit-*).
-- [ ] Mostrar rate limit usage na UI quando disponivel.
-- [ ] Auto-switch para proximo provider/conta quando rate limited.
-- [ ] Cooldown timer visivel: "Claude Max rate limited — switching to OpenRouter (back in ~2min)".
+- [x] Detectar rate limit headers dos providers (Retry-After, x-ratelimit-*, anthropic-ratelimit-*). `ProviderHttpError` propaga headers, `extractRateLimitHeaders()` em ProviderRouter.
+- [x] Mostrar rate limit usage na UI — banner no chat com countdown timer.
+- [x] Auto-switch para proximo provider quando rate limited — fallback automatico via ProviderRouter.
+- [x] Cooldown timer visivel: "Claude Max rate limited — using OpenRouter (back in ~2m 30s)" com countdown 1s e auto-clear via `provider:rateLimitCleared`.
 
 ### Resiliencia
 
-- [ ] Retry com backoff para erros transientes (429, 5xx, network errors).
-- [ ] Circuit breaker: se provider falhar N vezes consecutivas, desabilitar temporariamente.
-- [ ] Logging estruturado: provider usado, latencia, tokens, erros (para debug).
+- [x] Retry com backoff para erros transientes (429, 5xx, network errors).
+- [x] Circuit breaker: se provider falhar N vezes consecutivas (5), desabilitar temporariamente (2min cooldown, half-open probe).
+- [x] Logging estruturado: provider usado, latencia, tokens, erros (para debug) — prefixo `[ProviderRouter]`.
 
 **Criterios de aceite**
 
@@ -324,16 +321,21 @@ Refactor aplicado em `AgentService.ts`:
 
 ```typescript
 // AgentService.executeRun() — IMPLEMENTADO
-const provider = this.providerRouter.resolveProvider(config, { apiKey: input.apiKey })
-const response = await provider.chatCompletion({
+const config = readConfig()
+const providerOverrides = { apiKey: input.apiKey }
+// chatCompletionWithRetry agora roteia via ProviderRouter.chatCompletion()
+// que encapsula fallback automatico + circuit breaker + logging
+const response = await this.chatCompletionWithRetry(config, {
   model, temperature, messages: loopMessages,
   tools: AGENT_TOOLS, signal: run.abortController.signal,
-})
+}, providerOverrides)
 // response ja vem normalizado — tool_calls, content, usage
 ```
 
 - `setProviderRouter(router)` permite injetar router compartilhado (com OAuthEngine).
 - `providerRouter` nao e mais `readonly` — pode ser substituido apos construcao.
+- `chatCompletionWithRetry()` faz retry com backoff exponencial no AgentService.
+- `ProviderRouter.chatCompletion()` faz fallback + circuit breaker internamente.
 - O resto do loop (tool execution, plan enforcement, context compaction) nao mudou.
 
 ## Estrutura de arquivos [TODOS IMPLEMENTADOS]
@@ -341,7 +343,7 @@ const response = await provider.chatCompletion({
 ```
 electron/src/main/services/providers/
   BaseProvider.ts              — interfaces: ProviderAdapter, ChatCompletionRequest/Response, ModelInfo, ProviderHealth
-  ProviderRouter.ts            — resolve provider por config, cache, setOAuthEngine()
+  ProviderRouter.ts            — resolve provider por config, cache, setOAuthEngine(), circuit breaker, fallback OpenRouter, logging estruturado
   OAuthEngine.ts               — OAuth flows via BrowserWindow + HTTP callback server
   TokenStore.ts                — storage seguro de tokens (safeStorage + arquivo .enc.json)
   oauth-configs.ts             — configs OAuth por provider (URLs, client_ids, scopes, registries)
@@ -359,8 +361,8 @@ electron/src/main/services/providers/
 1. ~~**Fase 1** (provider adapter layer)~~ — DONE
 2. ~~**Fase 2** (OAuth engine + token storage)~~ — DONE
 3. ~~**Fase 3** (subscription adapters)~~ — DONE
-4. **Fase 4** (UI de contas) — experiencia de usuario polida. PROXIMO.
-5. **Fase 5** (multi-account + routing) — power users e resiliencia.
+4. ~~**Fase 4** (UI de contas)~~ — DONE. Dropdown, connect/disconnect, account info, re-authenticate, model selector, capability indicators, provider cards com icones, fallback config, onboarding wizard, tier detection.
+5. ~~**Fase 5** (multi-account + routing)~~ — DONE. Fallback automatico, circuit breaker, logging estruturado, retry com backoff, model aliases, rate limit detection, cooldown timer UI, auto-switch, multi-account round-robin, UI multiplas contas, preferencia por modelo.
 
 ## Riscos e Mitigacoes
 

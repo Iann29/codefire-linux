@@ -1,9 +1,10 @@
-import type {
-  ProviderAdapter,
-  ChatCompletionRequest,
-  ChatCompletionResponse,
-  ModelInfo,
-  ProviderHealth,
+import {
+  ProviderHttpError,
+  type ProviderAdapter,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type ModelInfo,
+  type ProviderHealth,
 } from './BaseProvider'
 
 export class OpenRouterAdapter implements ProviderAdapter {
@@ -32,7 +33,11 @@ export class OpenRouterAdapter implements ProviderAdapter {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => `HTTP ${response.status}`)
-      throw new Error(`OpenRouter API error: ${errorText.slice(0, 400)}`)
+      throw new ProviderHttpError(
+        `OpenRouter API error: ${errorText.slice(0, 400)}`,
+        response.status,
+        response.headers,
+      )
     }
 
     return (await response.json()) as ChatCompletionResponse

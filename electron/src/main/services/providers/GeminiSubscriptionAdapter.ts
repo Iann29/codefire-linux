@@ -1,9 +1,10 @@
-import type {
-  ProviderAdapter,
-  ChatCompletionRequest,
-  ChatCompletionResponse,
-  ModelInfo,
-  ProviderHealth,
+import {
+  ProviderHttpError,
+  type ProviderAdapter,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type ModelInfo,
+  type ProviderHealth,
 } from './BaseProvider'
 import type { OAuthEngine } from './OAuthEngine'
 import { openaiToGemini, geminiToOpenai, stripProviderPrefix } from './format-translators'
@@ -14,11 +15,14 @@ const PROVIDER_ID = 'gemini-subscription'
 export class GeminiSubscriptionAdapter implements ProviderAdapter {
   readonly id = PROVIDER_ID
   readonly name = 'Gemini (Subscription)'
+  readonly accountIndex: number
 
-  constructor(private readonly oauthEngine: OAuthEngine) {}
+  constructor(private readonly oauthEngine: OAuthEngine, accountIndex: number = 0) {
+    this.accountIndex = accountIndex
+  }
 
   async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) throw new Error('Gemini subscription not connected. Please sign in via Settings > Engine.')
 
     const model = stripProviderPrefix(request.model)
@@ -38,7 +42,11 @@ export class GeminiSubscriptionAdapter implements ProviderAdapter {
 
     if (!res.ok) {
       const text = await res.text().catch(() => `HTTP ${res.status}`)
-      throw new Error(`Gemini API error: ${text.slice(0, 400)}`)
+      throw new ProviderHttpError(
+        `Gemini API error: ${text.slice(0, 400)}`,
+        res.status,
+        res.headers,
+      )
     }
 
     const geminiResponse = await res.json()
@@ -46,7 +54,7 @@ export class GeminiSubscriptionAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return []
 
     try {
@@ -76,7 +84,7 @@ export class GeminiSubscriptionAdapter implements ProviderAdapter {
   }
 
   async healthCheck(): Promise<ProviderHealth> {
-    const token = await this.oauthEngine.getValidToken(PROVIDER_ID)
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return { ok: false, error: 'Not connected' }
 
     const start = Date.now()

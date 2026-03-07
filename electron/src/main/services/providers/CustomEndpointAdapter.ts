@@ -1,9 +1,10 @@
-import type {
-  ProviderAdapter,
-  ChatCompletionRequest,
-  ChatCompletionResponse,
-  ModelInfo,
-  ProviderHealth,
+import {
+  ProviderHttpError,
+  type ProviderAdapter,
+  type ChatCompletionRequest,
+  type ChatCompletionResponse,
+  type ModelInfo,
+  type ProviderHealth,
 } from './BaseProvider'
 
 export class CustomEndpointAdapter implements ProviderAdapter {
@@ -40,7 +41,11 @@ export class CustomEndpointAdapter implements ProviderAdapter {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => `HTTP ${response.status}`)
-      throw new Error(`Custom endpoint error (${url}): ${errorText.slice(0, 400)}`)
+      throw new ProviderHttpError(
+        `Custom endpoint error (${url}): ${errorText.slice(0, 400)}`,
+        response.status,
+        response.headers,
+      )
     }
 
     return (await response.json()) as ChatCompletionResponse

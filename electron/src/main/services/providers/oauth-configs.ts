@@ -26,6 +26,22 @@ export interface OAuthProviderConfig {
   extraTokenHeaders?: Record<string, string>
   /** URL to fetch user profile after auth (for account info) */
   profileUrl?: string
+  /**
+   * If true, the provider shows the auth code on a web page for the user
+   * to copy and paste back into the app (e.g. Claude).
+   * If false, uses localhost HTTP callback to capture the code automatically.
+   */
+  codeCopyFlow?: boolean
+  /**
+   * If true, the provider uses a direct token input flow instead of OAuth.
+   * The user generates a token externally (e.g. `claude setup-token`) and
+   * pastes it into the app. No browser OAuth flow is used.
+   */
+  tokenInputFlow?: boolean
+  /** Hint text shown in the token input UI */
+  tokenInputHint?: string
+  /** Extra headers to include in API requests (e.g. anthropic-beta for OAuth tokens) */
+  extraApiHeaders?: Record<string, string>
 }
 
 export interface ApiKeyProviderConfig {
@@ -48,14 +64,22 @@ export function isOAuthConfig(c: SubscriptionProviderConfig): c is OAuthProvider
 export const CLAUDE_OAUTH: OAuthProviderConfig = {
   id: 'claude-subscription',
   name: 'Claude (Subscription)',
-  authUrl: 'https://console.anthropic.com/oauth/authorize',
-  tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
-  clientId: '4da1bcf3-6c5a-4c35-ab47-44e4eac061b3',
-  scopes: ['user:inference', 'user:profile'],
-  redirectUri: 'http://localhost:19485/oauth/callback',
+  // OAuth URLs kept for reference but not used — Claude uses direct token flow
+  authUrl: 'https://platform.claude.com/oauth/authorize',
+  tokenUrl: 'https://platform.claude.com/v1/oauth/token',
+  clientId: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+  scopes: ['org:create_api_key', 'user:profile', 'user:inference'],
+  redirectUri: 'https://platform.claude.com/oauth/code/callback',
   usePKCE: true,
   apiBaseUrl: 'https://api.anthropic.com',
   profileUrl: 'https://api.anthropic.com/v1/me',
+  // Direct token flow: user runs `claude setup-token` and pastes the token
+  tokenInputFlow: true,
+  tokenInputHint: 'Run "claude setup-token" in your terminal, then paste the sk-ant-oat01-... token here.',
+  extraApiHeaders: {
+    'anthropic-beta': 'oauth-2025-04-20',
+    'user-agent': 'claude-cli/2.1.71',
+  },
 }
 
 // ─── OpenAI (ChatGPT Plus/Pro) ──────────────────────────────────────────────
