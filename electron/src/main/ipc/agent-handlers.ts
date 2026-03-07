@@ -1,9 +1,15 @@
 import { ipcMain } from 'electron'
 import { AgentService } from '../services/AgentService'
 import { ProviderRouter } from '../services/providers/ProviderRouter'
+import { OAuthEngine } from '../services/providers/OAuthEngine'
+import { TokenStore } from '../services/providers/TokenStore'
 import { readConfig } from '../services/ConfigStore'
 
 const providerRouter = new ProviderRouter()
+const tokenStore = new TokenStore()
+const oauthEngine = new OAuthEngine(tokenStore)
+
+export { tokenStore, oauthEngine }
 
 export function registerAgentHandlers(agentService: AgentService): void {
   // ── Provider handlers ──
@@ -16,6 +22,19 @@ export function registerAgentHandlers(agentService: AgentService): void {
   ipcMain.handle('provider:healthCheck', async () => {
     const config = readConfig()
     return providerRouter.healthCheck(config)
+  })
+
+  ipcMain.handle('provider:startOAuth', async (_event, providerId: string) => {
+    return oauthEngine.startOAuthFlow(providerId)
+  })
+
+  ipcMain.handle('provider:listAccounts', async () => {
+    return oauthEngine.listAccounts()
+  })
+
+  ipcMain.handle('provider:removeAccount', async (_event, providerId: string) => {
+    await oauthEngine.revokeTokens(providerId)
+    return { success: true }
   })
 
   // ── Agent handlers ──

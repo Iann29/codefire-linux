@@ -8,12 +8,25 @@ import type {
 } from './BaseProvider'
 import { OpenRouterAdapter } from './OpenRouterAdapter'
 import { CustomEndpointAdapter } from './CustomEndpointAdapter'
+import type { OAuthEngine } from './OAuthEngine'
 
 export type ProviderType = AppConfig['aiProvider']
+
+const SUBSCRIPTION_PROVIDERS = new Set([
+  'claude-subscription',
+  'openai-subscription',
+  'gemini-subscription',
+  'kimi-subscription',
+])
 
 export class ProviderRouter {
   private cachedProvider: ProviderAdapter | null = null
   private cachedProviderKey = ''
+  private oauthEngine: OAuthEngine | null = null
+
+  setOAuthEngine(engine: OAuthEngine): void {
+    this.oauthEngine = engine
+  }
 
   resolveProvider(config: AppConfig, overrides?: { apiKey?: string }): ProviderAdapter {
     const providerType = config.aiProvider || 'openrouter'
@@ -32,6 +45,17 @@ export class ProviderRouter {
         provider = new CustomEndpointAdapter(baseUrl, config.customEndpointKey || '')
         break
       }
+
+      case 'claude-subscription':
+      case 'openai-subscription':
+      case 'gemini-subscription':
+      case 'kimi-subscription':
+        // Subscription adapters will be implemented in Phase 3.
+        // For now, check that OAuth is connected and give a clear error.
+        throw new Error(
+          `Subscription provider "${providerType}" is not yet available. ` +
+          'This will be enabled in a future update. Please use OpenRouter or Custom Endpoint.'
+        )
 
       case 'openrouter':
       default: {
@@ -84,6 +108,8 @@ export class ProviderRouter {
       parts.push(overrides?.apiKey || config.openRouterKey || '')
     } else if (providerType === 'custom') {
       parts.push(config.customEndpointUrl || '', config.customEndpointKey || '')
+    } else if (SUBSCRIPTION_PROVIDERS.has(providerType)) {
+      parts.push(providerType)
     }
     return parts.join('::')
   }

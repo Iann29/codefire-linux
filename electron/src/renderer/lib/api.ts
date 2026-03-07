@@ -483,6 +483,21 @@ export const api = {
       invoke('provider:listModels') as Promise<Array<{ id: string; name: string }>>,
     healthCheck: () =>
       invoke('provider:healthCheck') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
+    startOAuth: (providerId: string) =>
+      invoke('provider:startOAuth', providerId) as Promise<{ success: boolean; error?: string }>,
+    listAccounts: () =>
+      invoke('provider:listAccounts') as Promise<
+        Array<{
+          providerId: string
+          accountEmail: string | null
+          accountName: string | null
+          expiresAt: number
+          isExpired: boolean
+          needsRefresh: boolean
+        }>
+      >,
+    removeAccount: (providerId: string) =>
+      invoke('provider:removeAccount', providerId) as Promise<{ success: boolean }>,
   },
 
   update: {

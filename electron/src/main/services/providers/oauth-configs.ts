@@ -1,0 +1,129 @@
+/**
+ * OAuth configurations per subscription provider.
+ *
+ * These mirror the OAuth flows used by the official CLIs:
+ * - Claude Code CLI (Anthropic PKCE OAuth)
+ * - Codex CLI (OpenAI Auth0 PKCE OAuth)
+ * - Gemini CLI (Google OAuth 2.0)
+ *
+ * Client IDs and URLs are extracted from the respective CLI source/binaries.
+ * If a provider changes their OAuth flow, update only this file.
+ */
+
+export interface OAuthProviderConfig {
+  id: string
+  name: string
+  authUrl: string
+  tokenUrl: string
+  clientId: string
+  scopes: string[]
+  redirectUri: string
+  usePKCE: boolean
+  apiBaseUrl: string
+  /** Extra params to include in the authorization request */
+  extraAuthParams?: Record<string, string>
+  /** Extra headers for the token exchange request */
+  extraTokenHeaders?: Record<string, string>
+  /** URL to fetch user profile after auth (for account info) */
+  profileUrl?: string
+}
+
+export interface ApiKeyProviderConfig {
+  id: string
+  name: string
+  apiBaseUrl: string
+  userAgent?: string
+}
+
+export type SubscriptionProviderConfig = OAuthProviderConfig | ApiKeyProviderConfig
+
+export function isOAuthConfig(c: SubscriptionProviderConfig): c is OAuthProviderConfig {
+  return 'authUrl' in c
+}
+
+// ─── Claude (Anthropic) ─────────────────────────────────────────────────────
+// Flow: PKCE OAuth 2.0 — same as Claude Code CLI
+// Reference: claude-code-proxy, CLIProxyAPI --claude-login
+
+export const CLAUDE_OAUTH: OAuthProviderConfig = {
+  id: 'claude-subscription',
+  name: 'Claude (Subscription)',
+  authUrl: 'https://console.anthropic.com/oauth/authorize',
+  tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
+  clientId: '4da1bcf3-6c5a-4c35-ab47-44e4eac061b3',
+  scopes: ['user:inference', 'user:profile'],
+  redirectUri: 'http://localhost:19485/oauth/callback',
+  usePKCE: true,
+  apiBaseUrl: 'https://api.anthropic.com',
+  profileUrl: 'https://api.anthropic.com/v1/me',
+}
+
+// ─── OpenAI (ChatGPT Plus/Pro) ──────────────────────────────────────────────
+// Flow: Auth0 PKCE OAuth 2.0 — same as Codex CLI
+// Reference: codex-cli source, CLIProxyAPI --openai-login
+
+export const OPENAI_OAUTH: OAuthProviderConfig = {
+  id: 'openai-subscription',
+  name: 'ChatGPT (Subscription)',
+  authUrl: 'https://auth.openai.com/authorize',
+  tokenUrl: 'https://auth.openai.com/oauth/token',
+  clientId: 'app-LrRbd5kkz6DWlCMumfv8jisf',
+  scopes: ['openid', 'profile', 'email', 'offline_access'],
+  redirectUri: 'http://localhost:19485/oauth/callback',
+  usePKCE: true,
+  apiBaseUrl: 'https://api.openai.com',
+  extraAuthParams: {
+    audience: 'https://api.openai.com/v1',
+  },
+  profileUrl: 'https://api.openai.com/v1/me',
+}
+
+// ─── Google (Gemini Advanced) ───────────────────────────────────────────────
+// Flow: Standard Google OAuth 2.0 — same as Gemini CLI
+// Reference: gemini-cli source
+
+export const GEMINI_OAUTH: OAuthProviderConfig = {
+  id: 'gemini-subscription',
+  name: 'Gemini (Subscription)',
+  authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+  tokenUrl: 'https://oauth2.googleapis.com/token',
+  clientId: '539778044953-crltqtao8vjfbjrmsg37vs7bf1tspiov.apps.googleusercontent.com',
+  scopes: [
+    'https://www.googleapis.com/auth/generative-language',
+    'https://www.googleapis.com/auth/userinfo.email',
+  ],
+  redirectUri: 'http://localhost:19485/oauth/callback',
+  usePKCE: true,
+  apiBaseUrl: 'https://generativelanguage.googleapis.com',
+  extraAuthParams: {
+    access_type: 'offline',
+    prompt: 'consent',
+  },
+  profileUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
+}
+
+// ─── Kimi (Moonshot) ────────────────────────────────────────────────────────
+// Kimi uses API key auth compatible with Anthropic Messages API format.
+// No OAuth required — user provides API key directly.
+
+export const KIMI_CONFIG: ApiKeyProviderConfig = {
+  id: 'kimi-subscription',
+  name: 'Kimi',
+  apiBaseUrl: 'https://api.kimi.com/coding/v1',
+  userAgent: 'claude-code/1.0',
+}
+
+// ─── Registry ───────────────────────────────────────────────────────────────
+
+export const OAUTH_PROVIDERS: Record<string, OAuthProviderConfig> = {
+  'claude-subscription': CLAUDE_OAUTH,
+  'openai-subscription': OPENAI_OAUTH,
+  'gemini-subscription': GEMINI_OAUTH,
+}
+
+export const ALL_SUBSCRIPTION_PROVIDERS: Record<string, SubscriptionProviderConfig> = {
+  'claude-subscription': CLAUDE_OAUTH,
+  'openai-subscription': OPENAI_OAUTH,
+  'gemini-subscription': GEMINI_OAUTH,
+  'kimi-subscription': KIMI_CONFIG,
+}

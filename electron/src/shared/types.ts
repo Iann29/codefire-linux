@@ -133,7 +133,12 @@ export type BrowserCommandChannel = 'browser:executeCommand'
 
 export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status'
 
-export type ProviderChannel = 'provider:listModels' | 'provider:healthCheck'
+export type ProviderChannel =
+  | 'provider:listModels'
+  | 'provider:healthCheck'
+  | 'provider:startOAuth'
+  | 'provider:listAccounts'
+  | 'provider:removeAccount'
 
 export type PremiumChannel =
   | 'premium:getStatus'

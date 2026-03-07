@@ -285,7 +285,7 @@ export interface AppConfig {
   defaultTerminalPath: string
 
   // Engine
-  aiProvider: 'openrouter' | 'custom'
+  aiProvider: 'openrouter' | 'custom' | 'claude-subscription' | 'openai-subscription' | 'gemini-subscription' | 'kimi-subscription'
   openRouterKey: string
   customEndpointUrl: string
   customEndpointKey: string
