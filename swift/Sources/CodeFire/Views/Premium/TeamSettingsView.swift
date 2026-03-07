@@ -18,6 +18,7 @@ struct TeamSettingsTab: View {
     @State private var inviteRole: String = "member"
     @State private var newTeamName: String = ""
     @State private var isCreatingTeam = false
+    @State private var createTeamError: String?
     @State private var isInviting = false
 
     var body: some View {
@@ -259,9 +260,19 @@ struct TeamSettingsTab: View {
                     }
 
                     // Billing
-                    HStack {
+                    HStack(spacing: 12) {
+                        Button("Subscribe") {
+                            openCheckout(team)
+                        }
+                        .font(.system(size: 11))
+                        .buttonStyle(.plain)
+                        .foregroundColor(.orange)
+
                         Button("Manage Billing") {
-                            openBilling(team)
+                            // Opens web billing portal
+                            if let url = URL(string: "https://codefire.app/billing?team=\(team.id)") {
+                                NSWorkspace.shared.open(url)
+                            }
                         }
                         .font(.system(size: 11))
                         .buttonStyle(.plain)
@@ -288,6 +299,12 @@ struct TeamSettingsTab: View {
                 TextField("Team Name", text: $newTeamName)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
+
+                if let error = createTeamError {
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
 
                 HStack {
                     Button("Create Team") {
@@ -371,9 +388,21 @@ struct TeamSettingsTab: View {
                 try await premiumService.createTeam(name: newTeamName, slug: slug)
                 newTeamName = ""
             } catch {
+                createTeamError = "\(error)"
                 print("TeamSettings: failed to create team: \(error)")
             }
             isCreatingTeam = false
+        }
+    }
+
+    private func openCheckout(_ team: Team) {
+        Task {
+            do {
+                let url = try await premiumService.createCheckout(teamId: team.id, plan: "starter", extraSeats: 0)
+                NSWorkspace.shared.open(url)
+            } catch {
+                print("TeamSettings: failed to open checkout: \(error)")
+            }
         }
     }
 

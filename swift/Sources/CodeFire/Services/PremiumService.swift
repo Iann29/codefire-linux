@@ -41,6 +41,39 @@ class PremiumService: ObservableObject {
         refreshToken = KeychainHelper.read(key: "premium_refresh_token")
         if accessToken != nil {
             status.authenticated = true
+            status.enabled = true
+            // Restore user profile from token
+            Task { await restoreUserProfile() }
+        }
+    }
+
+    private func restoreUserProfile() async {
+        guard let token = accessToken, !baseURL.isEmpty, !anonKey.isEmpty else { return }
+        var request = URLRequest(url: URL(string: baseURL + "/auth/v1/user")!)
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode == 401 {
+                // Token expired — try refresh
+                if let _ = try? await refreshSession() {
+                    await restoreUserProfile()
+                } else {
+                    clearTokens()
+                    status.authenticated = false
+                }
+                return
+            }
+            let user = try decoder.decode(AuthUser.self, from: data)
+            status.user = PremiumUser(
+                id: user.id,
+                email: user.email ?? "",
+                displayName: user.userMetadata?["display_name"] as? String ?? user.email ?? "",
+                avatarUrl: user.userMetadata?["avatar_url"] as? String
+            )
+            await loadTeamMembership()
+        } catch {
+            print("PremiumService: failed to restore user profile: \(error)")
         }
     }
 
@@ -79,6 +112,14 @@ class PremiumService: ObservableObject {
                 avatarUrl: nil
             )
         }
+
+        // If sign-up didn't return a session (e.g. email confirmation was required),
+        // automatically sign in to get a valid token.
+        if accessToken == nil {
+            try await signIn(email: email, password: password)
+            return
+        }
+
         status.authenticated = true
         status.enabled = true
     }
@@ -152,14 +193,34 @@ class PremiumService: ObservableObject {
         let slug = slug ?? name.lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .replacingOccurrences(of: "[^a-z0-9\\-]", with: "", options: .regularExpression)
+
+        let debugLog = "/tmp/codefire-premium-debug.log"
+        func dbg(_ msg: String) {
+            let line = "\(Date()): \(msg)\n"
+            print(line)
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: debugLog) {
+                    let handle = FileHandle(forWritingAtPath: debugLog)!
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                } else {
+                    FileManager.default.createFile(atPath: debugLog, contents: data)
+                }
+            }
+        }
+
+        dbg("createTeam: slug=\(slug), hasToken=\(accessToken != nil)")
+
+        // owner_id is set server-side via DEFAULT auth.uid()
         let body: [String: Any] = [
             "name": name,
             "slug": slug,
-            "owner_id": status.user?.id ?? "",
             "plan": "starter",
             "seat_limit": 5
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
+        dbg("createTeam body: \(String(data: bodyData, encoding: .utf8) ?? "nil")")
         let data = try await supabaseRequest(
             "teams",
             method: "POST",
@@ -170,6 +231,20 @@ class PremiumService: ObservableObject {
         guard let team = teams.first else {
             throw PremiumError.unexpected("No team returned")
         }
+
+        // Add the creator as team owner (use owner_id from the returned team, not status.user which may be nil on restore)
+        let memberBody: [String: Any] = [
+            "team_id": team.id,
+            "user_id": team.ownerId,
+            "role": "owner"
+        ]
+        let memberData = try JSONSerialization.data(withJSONObject: memberBody)
+        _ = try await supabaseRequest(
+            "team_members",
+            method: "POST",
+            body: memberData
+        )
+
         status.team = team
         return team
     }
@@ -678,8 +753,10 @@ class PremiumService: ObservableObject {
 
         if let token = accessToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            if method == "POST" { print("DEBUG supabaseRequest \(path): auth=accessToken prefix=\(String(token.prefix(20)))") }
         } else {
             request.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+            if method == "POST" { print("DEBUG supabaseRequest \(path): WARNING using anon key - no access token!") }
         }
 
         for (key, value) in headers {
