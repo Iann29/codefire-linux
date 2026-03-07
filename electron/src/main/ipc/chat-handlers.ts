@@ -1,8 +1,30 @@
 import { ipcMain } from 'electron'
 import Database from 'better-sqlite3'
+import { providerRouter } from './agent-handlers'
+import { readConfig } from '../services/ConfigStore'
+import type { ChatCompletionRequest } from '../services/providers/BaseProvider'
 
 export function registerChatHandlers(db: Database.Database) {
   console.log('[chat-handlers] Registering chat IPC handlers')
+
+  // Chat completion via ProviderRouter (for subscription providers in context mode)
+  ipcMain.handle('chat:providerCompletion', async (_event, payload: {
+    messages: Array<{ role: string; content: string }>
+    model: string
+    maxTokens?: number
+  }) => {
+    const config = readConfig()
+    const request: ChatCompletionRequest = {
+      model: payload.model,
+      messages: payload.messages as ChatCompletionRequest['messages'],
+      maxTokens: payload.maxTokens ?? 4096,
+    }
+    const response = await providerRouter.chatCompletion(config, request)
+    return {
+      content: response.choices?.[0]?.message?.content ?? '',
+      usage: response.usage,
+    }
+  })
 
   ipcMain.handle('chat:listConversations', (_e, projectId: string) => {
     try {
