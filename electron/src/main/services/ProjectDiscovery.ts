@@ -34,26 +34,10 @@ export interface DiscoveredProject {
  * @returns The resolved absolute path, or null if resolution fails
  */
 export function resolvePath(encoded: string, timeoutMs = 500): string | null {
-  const isWindows = process.platform === 'win32'
-
-  let rootDir: string
-  let chars: string
-
-  if (isWindows) {
-    // Windows: encoded names look like `C--Users-mcpme-...`
-    // The drive letter + first dash represents `C:\`
-    const winMatch = encoded.match(/^([A-Za-z])-(-.*)?$/)
-    if (!winMatch) return null
-    const driveLetter = winMatch[1].toUpperCase()
-    rootDir = `${driveLetter}:\\`
-    // The rest after `X-` — strip the leading `-` that represents `\`
-    chars = winMatch[2] ? winMatch[2].slice(1) : ''
-  } else {
-    // Unix: encoded names start with `-` representing the leading `/`
-    if (!encoded.startsWith('-')) return null
-    rootDir = '/'
-    chars = encoded.slice(1)
-  }
+  // Encoded names start with `-` representing the leading `/`
+  if (!encoded.startsWith('-')) return null
+  const rootDir = '/'
+  const chars = encoded.slice(1)
 
   if (chars.length === 0) return null
 

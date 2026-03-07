@@ -18,7 +18,7 @@ If you discover a security vulnerability in CodeFire, **please do not open a pub
 Include:
 - Description of the vulnerability
 - Steps to reproduce
-- Affected platform (macOS Swift, Electron Windows/Linux, MCP server)
+- Affected component (Electron app, MCP server)
 - Impact assessment (what an attacker could do)
 - Any suggested fix, if you have one
 
@@ -37,8 +37,7 @@ Include:
 ### In Scope
 
 - **Electron app** — main process, preload, renderer, IPC handlers
-- **Swift app** — all app code and services
-- **MCP server** — both Node.js and Swift implementations
+- **MCP server** — Node.js implementation
 - **Database** — SQLite schema, migrations, data access
 - **Browser automation** — webview security, domain allowlist bypass
 - **Deep links** — `codefire://` protocol handler abuse

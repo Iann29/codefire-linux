@@ -103,18 +103,7 @@ export class MCPServerManager {
   }
 
   private getConnectionDir(): string {
-    switch (process.platform) {
-      case 'darwin':
-        return path.join(os.homedir(), '.local', 'share', 'CodeFire', 'mcp-connections')
-      case 'win32':
-        return path.join(
-          process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-          'CodeFire',
-          'mcp-connections'
-        )
-      default:
-        return path.join(os.homedir(), '.local', 'share', 'CodeFire', 'mcp-connections')
-    }
+    return path.join(os.homedir(), '.local', 'share', 'CodeFire', 'mcp-connections')
   }
 
   /** Get the path to the MCP server executable for .mcp.json configuration */

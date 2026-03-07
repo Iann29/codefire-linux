@@ -75,7 +75,7 @@ export function registerTerminalHandlers(terminalService: TerminalService) {
     } else {
       // No terminal exists yet — create one, wire it up, then write after shell initializes
       const id = `__auto-term-${Date.now()}`
-      const cwd = process.env.HOME || process.env.USERPROFILE || process.cwd()
+      const cwd = process.env.HOME || process.cwd()
       terminalService.create(id, cwd)
 
       const senderWindow = BrowserWindow.fromWebContents(_event.sender)

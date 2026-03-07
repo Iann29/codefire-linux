@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu } from 'electron'
 import path from 'path'
 import { getDatabase, closeDatabase } from './database/connection'
 import { registerAllHandlers } from './ipc'
@@ -6,7 +6,7 @@ import { registerSearchHandlers } from './ipc/search-handlers'
 import { registerGmailHandlers } from './ipc/gmail-handlers'
 import { WindowManager } from './windows/WindowManager'
 import { TrayManager } from './windows/TrayManager'
-import type { TerminalService as TerminalServiceType } from './services/TerminalService'
+import { TerminalService } from './services/TerminalService'
 import { GitService } from './services/GitService'
 import { GoogleOAuth } from './services/GoogleOAuth'
 import { GmailService } from './services/GmailService'
@@ -39,14 +39,8 @@ process.env.VITE_PUBLIC = process.env.VITE_DEV_SERVER_URL
 const db = getDatabase()
 const windowManager = WindowManager.getInstance()
 const trayManager = new TrayManager(windowManager)
-// Lazy-load TerminalService — node-pty may not be available if build tools are missing
-let terminalService: TerminalServiceType | undefined
-try {
-  const { TerminalService } = require('./services/TerminalService')
-  terminalService = new TerminalService()
-} catch {
-  console.warn('[Main] Terminal service unavailable — node-pty failed to load')
-}
+// TerminalService handles node-pty availability internally via lazy require
+const terminalService = new TerminalService()
 const gitService = new GitService()
 
 // Read config early (lightweight)
@@ -156,13 +150,12 @@ function handleDeepLinkURL(url: string) {
   }
 }
 
-// Windows/Linux: second instance passes the URL via argv
+// Second instance passes deep link URL via argv
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {
-    // On Windows, the deep link URL is the last argument
     const url = argv.find((arg) => arg.startsWith('codefire://'))
     if (url) handleDeepLinkURL(url)
     // Focus existing window
@@ -174,12 +167,6 @@ if (!gotTheLock) {
     }
   })
 }
-
-// macOS: open-url event fires when the app is already running
-app.on('open-url', (event, url) => {
-  event.preventDefault()
-  handleDeepLinkURL(url)
-})
 
 // Register essential IPC handlers immediately (db, window, terminal, git, MCP)
 registerAllHandlers(db, windowManager, terminalService, gitService, undefined, undefined, undefined, undefined, mcpManager, undefined)
@@ -203,24 +190,11 @@ if (config.mcpServerAutoStart) {
 }
 
 app.whenReady().then(() => {
-  // Set dock icon on macOS
-  if (process.platform === 'darwin') {
-    const iconPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'icon.png')
-      : path.join(__dirname, '../../resources/icon.png')
-    const icon = nativeImage.createFromPath(iconPath)
-    if (!icon.isEmpty()) {
-      app.dock?.setIcon(icon)
-    }
-  }
-
   // Create system tray
   trayManager.create()
 
   // Build custom application menu
-  const isMac = process.platform === 'darwin'
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' as const }] : []),
     {
       label: 'File',
       submenu: [
@@ -233,7 +207,7 @@ app.whenReady().then(() => {
           },
         },
         { type: 'separator' as const },
-        isMac ? { role: 'close' as const } : { role: 'quit' as const },
+        { role: 'quit' as const },
       ],
     },
     { role: 'editMenu' as const },
@@ -282,9 +256,9 @@ app.whenReady().then(() => {
     })
   }
 
-  // Minimize to tray instead of closing on Windows/Linux
+  // Minimize to tray instead of closing
   mainWin.on('close', (e) => {
-    if (!isQuitting && process.platform !== 'darwin') {
+    if (!isQuitting) {
       e.preventDefault()
       mainWin.hide()
     }
@@ -296,16 +270,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  // On macOS, re-create the main window when dock icon is clicked
-  if (BrowserWindow.getAllWindows().length === 0) {
-    windowManager.createMainWindow()
-  } else {
-    // If main window exists but is hidden, show it
-    const mainWin = windowManager.getMainWindow()
-    if (mainWin) {
-      mainWin.show()
-      mainWin.focus()
-    }
+  const mainWin = windowManager.getMainWindow()
+  if (mainWin) {
+    mainWin.show()
+    mainWin.focus()
   }
 })
 

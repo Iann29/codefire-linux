@@ -192,13 +192,9 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     )
   }
 
-  const isMac = navigator.platform.toUpperCase().includes('MAC')
-
   return (
     <div className="h-screen w-screen overflow-hidden bg-neutral-900">
-      {isMac && <div className="drag-region h-7 flex-shrink-0" />}
-
-      <div className="flex flex-col" style={{ height: isMac ? 'calc(100vh - 28px)' : '100vh' }}>
+      <div className="flex flex-col h-screen">
         {/* Top bar with project indicators */}
         <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 bg-neutral-950 shrink-0">
           <img src={logoIcon} alt="CodeFire" className="w-4 h-4" />

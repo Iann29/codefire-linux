@@ -10,8 +10,6 @@ import AllProjectsView from '@renderer/views/AllProjectsView'
 import { useMCPStatus } from '@renderer/hooks/useMCPStatus'
 import NotificationBell from '@renderer/components/NotificationBell'
 
-const isMac = navigator.platform.toUpperCase().includes('MAC')
-
 export default function MainLayout() {
   const { mcpStatus, mcpSessionCount, startMCP, stopMCP } = useMCPStatus()
   const [defaultTerminalPath, setDefaultTerminalPath] = useState('')
@@ -27,9 +25,7 @@ export default function MainLayout() {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-neutral-900">
-      {isMac && <div className="drag-region h-7 flex-shrink-0" />}
-
-      <div className="flex flex-col" style={{ height: isMac ? 'calc(100vh - 28px)' : '100vh' }}>
+      <div className="flex flex-col h-screen">
         {/* Top bar */}
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-800 bg-neutral-950 shrink-0">
           <img src={logoIcon} alt="CodeFire" className="w-4 h-4" />

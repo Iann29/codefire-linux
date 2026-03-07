@@ -1,12 +1,11 @@
 # Contributing to CodeFire
 
-Thanks for your interest in contributing! CodeFire is a monorepo with two platform-specific apps that share a common database schema and MCP protocol.
+Thanks for your interest in contributing! CodeFire is a Linux-only Electron app with a companion MCP server.
 
 ## Repository Structure
 
 ```
-swift/          macOS app (Swift/SwiftUI) — Beta
-electron/       Windows/Linux app (Electron/React) — Alpha
+electron/       Linux app (Electron/React/TypeScript)
 landing/        Marketing website
 assets/         Shared screenshots and branding
 scripts/        Build and packaging scripts
@@ -16,31 +15,15 @@ scripts/        Build and packaging scripts
 
 | If you're working on... | Go to... |
 |------------------------|----------|
-| macOS features or bugs | `swift/` |
-| Windows/Linux features or bugs | `electron/` |
+| App features or bugs | `electron/` |
 | The marketing website | `landing/` |
 | Build/packaging scripts | `scripts/` |
 
-## Shared Database Schema
+## Database Schema
 
-Both the Swift and Electron apps read and write the same SQLite database (`~/Library/Application Support/CodeFire/codefire.db` on macOS, platform-appropriate paths elsewhere). If you modify the database schema in one app, you **must** update the other to match.
-
-- **Swift migrations:** `swift/Sources/CodeFire/Services/DatabaseService.swift`
-- **Electron migrations:** `electron/src/main/database/migrations/index.ts`
+The SQLite database lives at `~/.config/CodeFire/codefire.db`. Migrations are in `electron/src/main/database/migrations/index.ts`.
 
 ## Development Setup
-
-### macOS (Swift)
-
-```bash
-cd swift
-swift build
-# Run with: swift run CodeFire
-```
-
-Requires Xcode 15+ or Swift 5.9+ toolchain.
-
-### Electron
 
 ```bash
 cd electron
@@ -50,14 +33,13 @@ npm run dev
 
 Requires Node.js 18+.
 
-**Windows prerequisites:** The Electron app uses native modules (`better-sqlite3`, `node-pty`) that need to be compiled against Electron's Node headers. The `postinstall` script handles this automatically, but you need:
-- **Python 3.12** (3.13+ may not work due to removed `distutils` module)
-- **Visual Studio Build Tools** with the "Desktop development with C++" workload (VS 2019, 2022, or 2026)
+**Linux prerequisites:** The Electron app uses native modules (`better-sqlite3`, `node-pty`) that need to be compiled against Electron's Node headers. The `postinstall` script handles this automatically, but you need:
+- **Python 3**
+- **Build tools:** `base-devel` (Arch), `build-essential` (Debian/Ubuntu)
 
 ### Running Tests
 
 ```bash
-# Electron tests
 cd electron
 npm test
 ```
@@ -72,11 +54,9 @@ npm test
 
 1. Target the `main` branch
 2. Include a clear description of what changed and why
-3. If your change affects both apps, note that in the PR description
-4. Keep PRs focused — one feature or fix per PR
-5. Add tests for new Electron functionality
+3. Keep PRs focused — one feature or fix per PR
+4. Add tests for new functionality
 
 ## Code Style
 
-- **Swift:** Follow standard Swift conventions. The project uses SwiftUI and Swift Package Manager.
 - **Electron/React:** TypeScript with React. Use the existing patterns in `electron/src/renderer/` for components and hooks.

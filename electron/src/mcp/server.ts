@@ -21,20 +21,7 @@ const execFileAsync = promisify(execFile)
 // ─── Database ────────────────────────────────────────────────────────────────
 
 function getDatabasePath(): string {
-  let dir: string
-  switch (process.platform) {
-    case 'darwin':
-      dir = path.join(os.homedir(), 'Library', 'Application Support', 'CodeFire')
-      break
-    case 'win32':
-      dir = path.join(
-        process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-        'CodeFire'
-      )
-      break
-    default:
-      dir = path.join(os.homedir(), '.config', 'CodeFire')
-  }
+  const dir = path.join(os.homedir(), '.config', 'CodeFire')
   fs.mkdirSync(dir, { recursive: true })
   return path.join(dir, 'codefire.db')
 }
@@ -54,21 +41,7 @@ function openDatabase(): Database.Database {
 // ─── Connection tracking ─────────────────────────────────────────────────────
 
 function getConnectionDir(): string {
-  let dir: string
-  switch (process.platform) {
-    case 'darwin':
-      dir = path.join(os.homedir(), '.local', 'share', 'CodeFire', 'mcp-connections')
-      break
-    case 'win32':
-      dir = path.join(
-        process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-        'CodeFire',
-        'mcp-connections'
-      )
-      break
-    default:
-      dir = path.join(os.homedir(), '.local', 'share', 'CodeFire', 'mcp-connections')
-  }
+  const dir = path.join(os.homedir(), '.local', 'share', 'CodeFire', 'mcp-connections')
   fs.mkdirSync(dir, { recursive: true })
   return dir
 }
@@ -2004,7 +1977,7 @@ server.registerTool(
     ]
 
     const results: { name: string; installed: boolean; version?: string }[] = []
-    const which = process.platform === 'win32' ? 'where' : 'which'
+    const which = 'which'
 
     for (const agent of agents) {
       let installed = false

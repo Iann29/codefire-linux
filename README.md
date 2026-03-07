@@ -6,12 +6,10 @@
 
 <p align="center">
   <strong>Persistent memory for AI coding agents</strong><br>
-  A cross-platform companion app for Claude Code, Gemini CLI, Codex CLI, and OpenCode
+  A Linux companion app for Claude Code, Gemini CLI, Codex CLI, and OpenCode
 </p>
 
 <p align="center">
-  <a href="https://github.com/websitebutlers/codefire-app/releases/latest"><img src="https://img.shields.io/badge/download-macOS-orange?style=flat-square" alt="Download macOS"></a>
-  <a href="https://github.com/websitebutlers/codefire-app/releases/latest"><img src="https://img.shields.io/badge/download-Windows-blue?style=flat-square" alt="Download Windows"></a>
   <a href="https://github.com/websitebutlers/codefire-app/releases/latest"><img src="https://img.shields.io/badge/download-Linux-green?style=flat-square" alt="Download Linux"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square" alt="MIT License"></a>
 </p>
@@ -28,14 +26,7 @@ Your AI coding agent forgets everything between sessions. CodeFire fixes that.
 
 It auto-discovers your projects, tracks tasks and sessions, monitors live coding activity, and exposes project data back to your AI via MCP — creating a persistent memory layer where your agent knows what you were working on, what decisions were made, and what's left to do.
 
-Two platform implementations share the same SQLite database schema and MCP protocol:
-
-| Platform | Technology | Status |
-|----------|-----------|--------|
-| **macOS (Apple Silicon)** | Swift / SwiftUI | Beta — primary platform |
-| **Windows (x64)** | Electron / React / TypeScript | Early Alpha |
-| **Linux (x64)** | Electron / React / TypeScript | Early Alpha |
-| **macOS (Intel)** | Electron / React / TypeScript | Early Alpha |
+> **This is a Linux-only fork** of the original [CodeFire](https://github.com/nicepkg/codefire) project, built with Electron / React / TypeScript.
 
 ### Features
 
@@ -44,7 +35,7 @@ Two platform implementations share the same SQLite database schema and MCP proto
 - **Live session monitoring** — Real-time token usage, cost tracking, and tool call stats
 - **Semantic code search** — Vector + keyword hybrid search across your indexed codebase
 - **Built-in terminal** — Tabbed terminal sessions alongside your project views, with show/hide toggle
-- **Browser automation** — 40+ MCP tools for navigating, clicking, typing, screenshotting (Electron)
+- **Browser automation** — 40+ MCP tools for navigating, clicking, typing, screenshotting
 - **Git integration** — Commits, staged changes, diffs, and branch management
 - **AI chat** — Ask questions about your codebase with RAG-powered context
 - **Image generation** — Text-to-image via OpenRouter (Gemini, DALL-E, etc.)
@@ -59,13 +50,10 @@ Two platform implementations share the same SQLite database schema and MCP proto
 
 ## Download
 
-| Platform | Download | Notes |
-|----------|----------|-------|
-| **macOS (Apple Silicon)** | [CodeFire-macOS.zip](https://github.com/websitebutlers/codefire-app/releases/download/v1.1.0/CodeFire-macOS.zip) | Native Swift app. Unzip and drag to Applications. |
-| **macOS (Intel)** | [CodeFire-1.1.0.dmg](https://github.com/websitebutlers/codefire-app/releases/download/v1.1.0/CodeFire-1.1.0.dmg) | Electron app. Also runs on Apple Silicon via Rosetta 2. |
-| **Windows** | [CodeFire.Setup.1.1.0.exe](https://github.com/websitebutlers/codefire-app/releases/download/v1.1.0/CodeFire.Setup.1.1.0.exe) | NSIS installer. Windows 10+ required. |
-| **Linux (AppImage)** | [CodeFire-1.1.0.AppImage](https://github.com/websitebutlers/codefire-app/releases/download/v1.1.0/CodeFire-1.1.0.AppImage) | `chmod +x` and run. Works on any distro. |
-| **Linux (deb)** | [codefire-electron_1.1.0_amd64.deb](https://github.com/websitebutlers/codefire-app/releases/download/v1.1.0/codefire-electron_1.1.0_amd64.deb) | `sudo dpkg -i` for Debian/Ubuntu. |
+| Format | Download | Notes |
+|--------|----------|-------|
+| **AppImage** | [CodeFire-1.1.1.AppImage](https://github.com/websitebutlers/codefire-app/releases/latest) | `chmod +x` and run. Works on any distro. |
+| **deb** | [codefire-electron_1.1.1_amd64.deb](https://github.com/websitebutlers/codefire-app/releases/latest) | `sudo dpkg -i` for Debian/Ubuntu. |
 
 > For detailed setup instructions including API key configuration, see the **[Getting Started guide](https://codefire.app/getting-started)**.
 
@@ -73,11 +61,11 @@ Two platform implementations share the same SQLite database schema and MCP proto
 
 ### 1. Install & Open
 
-Download for your platform above, install, and launch CodeFire.
+Download the AppImage or deb above, install, and launch CodeFire.
 
 ### 2. Add Your OpenRouter API Key
 
-Open Settings and go to the **Engine** tab (Electron) or **CodeFire Engine** tab (Swift). Paste your [OpenRouter API key](https://openrouter.ai/keys). This powers AI chat, semantic code search, and image generation.
+Open Settings and go to the **Engine** tab. Paste your [OpenRouter API key](https://openrouter.ai/keys). This powers AI chat, semantic code search, and image generation.
 
 ### 3. Connect Your CLI
 
@@ -87,7 +75,7 @@ Or configure manually:
 
 ```bash
 # Claude Code
-claude mcp add codefire ~/Library/Application\ Support/CodeFire/bin/CodeFireMCP
+claude mcp add codefire -- node ~/.config/CodeFire/mcp-server.js
 ```
 
 <details>
@@ -98,8 +86,8 @@ claude mcp add codefire ~/Library/Application\ Support/CodeFire/bin/CodeFireMCP
 {
   "mcpServers": {
     "codefire": {
-      "command": "~/Library/Application Support/CodeFire/bin/CodeFireMCP",
-      "args": []
+      "command": "node",
+      "args": ["~/.config/CodeFire/mcp-server.js"]
     }
   }
 }
@@ -108,8 +96,8 @@ claude mcp add codefire ~/Library/Application\ Support/CodeFire/bin/CodeFireMCP
 **Codex CLI** — `~/.codex/config.toml`:
 ```toml
 [mcp_servers.codefire]
-command = "~/Library/Application Support/CodeFire/bin/CodeFireMCP"
-args = []
+command = "node"
+args = ["~/.config/CodeFire/mcp-server.js"]
 ```
 
 **OpenCode** — `opencode.json` (project root):
@@ -118,13 +106,11 @@ args = []
   "mcpServers": {
     "codefire": {
       "type": "local",
-      "command": ["~/Library/Application Support/CodeFire/bin/CodeFireMCP"]
+      "command": ["node", "~/.config/CodeFire/mcp-server.js"]
     }
   }
 }
 ```
-
-> Electron users: the MCP server path differs by platform. See the [Getting Started guide](https://codefire.app/getting-started) for exact paths.
 
 </details>
 
@@ -149,36 +135,19 @@ CodeFire's MCP server exposes **63 tools** to your AI coding agent:
 
 ## Build from Source
 
-### macOS (Swift)
-
-```bash
-cd swift
-swift build -c release
-```
-
-See [`swift/README.md`](swift/) for full build and signing instructions.
-
-### Windows / Linux / macOS Intel (Electron)
-
 ```bash
 cd electron
 npm install          # Install deps + rebuild native modules
 npm run dev          # Start dev server + Electron
 npm run build        # TypeScript compile + Vite build
 npm test             # Run tests (Vitest)
-npm run dist         # Package for current platform
-npm run dist:win     # Windows installer (NSIS)
-npm run dist:linux   # Linux packages (AppImage + deb)
-npm run dist:mac     # macOS DMG + zip
+npm run dist         # Package for Linux (AppImage + deb)
 ```
-
-See [`electron/README.md`](electron/) for detailed architecture and development docs.
 
 ## Repository Structure
 
 ```
-swift/          macOS app (Swift/SwiftUI) — Beta
-electron/       Windows/Linux/macOS Intel app (Electron/React/TypeScript) — Alpha
+electron/       Linux app (Electron/React/TypeScript)
 landing/        Marketing website (codefire.app)
 assets/         Shared screenshots and branding
 scripts/        Build and packaging scripts
@@ -188,12 +157,9 @@ SECURITY.md     Security policy and vulnerability reporting
 
 ## Architecture
 
-Both apps follow the same data model:
-
-- **SQLite database** at `~/Library/Application Support/CodeFire/codefire.db` (macOS), `~/.config/CodeFire/codefire.db` (Linux), or `%APPDATA%\CodeFire\codefire.db` (Windows)
+- **SQLite database** at `~/.config/CodeFire/codefire.db`
 - **MCP server** communicates via stdio — no network listeners, fully local
 - **Project discovery** scans `~/.claude/projects/` for Claude Code session data
-- **Shared schema** — both Swift and Electron apps read/write the same database
 
 ### Electron Architecture
 
@@ -208,12 +174,9 @@ Path aliases: `@shared`, `@renderer`, `@main`
 
 ## Contributing
 
-We're actively looking for contributors, especially for the Electron app on Windows and Linux.
+We welcome contributions! This is a Linux-focused fork.
 
 - **[Getting Started guide](https://codefire.app/getting-started)** — Set up the app
-- **[Testers Wanted](https://github.com/websitebutlers/codefire-app/discussions/48)** — Testing guide with platform-specific instructions
-- **[Developer Wishlist](https://github.com/websitebutlers/codefire-app/discussions/49)** — Areas where we need help (search engine, browser automation, testing, MCP)
-- **[Community Guidelines](https://github.com/websitebutlers/codefire-app/discussions/47)** — How to get involved
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Code style, branch naming, and PR guidelines
 - **[SECURITY.md](SECURITY.md)** — Vulnerability reporting
 
@@ -221,14 +184,12 @@ We're actively looking for contributors, especially for the Electron app on Wind
 
 1. **Semantic search improvements** — Local embedding fallback, reranking, better chunking
 2. **Browser automation** — Network capture, session persistence, Web Vitals
-3. **Testing** — Swift unit tests, MCP protocol tests, E2E browser tests, CI matrix builds
-4. **Cross-platform parity** — Port features between Swift and Electron
-5. **MCP server extensions** — Git operations, custom tool plugins, metrics
+3. **Testing** — Unit tests, MCP protocol tests, E2E browser tests
+4. **MCP server extensions** — Git operations, custom tool plugins, metrics
 
 ## Requirements
 
-- **macOS (Swift):** macOS 14.0 (Sonoma) or later, Apple Silicon
-- **Electron:** Windows 10+, Ubuntu 20.04+, or macOS 10.15+ (Intel or Apple Silicon via Rosetta)
+- **Linux** x64 (tested on Arch, Ubuntu 20.04+, Fedora)
 - **OpenRouter API key** for AI-powered features ([get one here](https://openrouter.ai/keys))
 - An AI coding CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Codex CLI](https://github.com/openai/codex), or [OpenCode](https://github.com/sst/opencode)
 

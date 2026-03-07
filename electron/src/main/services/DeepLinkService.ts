@@ -87,7 +87,7 @@ export class DeepLinkService {
   private installClaudeMCP(cli: CLIProvider, displayName: string, mcpServerPath: string): DeepLinkResult {
     // Try `claude mcp add` command first
     try {
-      const claudeCmd = process.platform === 'win32' ? 'claude.cmd' : 'claude'
+      const claudeCmd = 'claude'
       execFileSync(claudeCmd, ['mcp', 'add', 'codefire', '--', 'node', mcpServerPath], {
         stdio: 'ignore',
         timeout: 10000,

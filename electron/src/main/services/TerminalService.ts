@@ -1,8 +1,15 @@
-import * as pty from 'node-pty'
+// Lazy-load node-pty so Vite can bundle this file into the main chunk.
+// The require('node-pty') is preserved as-is because it's marked external in vite.config.ts.
+let pty: typeof import('node-pty') | null = null
+try {
+  pty = require('node-pty')
+} catch {
+  // node-pty not available — native build tools were missing at install time
+}
 
 interface TerminalSession {
   id: string
-  pty: pty.IPty
+  pty: import('node-pty').IPty
   projectPath: string
 }
 
@@ -20,7 +27,7 @@ export class TerminalService {
    * Returns false if native build tools were not present at install time.
    */
   isAvailable(): boolean {
-    return typeof pty.spawn === 'function'
+    return pty !== null && typeof pty.spawn === 'function'
   }
 
   /**
@@ -30,7 +37,7 @@ export class TerminalService {
    * @param projectPath - Working directory for the shell
    */
   create(id: string, projectPath: string): void {
-    if (!this.isAvailable()) {
+    if (!this.isAvailable() || !pty) {
       throw new Error('Terminal is not available — node-pty failed to load. Install system build tools and reinstall.')
     }
 
@@ -39,10 +46,7 @@ export class TerminalService {
       return
     }
 
-    const shell =
-      process.platform === 'win32'
-        ? 'powershell.exe'
-        : process.env.SHELL || '/bin/zsh'
+    const shell = process.env.SHELL || '/bin/bash'
 
     // Clean environment: remove vars that make Claude Code think it's nested
     const cleanEnv = { ...process.env } as Record<string, string>

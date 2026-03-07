@@ -29,7 +29,7 @@ export class MainWindow {
       ...bounds,
       minWidth: 900,
       minHeight: 600,
-      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+      titleBarStyle: 'default',
       frame: true,
       backgroundColor: '#171717',
       show: false,

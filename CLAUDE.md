@@ -4,18 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is CodeFire?
 
-Persistent memory companion app for AI coding agents (Claude Code, Gemini CLI, Codex CLI, OpenCode). Auto-discovers projects, tracks tasks/sessions, monitors coding activity, and exposes data via MCP server. Two platform implementations share a common SQLite schema and MCP protocol.
+Persistent memory companion app for AI coding agents (Claude Code, Gemini CLI, Codex CLI, OpenCode). Auto-discovers projects, tracks tasks/sessions, monitors coding activity, and exposes data via MCP server. Linux-only Electron fork.
 
 ## Repository Layout
 
-- `swift/` — macOS app (Swift/SwiftUI) — Beta, primary platform
-- `electron/` — Windows/Linux app (Electron/React/TypeScript) — Early Alpha
+- `electron/` — Linux app (Electron/React/TypeScript)
 - `landing/` — Marketing website
 - `scripts/` — Build and packaging scripts (icon generation, packaging)
 
 ## Development Commands
-
-### Electron (Windows/Linux)
 
 ```bash
 cd electron
@@ -24,17 +21,7 @@ npm run dev          # Start Vite dev server + Electron
 npm run build        # TypeScript compile + Vite build
 npm test             # Run vitest tests (vitest run)
 npm run test:watch   # Run vitest in watch mode
-npm run dist:win     # Build Windows installer (NSIS)
-npm run dist:linux   # Build Linux packages (AppImage + deb)
-```
-
-### macOS (Swift)
-
-```bash
-cd swift
-swift build              # Build
-swift build -c release   # Release build
-swift run CodeFire       # Run
+npm run dist         # Build Linux packages (AppImage + deb)
 ```
 
 ## Electron Architecture
@@ -70,7 +57,7 @@ Path aliases: `@shared` → `src/shared`, `@renderer` → `src/renderer`, `@main
 
 - **IPC communication**: Renderer calls `window.api.invoke('domain:action', ...args)`. Main process handles via `ipcMain.handle`. Channel names follow `domain:action` convention and are typed in `src/shared/types.ts`.
 - **Terminal**: Uses fire-and-forget `send` for writes/resizes, `handle` for create/kill, and `webContents.send` for data back to renderer.
-- **Database**: All DB access goes through DAO classes. If you modify the schema, you must update migrations in both `swift/Sources/CodeFire/Services/DatabaseService.swift` and `electron/src/main/database/migrations/index.ts`.
+- **Database**: All DB access goes through DAO classes. Migrations in `electron/src/main/database/migrations/index.ts`. Database at `~/.config/CodeFire/codefire.db`.
 - **Native modules**: `better-sqlite3` and `node-pty` are externalized from Vite bundling and unpacked from asar. `better-sqlite3` is rebuilt against Electron's Node headers via a `postinstall` script (`electron-rebuild`). `node-pty` ships N-API prebuilds that are ABI-stable across Node/Electron versions.
 - **Multi-window**: Main window shows home/global views. Project windows open separately with `?projectId=` param.
 
@@ -84,14 +71,13 @@ When creating a GitHub release:
 
    | Asset | Size | Platform |
    |-------|------|----------|
-   | [filename](download-url) | size | platform description |
+   | [filename](download-url) | size | Linux AppImage / deb |
    ```
    - Link each asset name to its direct download URL
    - Include size in MB (rounded)
-   - List all platform variants (Swift macOS, Electron macOS DMG/zip, Windows exe, Linux AppImage, Linux deb)
+   - List Linux variants (AppImage, deb)
 
 2. **Update README download links** to point to the new version's assets
-3. **Repo:** `websitebutlers/codefire-app`
 
 ## Branch Naming
 

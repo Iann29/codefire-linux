@@ -99,12 +99,8 @@ export default function Sidebar({ selectedProjectId, onProjectSelect, onHomeClic
     load()
   }
 
-  const isMac = navigator.platform.toUpperCase().includes('MAC')
-
   return (
     <div className="h-full flex flex-col bg-neutral-950">
-      {/* macOS drag region */}
-      {isMac && <div className="drag-region h-7 flex-shrink-0" />}
 
       {/* Logo */}
       <div className="px-3 pb-2 flex items-center gap-1.5">

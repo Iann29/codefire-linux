@@ -32,7 +32,7 @@ export class ProjectWindow {
       ...bounds,
       minWidth: 800,
       minHeight: 500,
-      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+      titleBarStyle: 'default',
       frame: true,
       backgroundColor: '#171717',
       show: false,

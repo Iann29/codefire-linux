@@ -153,12 +153,12 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
         <p className="text-sm font-medium text-neutral-300">Terminal not available</p>
         <p className="text-xs leading-relaxed">
           The terminal requires native build tools that weren&apos;t found during installation.
-          Install build tools for your platform and reinstall CodeFire:
+          Install build tools and reinstall CodeFire:
         </p>
-        <ul className="text-xs text-neutral-500 list-disc text-left space-y-1">
-          <li><strong>Windows:</strong> Install Visual Studio Build Tools with &quot;Desktop development with C++&quot;</li>
-          <li><strong>Linux:</strong> <code className="bg-neutral-800 px-1 rounded">sudo apt install build-essential python3</code></li>
-        </ul>
+        <p className="text-xs text-neutral-500">
+          <code className="bg-neutral-800 px-1 rounded">sudo pacman -S base-devel python</code> (Arch) or{' '}
+          <code className="bg-neutral-800 px-1 rounded">sudo apt install build-essential python3</code> (Debian/Ubuntu)
+        </p>
       </div>
     )
   }

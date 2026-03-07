@@ -1,7 +1,7 @@
 {
   "name": "codefire-electron",
   "version": "1.1.1",
-  "description": "CodeFire — Cross-platform companion for AI coding CLIs",
+  "description": "CodeFire — Linux companion for AI coding CLIs",
   "main": "dist-electron/main/index.js",
   "author": {
     "name": "Website Butlers",
@@ -15,11 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:mcp": "npm run build && node -e \"require('fs').copyFileSync('dist-electron/mcp/server.js','mcp-server/server.js')\" && cd mcp-server && npm install",
-    "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:linux": "npm run build && electron-builder --linux",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:all": "npm run build && electron-builder --win --linux --mac",
+    "dist": "npm run build && electron-builder --linux",
     "postinstall": "electron-rebuild --only=better-sqlite3 && node scripts/patch-vite-plugin-electron.js"
   },
   "dependencies": {
@@ -129,61 +125,6 @@
         ]
       }
     ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "resources/icon.ico"
-    },
-    "nsis": {
-      "installerIcon": "resources/icon.ico",
-      "uninstallerIcon": "resources/icon.ico",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "CodeFire",
-      "allowElevation": true
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "resources/icon.icns",
-      "category": "public.app-category.developer-tools",
-      "identity": null
-    },
-    "dmg": {
-      "title": "${productName}",
-      "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    },
     "linux": {
       "target": [
         "AppImage",

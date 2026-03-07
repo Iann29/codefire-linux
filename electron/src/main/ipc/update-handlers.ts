@@ -2,8 +2,6 @@ import { ipcMain, shell } from 'electron'
 import { app } from 'electron'
 import https from 'https'
 import http from 'http'
-import fs from 'fs'
-import path from 'path'
 
 const GITHUB_REPO = 'nicepkg/codefire'
 
@@ -39,21 +37,12 @@ export function registerUpdateHandlers() {
       const latestVersion = (release.tag_name || '').replace(/^v/, '')
       const available = latestVersion !== currentVersion && latestVersion > currentVersion
 
-      // Find the right asset for this platform
-      const platform = process.platform
+      // Find the Linux asset
       const assets = release.assets || []
       let downloadUrl: string | null = null
       for (const asset of assets) {
         const name = (asset.name || '').toLowerCase()
-        if (platform === 'win32' && name.endsWith('.exe')) {
-          downloadUrl = asset.browser_download_url
-          break
-        }
-        if (platform === 'linux' && name.endsWith('.appimage')) {
-          downloadUrl = asset.browser_download_url
-          break
-        }
-        if (platform === 'darwin' && name.endsWith('.dmg')) {
+        if (name.endsWith('.appimage') || name.endsWith('.deb')) {
           downloadUrl = asset.browser_download_url
           break
         }
