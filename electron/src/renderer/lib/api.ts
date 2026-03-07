@@ -453,6 +453,31 @@ export const api = {
       invoke('chat:deleteConversation', id) as Promise<boolean>,
   },
 
+  agent: {
+    start: (payload: {
+      conversationId: number
+      userMessage: string
+      projectId?: string | null
+      projectName?: string
+      model?: string
+      apiKey?: string
+      maxIterations?: number
+      maxToolCalls?: number
+      temperature?: number
+      planEnforcement?: boolean
+      contextCompaction?: boolean
+    }) => invoke('agent:start', payload) as Promise<{ runId: string }>,
+    cancel: (runId?: string) =>
+      invoke('agent:cancel', runId) as Promise<{ cancelled: boolean }>,
+    status: () =>
+      invoke('agent:status') as Promise<{
+        status: 'idle' | 'running'
+        runId?: string
+        conversationId?: number
+        startedAt?: string
+      }>,
+  },
+
   update: {
     check: () =>
       invoke('update:check') as Promise<{

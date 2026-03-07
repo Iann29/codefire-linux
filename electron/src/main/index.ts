@@ -17,9 +17,12 @@ import { SearchEngine } from './services/SearchEngine'
 import { ContextEngine } from './services/ContextEngine'
 import { EmbeddingClient } from './services/EmbeddingClient'
 import { BrowserCommandExecutor } from './services/BrowserCommandExecutor'
+import { BrowserBridge } from './services/BrowserBridge'
+import { AgentService } from './services/AgentService'
 import { LiveSessionWatcher } from './services/LiveSessionWatcher'
 import { FileWatcher } from './services/FileWatcher'
 import { ProjectDAO } from './database/dao/ProjectDAO'
+import { registerAgentHandlers } from './ipc/agent-handlers'
 
 // Prevent crashes from uncaught errors
 process.on('uncaughtException', (err) => {
@@ -56,6 +59,7 @@ let contextEngine: ContextEngine
 let fileWatcher: FileWatcher
 let browserExecutor: BrowserCommandExecutor | null = null
 let liveWatcher: LiveSessionWatcher
+let agentService: AgentService | null = null
 
 function initDeferredServices() {
   // Gmail
@@ -91,6 +95,11 @@ function initDeferredServices() {
   // Browser command executor
   browserExecutor = new BrowserCommandExecutor(db)
   browserExecutor.start()
+
+  // Main-process agent runtime (V2)
+  const browserBridge = new BrowserBridge()
+  agentService = new AgentService(db, gitService, browserBridge, searchEngine)
+  registerAgentHandlers(agentService)
 
   // Live session watcher
   liveWatcher = new LiveSessionWatcher()

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Trash2, Database } from 'lucide-react'
 import type { AppConfig, Project, IndexState } from '@shared/models'
 import { api } from '../../lib/api'
-import { Section, TextInput, Select, Toggle, NumberInput } from './SettingsField'
+import { Section, TextInput, Select, Toggle, NumberInput, Slider } from './SettingsField'
 
 interface Props {
   config: AppConfig
@@ -164,6 +164,45 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
             { value: 'context', label: 'Context (low cost)' },
             { value: 'agent', label: 'Agent (tool calling)' },
           ]}
+        />
+      </Section>
+
+      <Section title="Agent Runtime (V2)">
+        <Toggle
+          label="Enable main-process runtime"
+          hint="Uses the new agent runtime in Electron main process with direct browser IPC."
+          value={config.agentRuntimeV2}
+          onChange={(v) => onChange({ agentRuntimeV2: v })}
+        />
+        <NumberInput
+          label="Max tool calls per run"
+          hint="Hard cap for tool-calling loop in agent mode."
+          value={config.agentMaxToolCalls}
+          onChange={(v) => onChange({ agentMaxToolCalls: Number.isFinite(v) ? Math.max(1, Math.min(60, Math.round(v))) : 30 })}
+          min={1}
+          max={60}
+          step={1}
+        />
+        <Slider
+          label="Agent temperature"
+          hint="Lower values are more deterministic. Higher values are more exploratory."
+          value={config.agentTemperature}
+          onChange={(v) => onChange({ agentTemperature: Math.max(0, Math.min(1, Number(v.toFixed(1)))) })}
+          min={0}
+          max={1}
+          step={0.1}
+        />
+        <Toggle
+          label="Plan enforcement"
+          hint="Requires set_plan before browser actions and verification before next action."
+          value={config.agentPlanEnforcement}
+          onChange={(v) => onChange({ agentPlanEnforcement: v })}
+        />
+        <Toggle
+          label="Context compaction (preview)"
+          hint="Reserved for long-run summarization; currently no-op in runtime."
+          value={config.agentContextCompaction}
+          onChange={(v) => onChange({ agentContextCompaction: v })}
         />
       </Section>
 

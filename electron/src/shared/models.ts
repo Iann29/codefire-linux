@@ -290,6 +290,11 @@ export interface AppConfig {
   embeddingModel: string
   chatModel: string
   chatMode: 'context' | 'agent'
+  agentRuntimeV2: boolean
+  agentMaxToolCalls: number
+  agentTemperature: number
+  agentPlanEnforcement: boolean
+  agentContextCompaction: boolean
   autoSnapshotSessions: boolean
   autoUpdateCodebaseTree: boolean
   mcpServerAutoStart: boolean

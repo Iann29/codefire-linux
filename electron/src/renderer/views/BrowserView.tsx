@@ -151,92 +151,327 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     return webviewRefs.current.get(activeTabId) as any
   }, [activeTabId])
 
-  // Handle MCP browser commands from the main process
+  // Handle browser commands from the main process (legacy + direct bridge)
   useEffect(() => {
-    const cleanup = window.api.on('browser:commandRequest', async (data: any) => {
-      const { id, tool, args } = data
-      const resultChannel = `browser:commandResult:${id}`
+    async function executeCommand(tool: string, args: Record<string, unknown>) {
+      const wv = webviewRefs.current.get(activeTabId) as any
 
-      try {
-        const wv = webviewRefs.current.get(activeTabId) as any
-        let result: any
-
-        switch (tool) {
-          case 'browser_navigate': {
-            if (!wv) throw new Error('No active webview')
-            await new Promise<void>((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('Navigation timed out')), 30_000)
-              const onStop = () => { clearTimeout(timeout); resolve() }
-              wv.addEventListener('did-stop-loading', onStop, { once: true })
-              wv.loadURL(args.url)
-            })
-            result = { success: true, url: args.url }
-            break
-          }
-          case 'browser_snapshot': {
-            if (!wv) throw new Error('No active webview')
-            const html = await wv.executeJavaScript('document.documentElement.outerHTML')
-            const maxSize = args.max_size || 50000
-            result = { html: html.slice(0, maxSize) }
-            break
-          }
-          case 'browser_screenshot': {
-            if (!wv) throw new Error('No active webview')
-            const img = await wv.capturePage()
-            result = { image: img.toDataURL() }
-            break
-          }
-          case 'browser_click': {
-            if (!wv) throw new Error('No active webview')
-            const clickResult = await wv.executeJavaScript(`
-              (() => {
-                const el = document.querySelector('[data-ref="${args.ref}"]');
-                if (!el) return { error: 'Element not found with ref: ${args.ref}' };
-                el.click();
-                return { success: true };
-              })()
-            `)
-            if (clickResult.error) throw new Error(clickResult.error)
-            result = clickResult
-            break
-          }
-          case 'browser_type': {
-            if (!wv) throw new Error('No active webview')
-            const typeResult = await wv.executeJavaScript(`
-              (() => {
-                const el = document.querySelector('[data-ref="${args.ref}"]');
-                if (!el) return { error: 'Element not found with ref: ${args.ref}' };
-                el.value = ${JSON.stringify(args.text || '')};
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-                return { success: true };
-              })()
-            `)
-            if (typeResult.error) throw new Error(typeResult.error)
-            result = typeResult
-            break
-          }
-          case 'browser_eval': {
-            if (!wv) throw new Error('No active webview')
-            const evalResult = await wv.executeJavaScript(args.expression || args.code || '')
-            result = { value: evalResult }
-            break
-          }
-          case 'browser_console_logs': {
-            result = { entries: consoleEntries }
-            break
-          }
-          default:
-            throw new Error(`Unsupported browser command: ${tool}`)
+      switch (tool) {
+        case 'browser_navigate': {
+          if (!wv) throw new Error('No active webview')
+          const rawUrl = typeof args.url === 'string' ? args.url : ''
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Navigation timed out')), 45_000)
+            const onStop = () => {
+              clearTimeout(timeout)
+              resolve()
+            }
+            wv.addEventListener('did-stop-loading', onStop, { once: true })
+            wv.loadURL(rawUrl)
+          })
+          return { success: true, url: rawUrl }
         }
+        case 'browser_snapshot': {
+          if (!wv) throw new Error('No active webview')
+          const html = await wv.executeJavaScript('document.documentElement.outerHTML')
+          const maxSize = typeof args.max_size === 'number' ? args.max_size : 50_000
+          return { html: String(html).slice(0, maxSize) }
+        }
+        case 'browser_screenshot': {
+          if (!wv) throw new Error('No active webview')
+          const img = await wv.capturePage()
+          return { image: img.toDataURL() }
+        }
+        case 'browser_click': {
+          if (!wv) throw new Error('No active webview')
+          const ref = String(args.ref ?? '')
+          const clickResult = await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-ref="${ref}"]');
+              if (!el) return { error: 'Element not found with ref: ${ref}' };
+              el.click();
+              return { success: true };
+            })()
+          `)
+          if (clickResult?.error) throw new Error(String(clickResult.error))
+          return clickResult
+        }
+        case 'browser_type': {
+          if (!wv) throw new Error('No active webview')
+          const ref = String(args.ref ?? '')
+          const text = typeof args.text === 'string' ? args.text : ''
+          const typeResult = await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-ref="${ref}"]');
+              if (!el) return { error: 'Element not found with ref: ${ref}' };
+              const target = el;
+              if ('value' in target) {
+                target.value = ${JSON.stringify(text)};
+              } else {
+                target.textContent = ${JSON.stringify(text)};
+              }
+              target.dispatchEvent(new Event('input', { bubbles: true }));
+              target.dispatchEvent(new Event('change', { bubbles: true }));
+              return { success: true };
+            })()
+          `)
+          if (typeResult?.error) throw new Error(String(typeResult.error))
+          return typeResult
+        }
+        case 'browser_dom_map': {
+          if (!wv) throw new Error('No active webview')
+          const maxElements = typeof args.max_elements === 'number' ? Math.min(Math.max(args.max_elements, 50), 1000) : 500
+          return await wv.executeJavaScript(`
+            (() => {
+              const selector = [
+                'a[href]',
+                'button',
+                'input:not([type="hidden"])',
+                'textarea',
+                'select',
+                '[role="button"]',
+                '[role="link"]',
+                '[role="checkbox"]',
+                '[role="radio"]',
+                '[role="switch"]',
+                '[role="tab"]',
+                '[role="menuitem"]',
+                '[role="option"]',
+                '[role="combobox"]',
+                '[role="textbox"]',
+                '[role="searchbox"]',
+                '[tabindex]:not([tabindex="-1"])',
+                '[onclick]',
+                '[contenteditable]:not([contenteditable="false"])',
+                'summary'
+              ].join(',');
 
+              const isVisible = (el) => {
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+              };
+
+              const nodeText = (el) => {
+                const aria = el.getAttribute('aria-label') || '';
+                const title = el.getAttribute('title') || '';
+                const placeholder = el.getAttribute('placeholder') || '';
+                const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+                return [aria, title, placeholder, text].filter(Boolean).join(' ').slice(0, 100);
+              };
+
+              const nodes = Array.from(document.querySelectorAll(selector))
+                .filter(isVisible)
+                .slice(0, ${maxElements});
+
+              const elements = nodes.map((el, idx) => {
+                const index = idx + 1;
+                el.setAttribute('data-cf-idx', String(index));
+                const rect = el.getBoundingClientRect();
+                const attributes = {};
+                ['id', 'class', 'name', 'type', 'href', 'role', 'placeholder'].forEach((key) => {
+                  const value = el.getAttribute(key);
+                  if (value) attributes[key] = value.slice(0, 120);
+                });
+                const tagName = (el.tagName || '').toLowerCase();
+                const interactiveType = el.getAttribute('role') || tagName;
+                return {
+                  index,
+                  tagName,
+                  interactiveType,
+                  accessibleText: nodeText(el),
+                  attributes,
+                  visible: true,
+                  rect: {
+                    x: Math.round(rect.x),
+                    y: Math.round(rect.y),
+                    w: Math.round(rect.width),
+                    h: Math.round(rect.height),
+                  },
+                };
+              });
+
+              return {
+                url: location.href,
+                title: document.title,
+                totalElements: elements.length,
+                elements,
+                formatted: elements.slice(0, 200).map((el) => {
+                  const attrs = Object.entries(el.attributes).map(([k, v]) => k + '=' + v).join(', ');
+                  return '[' + el.index + '] <' + el.tagName + '> "' + (el.accessibleText || '') + '"' + (attrs ? ' {' + attrs + '}' : '');
+                }).join('\\n'),
+              };
+            })()
+          `)
+        }
+        case 'browser_click_element': {
+          if (!wv) throw new Error('No active webview')
+          const index = Number(args.index)
+          return await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-cf-idx="${index}"]');
+              if (!el) return { error: 'Element not found for index ${index}. Call browser_dom_map again.' };
+              el.scrollIntoView({ block: 'center', inline: 'center' });
+              el.focus?.();
+              el.click();
+              return { success: true, index: ${index} };
+            })()
+          `)
+        }
+        case 'browser_type_element': {
+          if (!wv) throw new Error('No active webview')
+          const index = Number(args.index)
+          const text = typeof args.text === 'string' ? args.text : ''
+          const clearFirst = args.clearFirst !== false
+          const pressEnter = args.pressEnter === true
+          return await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-cf-idx="${index}"]');
+              if (!el) return { error: 'Element not found for index ${index}. Call browser_dom_map again.' };
+              el.scrollIntoView({ block: 'center', inline: 'center' });
+              el.focus?.();
+              const target = el;
+              if (${clearFirst ? 'true' : 'false'}) {
+                if ('value' in target) target.value = '';
+                if (target.isContentEditable) target.textContent = '';
+              }
+              if ('value' in target) {
+                target.value = ${JSON.stringify(text)};
+              } else if (target.isContentEditable) {
+                target.textContent = ${JSON.stringify(text)};
+              }
+              target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(text)} }));
+              target.dispatchEvent(new Event('change', { bubbles: true }));
+              if (${pressEnter ? 'true' : 'false'}) {
+                const evt = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true });
+                target.dispatchEvent(evt);
+              }
+              return { success: true, index: ${index}, typed: ${JSON.stringify(text.length)} };
+            })()
+          `)
+        }
+        case 'browser_select_element': {
+          if (!wv) throw new Error('No active webview')
+          const index = Number(args.index)
+          const value = typeof args.value === 'string' ? args.value : ''
+          return await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-cf-idx="${index}"]');
+              if (!el) return { error: 'Element not found for index ${index}. Call browser_dom_map again.' };
+              if (el.tagName.toLowerCase() !== 'select') {
+                return { error: 'Element ' + ${index} + ' is not a <select>.' };
+              }
+              const select = el;
+              const hasValue = Array.from(select.options).some((opt) => opt.value === ${JSON.stringify(value)});
+              if (!hasValue) {
+                return { error: 'Option value not found: ' + ${JSON.stringify(value)} };
+              }
+              select.value = ${JSON.stringify(value)};
+              select.dispatchEvent(new Event('input', { bubbles: true }));
+              select.dispatchEvent(new Event('change', { bubbles: true }));
+              return { success: true, index: ${index}, value: ${JSON.stringify(value)} };
+            })()
+          `)
+        }
+        case 'browser_hover_element': {
+          if (!wv) throw new Error('No active webview')
+          const index = Number(args.index)
+          return await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-cf-idx="${index}"]');
+              if (!el) return { error: 'Element not found for index ${index}. Call browser_dom_map again.' };
+              el.scrollIntoView({ block: 'center', inline: 'center' });
+              const rect = el.getBoundingClientRect();
+              const x = rect.left + rect.width / 2;
+              const y = rect.top + rect.height / 2;
+              const over = new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y });
+              const move = new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y });
+              el.dispatchEvent(over);
+              el.dispatchEvent(move);
+              return { success: true, index: ${index} };
+            })()
+          `)
+        }
+        case 'browser_scroll_to_element': {
+          if (!wv) throw new Error('No active webview')
+          const index = Number(args.index)
+          const block = typeof args.block === 'string' ? args.block : 'center'
+          return await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-cf-idx="${index}"]');
+              if (!el) return { error: 'Element not found for index ${index}. Call browser_dom_map again.' };
+              el.scrollIntoView({ block: ${JSON.stringify(block)}, inline: 'nearest', behavior: 'smooth' });
+              const rect = el.getBoundingClientRect();
+              return { success: true, index: ${index}, rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height } };
+            })()
+          `)
+        }
+        case 'browser_get_element_info': {
+          if (!wv) throw new Error('No active webview')
+          const index = Number(args.index)
+          return await wv.executeJavaScript(`
+            (() => {
+              const el = document.querySelector('[data-cf-idx="${index}"]');
+              if (!el) return { error: 'Element not found for index ${index}. Call browser_dom_map again.' };
+              const rect = el.getBoundingClientRect();
+              return {
+                index: ${index},
+                tagName: (el.tagName || '').toLowerCase(),
+                text: (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+                html: el.outerHTML.slice(0, 1000),
+                rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+              };
+            })()
+          `)
+        }
+        case 'browser_eval': {
+          if (!wv) throw new Error('No active webview')
+          const expression = typeof args.expression === 'string'
+            ? args.expression
+            : typeof args.code === 'string'
+              ? args.code
+              : ''
+          const evalResult = await wv.executeJavaScript(expression)
+          return { value: evalResult }
+        }
+        case 'browser_console_logs':
+          return { entries: consoleEntries }
+        default:
+          throw new Error(`Unsupported browser command: ${tool}`)
+      }
+    }
+
+    async function dispatchResult(resultChannel: string, tool: string, args: Record<string, unknown>) {
+      try {
+        const result = await executeCommand(tool, args)
+        if (result && typeof result === 'object' && 'error' in result) {
+          window.api.send(resultChannel, { error: String((result as { error: unknown }).error) })
+          return
+        }
         window.api.send(resultChannel, result)
       } catch (err: any) {
         window.api.send(resultChannel, { error: err.message || String(err) })
       }
+    }
+
+    const legacyCleanup = window.api.on('browser:commandRequest', (data: any) => {
+      const id = String(data?.id ?? '')
+      const tool = String(data?.tool ?? '')
+      const args = (data?.args ?? {}) as Record<string, unknown>
+      void dispatchResult(`browser:commandResult:${id}`, tool, args)
     })
 
-    return cleanup
+    const bridgeCleanup = window.api.on('browser:execute', (data: any) => {
+      const requestId = String(data?.requestId ?? '')
+      const tool = String(data?.tool ?? '')
+      const args = (data?.args ?? {}) as Record<string, unknown>
+      void dispatchResult(`browser:result:${requestId}`, tool, args)
+    })
+
+    return () => {
+      legacyCleanup()
+      bridgeCleanup()
+    }
   }, [activeTabId, consoleEntries])
 
   function handleNavigate(url: string) {

@@ -131,6 +131,8 @@ export type ArenaChannel = 'arena:open'
 
 export type BrowserCommandChannel = 'browser:executeCommand'
 
+export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status'
+
 export type PremiumChannel =
   | 'premium:getStatus'
   | 'premium:signUp'
@@ -225,6 +227,7 @@ export type IpcChannel =
   | ArenaChannel
   | ShellChannel
   | BrowserCommandChannel
+  | AgentChannel
   | PremiumChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────

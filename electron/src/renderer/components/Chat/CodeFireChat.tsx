@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench } from 'lucide-react'
+import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square } from 'lucide-react'
 import type { ChatConversation, ChatMessage, Session } from '@shared/models'
 import { api } from '@renderer/lib/api'
+import PlanRail from './PlanRail'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -18,10 +19,23 @@ interface ToolCall {
 }
 
 interface ToolExecution {
+  callId?: string
   name: string
   args: Record<string, unknown>
   result?: string
   status: 'running' | 'done' | 'error'
+}
+
+interface PlanStep {
+  title: string
+  status: 'pending' | 'done' | 'blocked'
+}
+
+interface AgentRuntimeOptions {
+  maxToolCalls: number
+  temperature: number
+  planEnforcement: boolean
+  contextCompaction: boolean
 }
 
 // ─── Agent Tool Definitions ──────────────────────────────────────────────────
@@ -552,15 +566,23 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
   const [chatMode, setChatMode] = useState<ChatMode>('context')
+  const [agentRuntimeV2Enabled, setAgentRuntimeV2Enabled] = useState(true)
   const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([])
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [planSteps, setPlanSteps] = useState<PlanStep[]>([])
+  const [awaitingVerification, setAwaitingVerification] = useState(false)
+  const [lastBrowserAction, setLastBrowserAction] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState<string | undefined>()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  // Load config for chatMode
+  const activeRunIdRef = useRef<string | null>(null)
+  const pendingRunsRef = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void }>())
+  // Load config for chat defaults
   useEffect(() => {
     window.api.invoke('settings:get').then((config: any) => {
       if (config?.chatMode) setChatMode(config.chatMode)
+      if (typeof config?.agentRuntimeV2 === 'boolean') setAgentRuntimeV2Enabled(config.agentRuntimeV2)
     })
   }, [])
 
@@ -619,6 +641,117 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
   }, [showDropdown])
 
+  useEffect(() => {
+    const cleanupStream = window.api.on('agent:stream', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+      const channel = String(payload?.channel ?? 'text')
+      if (channel !== 'text') return
+      const delta = String(payload?.delta ?? '')
+      if (!delta) return
+      setStreaming(true)
+      setStreamedContent((prev) => prev + delta)
+    })
+
+    const cleanupToolStart = window.api.on('agent:toolStart', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      const callId = String(payload?.callId ?? '')
+      const name = String(payload?.name ?? 'tool')
+      const args = typeof payload?.args === 'object' && payload.args !== null ? payload.args as Record<string, unknown> : {}
+      setToolExecutions((prev) => [...prev, { callId, name, args, status: 'running' }])
+    })
+
+    const cleanupToolResult = window.api.on('agent:toolResult', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      const callId = String(payload?.callId ?? '')
+      const status = payload?.status === 'error' ? 'error' : 'done'
+      const result = String(payload?.result ?? '').slice(0, 200)
+      const durationMs = typeof payload?.durationMs === 'number' ? payload.durationMs : null
+
+      setToolExecutions((prev) => prev.map((execution) => {
+        if (callId && execution.callId === callId) {
+          const nextResult = durationMs !== null ? `${result} (${durationMs}ms)` : result
+          return { ...execution, status, result: nextResult }
+        }
+        return execution
+      }))
+    })
+
+    const cleanupPlanUpdate = window.api.on('agent:planUpdate', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      const steps = Array.isArray(payload?.plan)
+        ? payload.plan
+          .filter((step: any) => step && typeof step.title === 'string')
+          .map((step: any) => ({
+            title: String(step.title),
+            status: step.status === 'done' || step.status === 'blocked' ? step.status : 'pending',
+          }))
+        : []
+
+      setPlanSteps(steps)
+      setAwaitingVerification(payload?.awaitingVerification === true)
+      setLastBrowserAction(typeof payload?.lastBrowserAction === 'string' ? payload.lastBrowserAction : null)
+    })
+
+    const cleanupDone = window.api.on('agent:done', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      if (payload?.message) {
+        setMessages((prev) => [...prev, payload.message as ChatMessage])
+      }
+
+      setStreaming(false)
+      setStreamedContent('')
+      setToolExecutions([])
+      setAwaitingVerification(false)
+
+      activeRunIdRef.current = null
+      setActiveRunId(null)
+      const pending = pendingRunsRef.current.get(runId)
+      pendingRunsRef.current.delete(runId)
+      pending?.resolve()
+    })
+
+    const cleanupError = window.api.on('agent:error', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+
+      const pending = pendingRunsRef.current.get(runId)
+      pendingRunsRef.current.delete(runId)
+      activeRunIdRef.current = null
+      setActiveRunId(null)
+
+      setStreaming(false)
+      setStreamedContent('')
+      setToolExecutions([])
+      setAwaitingVerification(false)
+
+      const message = String(payload?.error ?? 'Unknown agent error')
+      pending?.reject(new Error(message))
+    })
+
+    return () => {
+      cleanupStream()
+      cleanupToolStart()
+      cleanupToolResult()
+      cleanupPlanUpdate()
+      cleanupDone()
+      cleanupError()
+      pendingRunsRef.current.forEach(({ reject }) => reject(new Error('Agent run interrupted')))
+      pendingRunsRef.current.clear()
+      activeRunIdRef.current = null
+      setActiveRunId(null)
+      setAwaitingVerification(false)
+    }
+  }, [])
+
   async function handleNewConversation() {
     const conv = await api.chat.createConversation({
       projectId: projectId || '__global__',
@@ -656,6 +789,9 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     setSending(true)
     setErrorMessage(null)
     setToolExecutions([])
+    setPlanSteps([])
+    setAwaitingVerification(false)
+    setLastBrowserAction(null)
 
     // Ensure conversation
     let convId = activeConversationId
@@ -689,10 +825,43 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     // Get API key
     let apiKey: string | undefined
     let model: string
+    let useAgentRuntimeV2 = agentRuntimeV2Enabled
+    let runtimeOptions: AgentRuntimeOptions = {
+      maxToolCalls: 30,
+      temperature: 0.7,
+      planEnforcement: true,
+      contextCompaction: false,
+    }
     try {
-      const config = (await window.api.invoke('settings:get')) as { openRouterKey?: string; chatModel?: string } | undefined
+      const config = (await window.api.invoke('settings:get')) as {
+        openRouterKey?: string
+        chatModel?: string
+        agentRuntimeV2?: boolean
+        agentMaxToolCalls?: number
+        agentTemperature?: number
+        agentPlanEnforcement?: boolean
+        agentContextCompaction?: boolean
+      } | undefined
       apiKey = config?.openRouterKey
       model = config?.chatModel || 'anthropic/claude-sonnet-4-20250514'
+      if (typeof config?.agentRuntimeV2 === 'boolean') {
+        useAgentRuntimeV2 = config.agentRuntimeV2
+        setAgentRuntimeV2Enabled(config.agentRuntimeV2)
+      }
+      runtimeOptions = {
+        maxToolCalls: typeof config?.agentMaxToolCalls === 'number'
+          ? Math.max(1, Math.min(60, Math.round(config.agentMaxToolCalls)))
+          : 30,
+        temperature: typeof config?.agentTemperature === 'number'
+          ? Math.max(0, Math.min(1, config.agentTemperature))
+          : 0.7,
+        planEnforcement: typeof config?.agentPlanEnforcement === 'boolean'
+          ? config.agentPlanEnforcement
+          : true,
+        contextCompaction: typeof config?.agentContextCompaction === 'boolean'
+          ? config.agentContextCompaction
+          : false,
+      }
     } catch {
       model = 'anthropic/claude-sonnet-4-20250514'
     }
@@ -711,7 +880,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
     try {
       if (chatMode === 'agent') {
-        await handleAgentMode(convId, content, userMsg, apiKey, model)
+        if (useAgentRuntimeV2) {
+          await handleAgentModeMain(convId, content, userMsg, apiKey, model, runtimeOptions)
+        } else {
+          await handleAgentModeLegacy(convId, content, userMsg, apiKey, model, runtimeOptions)
+        }
       } else {
         await handleContextMode(convId, content, userMsg, apiKey, model)
       }
@@ -768,14 +941,60 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
   }
 
-  // ─── Agent Mode (tool calling loop) ────────────────────────────────────────
+  // ─── Agent Mode (main-process runtime with fallback) ───────────────────────
 
-  async function handleAgentMode(
+  async function handleAgentModeMain(
+    convId: number,
+    userContent: string,
+    userMsg: ChatMessage,
+    apiKey: string,
+    model: string,
+    runtimeOptions: AgentRuntimeOptions
+  ) {
+    setStreaming(true)
+    setStreamedContent('')
+
+    let started: { runId: string }
+    try {
+      started = await api.agent.start({
+        conversationId: convId,
+        userMessage: userContent,
+        projectId: projectId || null,
+        projectName,
+        model,
+        apiKey,
+        maxIterations: runtimeOptions.maxToolCalls,
+        maxToolCalls: runtimeOptions.maxToolCalls,
+        temperature: runtimeOptions.temperature,
+        planEnforcement: runtimeOptions.planEnforcement,
+        contextCompaction: runtimeOptions.contextCompaction,
+      })
+    } catch (error) {
+      // Keep legacy local loop as a startup fallback while main services initialize.
+      activeRunIdRef.current = null
+      setActiveRunId(null)
+      setStreaming(false)
+      setStreamedContent('')
+      return handleAgentModeLegacy(convId, userContent, userMsg, apiKey, model, runtimeOptions)
+    }
+
+    activeRunIdRef.current = started.runId
+    setActiveRunId(started.runId)
+
+    await new Promise<void>((resolve, reject) => {
+      pendingRunsRef.current.set(started.runId, { resolve, reject })
+    })
+
+    updateConversationTitle(convId, userContent)
+  }
+
+  async function handleAgentModeLegacy(
     convId: number,
     _userContent: string,
     userMsg: ChatMessage,
     apiKey: string,
-    model: string
+    model: string,
+    runtimeOptions: AgentRuntimeOptions
   ) {
     const systemPrompt = isGlobal
       ? 'You are the CodeFire agent — a smart assistant integrated into CodeFire, a companion app for AI coding agents. You have tools to manage tasks, notes, sessions, search code, browse the web, read files, and interact with git. Use tools when the user\'s request requires data or actions. Be concise.'
@@ -798,7 +1017,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       ...apiMessages,
     ]
 
-    for (let iteration = 0; iteration < 10; iteration++) {
+    for (let iteration = 0; iteration < runtimeOptions.maxToolCalls; iteration++) {
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -810,6 +1029,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           model,
           messages: loopMessages,
           tools: AGENT_TOOLS,
+          temperature: runtimeOptions.temperature,
           max_tokens: 4096,
         }),
       })
@@ -963,6 +1183,12 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
   function handleSendToTerminal(content: string) {
     navigator.clipboard.writeText(content)
+  }
+
+  async function handleCancelRun() {
+    const runId = activeRunIdRef.current
+    if (!runId) return
+    await api.agent.cancel(runId).catch(() => {})
   }
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
@@ -1137,6 +1363,13 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 ))}
               </div>
             )}
+            {chatMode === 'agent' && planSteps.length > 0 && (
+              <PlanRail
+                steps={planSteps}
+                awaitingVerification={awaitingVerification}
+                lastBrowserAction={lastBrowserAction}
+              />
+            )}
             {sending && !streaming && toolExecutions.length === 0 && (
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <Loader2 size={12} className="animate-spin text-neutral-500" />
@@ -1175,13 +1408,23 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
             placeholder={chatMode === 'agent' ? `Ask or command the agent...` : `Ask about ${projectName}...`}
             disabled={sending}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || sending}
-            className="px-3 py-2 bg-codefire-orange/20 text-codefire-orange rounded-lg hover:bg-codefire-orange/30 transition-colors disabled:opacity-40 self-end"
-          >
-            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          </button>
+          {sending && chatMode === 'agent' && activeRunId ? (
+            <button
+              onClick={handleCancelRun}
+              className="px-3 py-2 bg-red-500/15 text-red-300 rounded-lg hover:bg-red-500/25 transition-colors self-end"
+              title="Cancel active run"
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || sending}
+              className="px-3 py-2 bg-codefire-orange/20 text-codefire-orange rounded-lg hover:bg-codefire-orange/30 transition-colors disabled:opacity-40 self-end"
+            >
+              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            </button>
+          )}
         </div>
       </div>
     </div>
