@@ -8,6 +8,10 @@ import type {
 } from './BaseProvider'
 import { OpenRouterAdapter } from './OpenRouterAdapter'
 import { CustomEndpointAdapter } from './CustomEndpointAdapter'
+import { ClaudeSubscriptionAdapter } from './ClaudeSubscriptionAdapter'
+import { OpenAISubscriptionAdapter } from './OpenAISubscriptionAdapter'
+import { GeminiSubscriptionAdapter } from './GeminiSubscriptionAdapter'
+import { KimiAdapter } from './KimiAdapter'
 import type { OAuthEngine } from './OAuthEngine'
 
 export type ProviderType = AppConfig['aiProvider']
@@ -46,16 +50,30 @@ export class ProviderRouter {
         break
       }
 
-      case 'claude-subscription':
-      case 'openai-subscription':
-      case 'gemini-subscription':
-      case 'kimi-subscription':
-        // Subscription adapters will be implemented in Phase 3.
-        // For now, check that OAuth is connected and give a clear error.
-        throw new Error(
-          `Subscription provider "${providerType}" is not yet available. ` +
-          'This will be enabled in a future update. Please use OpenRouter or Custom Endpoint.'
-        )
+      case 'claude-subscription': {
+        if (!this.oauthEngine) throw new Error('OAuth engine not initialized.')
+        provider = new ClaudeSubscriptionAdapter(this.oauthEngine)
+        break
+      }
+
+      case 'openai-subscription': {
+        if (!this.oauthEngine) throw new Error('OAuth engine not initialized.')
+        provider = new OpenAISubscriptionAdapter(this.oauthEngine)
+        break
+      }
+
+      case 'gemini-subscription': {
+        if (!this.oauthEngine) throw new Error('OAuth engine not initialized.')
+        provider = new GeminiSubscriptionAdapter(this.oauthEngine)
+        break
+      }
+
+      case 'kimi-subscription': {
+        const kimiKey = overrides?.apiKey || config.customEndpointKey
+        if (!kimiKey) throw new Error('Kimi API key not configured in Settings > Engine.')
+        provider = new KimiAdapter(kimiKey)
+        break
+      }
 
       case 'openrouter':
       default: {

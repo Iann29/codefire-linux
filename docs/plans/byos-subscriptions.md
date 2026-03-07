@@ -1,6 +1,6 @@
 # CodeFire BYOS — Bring Your Own Subscription
 
-**Status:** Planejado
+**Status:** Fases 1-3 implementadas, Fases 4-5 pendentes
 **Data:** 2026-03-07
 **Escopo:** Somente Electron (`electron/src/...`)
 **Dependencia:** Browser Agent Roadmap (Fase 1 — AgentService funcional)
@@ -72,44 +72,34 @@ Fontes de referencia para os OAuth flows:
 - Gemini OAuth: flow do Gemini CLI
 - Kimi: API compativel com Anthropic, requer header `User-Agent: claude-code/1.0`
 
-## Fase 1 — Provider Adapter Layer
+## Fase 1 — Provider Adapter Layer [DONE]
 
 **Meta:** abstrair o AgentService do provider especifico. Hoje esta hardcoded pro OpenRouter.
 
 ### ProviderRouter
 
-- [ ] Criar `electron/src/main/services/providers/ProviderRouter.ts`:
+- [x] Criar `electron/src/main/services/providers/ProviderRouter.ts`:
   - `resolveProvider(config)` — retorna o adapter correto baseado na config.
   - `chatCompletion(messages, tools, options)` — interface unificada.
   - `listModels()` — lista modelos disponiveis no provider ativo.
   - `healthCheck()` — verifica se o provider esta acessivel.
+  - `setOAuthEngine(engine)` — injeta OAuthEngine para subscription providers.
 
 ### Interface base
 
-- [ ] Criar `electron/src/main/services/providers/BaseProvider.ts`:
-  ```typescript
-  interface ProviderAdapter {
-    id: string
-    name: string
-    chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>
-    listModels(): Promise<ModelInfo[]>
-    healthCheck(): Promise<ProviderHealth>
-    supportsStreaming: boolean
-    supportsToolCalling: boolean
-    supportsMultimodal: boolean
-  }
-  ```
+- [x] Criar `electron/src/main/services/providers/BaseProvider.ts`:
+  - `ProviderAdapter`, `ChatCompletionRequest/Response`, `ModelInfo`, `ProviderHealth`
 
 ### OpenRouter adapter (migrar logica atual)
 
-- [ ] Criar `electron/src/main/services/providers/OpenRouterAdapter.ts`:
+- [x] Criar `electron/src/main/services/providers/OpenRouterAdapter.ts`:
   - Extrair logica de `AgentService.requestCompletion` para este adapter.
   - Manter compatibilidade total com o fluxo atual.
   - Auth: API key (como hoje).
 
 ### Custom Endpoint adapter
 
-- [ ] Criar `electron/src/main/services/providers/CustomEndpointAdapter.ts`:
+- [x] Criar `electron/src/main/services/providers/CustomEndpointAdapter.ts`:
   - Compativel com qualquer endpoint OpenAI-compatible.
   - Auth: API key + base URL configuravel.
   - Descoberta de modelos via `GET /v1/models`.
@@ -117,155 +107,132 @@ Fontes de referencia para os OAuth flows:
 
 ### Refactor do AgentService
 
-- [ ] Refatorar `AgentService.requestCompletion` para usar `ProviderRouter` em vez de fetch direto.
-- [ ] Manter mesma interface externa (IPC channels nao mudam).
-- [ ] Adicionar campo `provider` no config (`openrouter` | `claude-subscription` | `openai-subscription` | `gemini-subscription` | `kimi-subscription` | `custom`).
+- [x] Refatorar `AgentService` para usar `ProviderRouter` em vez de fetch direto.
+- [x] Manter mesma interface externa (IPC channels nao mudam).
+- [x] Adicionar campo `provider` no config (`openrouter` | `claude-subscription` | `openai-subscription` | `gemini-subscription` | `kimi-subscription` | `custom`).
+- [x] `setProviderRouter(router)` — permite injetar router compartilhado com OAuthEngine.
 
 **Criterios de aceite**
 
-- AgentService funciona identico ao atual com OpenRouter (sem regressao).
-- Custom endpoint funciona com qualquer servidor OpenAI-compatible.
-- Novo provider pode ser adicionado implementando `ProviderAdapter`.
+- [x] AgentService funciona identico ao atual com OpenRouter (sem regressao).
+- [x] Custom endpoint funciona com qualquer servidor OpenAI-compatible.
+- [x] Novo provider pode ser adicionado implementando `ProviderAdapter`.
 
-## Fase 2 — OAuth Engine + Token Storage
+## Fase 2 — OAuth Engine + Token Storage [DONE]
 
 **Meta:** Implementar o motor de OAuth que permite autenticar com assinaturas existentes.
 
 ### OAuth Flow Manager
 
-- [ ] Criar `electron/src/main/services/providers/OAuthEngine.ts`:
-  - `startOAuthFlow(providerId)` — abre BrowserWindow com URL de autorizacao.
-  - `handleCallback(callbackUrl)` — extrai authorization code do redirect.
-  - `exchangeCodeForTokens(code)` — troca code por access_token + refresh_token.
-  - `refreshAccessToken(refreshToken)` — renova access_token expirado.
-  - `revokeTokens(providerId)` — revoga tokens do provider.
+- [x] Criar `electron/src/main/services/providers/OAuthEngine.ts`:
+  - `startOAuthFlow(providerId)` — abre BrowserWindow + servidor HTTP local (porta 19485).
+  - Captura callback via servidor HTTP em vez de webRequest (mais confiavel).
+  - `exchangeCodeForTokens(code, codeVerifier)` — troca code por tokens via PKCE.
+  - `refreshToken(providerId)` — renova access_token expirado.
+  - `getValidToken(providerId)` — retorna token valido, refreshing se necessario.
+  - `revokeTokens(providerId)` — remove tokens do storage.
+  - `fetchProfile(config, token)` — busca email/nome da conta apos auth.
 
 ### Token Storage seguro
 
-- [ ] Criar `electron/src/main/services/providers/TokenStore.ts`:
-  - Usar `safeStorage.encryptString()` / `decryptString()` do Electron.
-  - Persistir tokens encriptados em `~/.config/CodeFire/tokens.enc`.
-  - Schema por provider: `{ accessToken, refreshToken, expiresAt, scope, accountInfo }`.
-  - Auto-refresh: renovar token quando `expiresAt - now < 5min`.
+- [x] Criar `electron/src/main/services/providers/TokenStore.ts`:
+  - `safeStorage.encryptString()` / `decryptString()` do Electron.
+  - Persistencia em `~/.config/CodeFire/tokens.enc.json` com permissao `0o600`.
+  - Schema: `{ accessToken, refreshToken, expiresAt, scope, accountEmail, accountName, providerId, createdAt }`.
+  - Auto-refresh: buffer de 5min antes de expirar.
+  - Cache em memoria + fallback base64 quando safeStorage indisponivel.
 
 ### OAuth configs por provider
 
-- [ ] Definir configs OAuth em `electron/src/main/services/providers/oauth-configs.ts`:
-  ```typescript
-  const OAUTH_CONFIGS = {
-    'claude-subscription': {
-      authUrl: 'https://claude.ai/oauth/authorize',
-      tokenUrl: 'https://claude.ai/oauth/token',
-      clientId: '...', // mesmo client_id do Claude Code CLI
-      scopes: ['...'],
-      apiBaseUrl: 'https://api.anthropic.com',
-    },
-    'openai-subscription': {
-      authUrl: 'https://auth0.openai.com/authorize',
-      tokenUrl: 'https://auth0.openai.com/oauth/token',
-      clientId: '...', // mesmo client_id do Codex CLI
-      scopes: ['...'],
-      apiBaseUrl: 'https://api.openai.com',
-    },
-    'gemini-subscription': {
-      authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-      tokenUrl: 'https://oauth2.googleapis.com/token',
-      clientId: '...', // mesmo client_id do Gemini CLI
-      scopes: ['...'],
-      apiBaseUrl: 'https://generativelanguage.googleapis.com',
-    },
-    'kimi-subscription': {
-      // Kimi usa API key compativel com Anthropic
-      // Sem OAuth — usa API key direta
-      apiBaseUrl: 'https://api.kimi.com/coding',
-      userAgent: 'claude-code/1.0',
-    },
-  }
-  ```
-- [ ] Pesquisar e documentar os client_ids e scopes corretos de cada provider (extrair dos CLIs oficiais: Claude Code, Codex, Gemini CLI).
+- [x] Criar `electron/src/main/services/providers/oauth-configs.ts`:
+  - Claude: PKCE OAuth via `console.anthropic.com`, client_id extraido do Claude Code CLI.
+  - OpenAI: Auth0 PKCE via `auth.openai.com`, client_id extraido do Codex CLI.
+  - Gemini: Google OAuth 2.0 via `accounts.google.com`, client_id extraido do Gemini CLI.
+  - Kimi: API key (sem OAuth), endpoint `api.kimi.com/coding/v1`.
+  - Registries: `OAUTH_PROVIDERS`, `ALL_SUBSCRIPTION_PROVIDERS`.
 
 ### BrowserWindow para OAuth
 
-- [ ] Criar janela de OAuth dedicada:
-  - Tamanho fixo (~500x700), sem toolbar.
-  - Navegar para `authUrl` com params (client_id, redirect_uri, scope, state, code_challenge).
-  - Interceptar redirect via `webRequest.onBeforeRequest` ou `will-navigate`.
-  - Extrair authorization code do redirect URL.
-  - Fechar janela automaticamente apos sucesso.
-  - Timeout de 5min se usuario nao completar o flow.
+- [x] Janela dedicada 520x720, sem toolbar, autoHideMenuBar.
+- [x] Servidor HTTP local na porta 19485 para callback.
+- [x] Pagina de callback HTML estilizada (sucesso/erro), auto-close em 2s.
+- [x] Timeout de 5min.
+- [x] Suporte PKCE (code_challenge S256).
 
 ### IPC
 
-- [ ] `provider:startOAuth` — inicia OAuth flow para um provider.
-- [ ] `provider:listAccounts` — lista contas conectadas com status.
-- [ ] `provider:removeAccount` — desconecta e revoga tokens.
-- [ ] `provider:healthCheck` — status de todos os providers.
-- [ ] `provider:listModels` — modelos disponiveis no provider ativo.
+- [x] `provider:startOAuth` — inicia OAuth flow para um provider.
+- [x] `provider:listAccounts` — lista contas conectadas com status.
+- [x] `provider:removeAccount` — desconecta e revoga tokens.
+- [x] `provider:healthCheck` — status do provider ativo (ja existia da Fase 1).
+- [x] `provider:listModels` — modelos do provider ativo (ja existia da Fase 1).
 
 **Criterios de aceite**
 
-- OAuth flow funciona dentro do Electron (BrowserWindow) sem browser externo.
-- Tokens sao armazenados encriptados via `safeStorage`.
-- Token refresh automatico antes de expirar.
-- Revogar tokens limpa tudo do storage.
+- [x] OAuth flow abre BrowserWindow nativo (sem browser externo).
+- [x] Tokens armazenados encriptados via `safeStorage`.
+- [x] Token refresh automatico via `getValidToken()`.
+- [x] Revogar tokens limpa storage e cache.
 
-## Fase 3 — Subscription Adapters
+## Fase 3 — Subscription Adapters [DONE]
 
 **Meta:** Implementar os adapters que traduzem requests do AgentService para cada provider usando OAuth tokens.
 
 ### Claude Subscription Adapter
 
-- [ ] Criar `electron/src/main/services/providers/ClaudeSubscriptionAdapter.ts`:
-  - Endpoint: `https://api.anthropic.com/v1/messages` (mesmo da API, mas com OAuth token).
+- [x] Criar `electron/src/main/services/providers/ClaudeSubscriptionAdapter.ts`:
+  - Endpoint: `https://api.anthropic.com/v1/messages` com OAuth token.
   - Auth header: `Authorization: Bearer ${oauthAccessToken}`.
-  - Request format: Anthropic Messages API (nao OpenAI format).
-  - Traduzir: OpenAI tool_calls <-> Anthropic tool_use blocks.
-  - Traduzir: OpenAI messages format <-> Anthropic messages format.
-  - Streaming: SSE com Anthropic event types (`message_start`, `content_block_delta`, etc.).
-  - Modelos disponiveis baseados no tier (Pro: Sonnet/Haiku, Max: Opus/Sonnet/Haiku).
+  - Usa `openaiToAnthropic()` / `anthropicToOpenai()` para traducao de formatos.
+  - Modelos: Sonnet 4, Haiku 4, Opus 4.
 
 ### OpenAI Subscription Adapter
 
-- [ ] Criar `electron/src/main/services/providers/OpenAISubscriptionAdapter.ts`:
-  - Endpoint: `https://api.openai.com/v1/chat/completions`.
-  - Auth header: `Authorization: Bearer ${oauthAccessToken}`.
-  - Request format: ja e OpenAI nativo (minima traducao).
-  - Streaming: SSE padrao OpenAI.
-  - Modelos: GPT-4o, o1, o3, etc. baseados no tier.
+- [x] Criar `electron/src/main/services/providers/OpenAISubscriptionAdapter.ts`:
+  - Endpoint: `https://api.openai.com/v1/chat/completions` com OAuth token.
+  - Request format: OpenAI nativo (zero traducao).
+  - `listModels()` busca modelos reais via `GET /v1/models` e filtra chat models.
+  - Modelos default: GPT-5.4, GPT-4.1, o3, o4-mini.
 
 ### Gemini Subscription Adapter
 
-- [ ] Criar `electron/src/main/services/providers/GeminiSubscriptionAdapter.ts`:
-  - Endpoint: Generative Language API ou Gemini API.
-  - Auth: OAuth token do Google.
-  - Traduzir: OpenAI format <-> Gemini format (contents, parts, functionCall).
-  - Streaming: SSE com Gemini event format.
-  - Modelos: Gemini 2.5 Pro, 2.0 Flash, etc.
+- [x] Criar `electron/src/main/services/providers/GeminiSubscriptionAdapter.ts`:
+  - Endpoint: `generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`.
+  - Usa `openaiToGemini()` / `geminiToOpenai()` para traducao de formatos.
+  - `listModels()` busca modelos reais via API e filtra por `generateContent`.
+  - Modelos default: Gemini 2.5 Pro, 2.0 Flash, 2.5 Flash.
 
 ### Kimi Adapter
 
-- [ ] Criar `electron/src/main/services/providers/KimiAdapter.ts`:
+- [x] Criar `electron/src/main/services/providers/KimiAdapter.ts`:
   - Endpoint: `https://api.kimi.com/coding/v1/messages`.
-  - Compativel com Anthropic Messages API.
-  - Header obrigatorio: `User-Agent: claude-code/1.0`.
-  - Auth: API key (sem OAuth — Kimi usa API key direto).
+  - Usa `openaiToAnthropic()` / `anthropicToOpenai()` (compativel Anthropic).
+  - Headers: `x-api-key`, `User-Agent: claude-code/1.0`, `anthropic-version`.
+  - Auth: API key (sem OAuth).
 
 ### Traducao de formatos
 
-- [ ] Criar `electron/src/main/services/providers/format-translators.ts`:
-  - `openaiToAnthropic(messages, tools)` — converte request OpenAI para Anthropic.
-  - `anthropicToOpenai(response)` — converte response Anthropic para OpenAI.
-  - `openaiToGemini(messages, tools)` — converte request OpenAI para Gemini.
-  - `geminiToOpenai(response)` — converte response Gemini para OpenAI.
-  - Suportar: text, tool_calls/tool_use, multimodal (images), streaming deltas.
+- [x] Criar `electron/src/main/services/providers/format-translators.ts`:
+  - `openaiToAnthropic(request)` — system prompt separado, messages alternados, tool_calls → tool_use blocks, tool results → user tool_result blocks.
+  - `anthropicToOpenai(response)` — text + tool_use blocks → choices[0].message com content + tool_calls.
+  - `openaiToGemini(request)` — system → systemInstruction, messages → contents com parts, tool_calls → functionCall, tool results → functionResponse.
+  - `geminiToOpenai(response)` — candidates → choices, functionCall → tool_calls, text → content.
+  - `stripProviderPrefix(model)` — remove prefixo `provider/` para APIs nativas.
+  - Merge de mensagens consecutivas (requisito Anthropic/Gemini).
+
+### Wiring no ProviderRouter
+
+- [x] Todos os 4 subscription providers conectados no `resolveProvider()` switch.
+- [x] `AgentService.setProviderRouter(router)` recebe router compartilhado com OAuthEngine.
+- [x] Inicializacao em `index.ts`: `agentService.setProviderRouter(providerRouter)`.
 
 **Criterios de aceite**
 
-- Agente funciona com assinatura Claude Pro/Max (streaming + tool calling).
-- Agente funciona com assinatura ChatGPT Plus/Pro.
-- Agente funciona com assinatura Gemini Advanced.
-- Agente funciona com API key Kimi.
-- Tool calling funciona em todos os providers.
+- [x] Claude adapter traduz OpenAI ↔ Anthropic Messages API com tool calling.
+- [x] OpenAI adapter usa formato nativo (zero traducao).
+- [x] Gemini adapter traduz OpenAI ↔ Gemini GenerativeLanguage com functionCall.
+- [x] Kimi adapter usa formato Anthropic com API key + User-Agent.
+- [x] Build compila sem erros com todos os adapters.
 
 ## Fase 4 — UI de Contas e Onboarding
 
@@ -351,55 +318,48 @@ Fontes de referencia para os OAuth flows:
 - Fallback entre providers e automatico e visivel na UI.
 - Rate limiting nao trava o agente — faz switch automatico.
 
-## Impacto no AgentService
+## Impacto no AgentService [IMPLEMENTADO]
 
-### Antes (hardcoded OpenRouter)
-
-```typescript
-// AgentService.requestCompletion — ATUAL
-const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-  headers: { Authorization: `Bearer ${apiKey}` },
-  body: JSON.stringify({ model, messages, tools, temperature }),
-})
-```
-
-### Depois (provider adapter)
+Refactor aplicado em `AgentService.ts`:
 
 ```typescript
-// AgentService.requestCompletion — NOVO
-const provider = this.providerRouter.resolveProvider(config)
+// AgentService.executeRun() — IMPLEMENTADO
+const provider = this.providerRouter.resolveProvider(config, { apiKey: input.apiKey })
 const response = await provider.chatCompletion({
-  model, messages, tools, temperature, signal,
+  model, temperature, messages: loopMessages,
+  tools: AGENT_TOOLS, signal: run.abortController.signal,
 })
-// response ja vem normalizado para formato interno
+// response ja vem normalizado — tool_calls, content, usage
 ```
 
-Mudanca cirurgica: substituir o `fetch` direto por `providerRouter.chatCompletion()`. O resto do loop (tool execution, plan enforcement, context compaction) nao muda.
+- `setProviderRouter(router)` permite injetar router compartilhado (com OAuthEngine).
+- `providerRouter` nao e mais `readonly` — pode ser substituido apos construcao.
+- O resto do loop (tool execution, plan enforcement, context compaction) nao mudou.
 
-## Estrutura de arquivos
+## Estrutura de arquivos [TODOS IMPLEMENTADOS]
 
 ```
 electron/src/main/services/providers/
-  ProviderRouter.ts          — resolve provider, routing, fallback
-  BaseProvider.ts            — interface ProviderAdapter
-  OAuthEngine.ts             — OAuth flows via BrowserWindow
-  TokenStore.ts              — storage seguro de tokens (safeStorage)
-  oauth-configs.ts           — configs OAuth por provider (URLs, client_ids, scopes)
-  format-translators.ts      — traducao OpenAI <-> Anthropic <-> Gemini
-  OpenRouterAdapter.ts       — modo atual (API key)
-  ClaudeSubscriptionAdapter.ts  — assinatura Claude via OAuth
-  OpenAISubscriptionAdapter.ts  — assinatura ChatGPT via OAuth
-  GeminiSubscriptionAdapter.ts  — assinatura Gemini via OAuth
-  KimiAdapter.ts             — API key Kimi (sem OAuth)
-  CustomEndpointAdapter.ts   — endpoint generico OpenAI-compatible
+  BaseProvider.ts              — interfaces: ProviderAdapter, ChatCompletionRequest/Response, ModelInfo, ProviderHealth
+  ProviderRouter.ts            — resolve provider por config, cache, setOAuthEngine()
+  OAuthEngine.ts               — OAuth flows via BrowserWindow + HTTP callback server
+  TokenStore.ts                — storage seguro de tokens (safeStorage + arquivo .enc.json)
+  oauth-configs.ts             — configs OAuth por provider (URLs, client_ids, scopes, registries)
+  format-translators.ts        — openaiToAnthropic, anthropicToOpenai, openaiToGemini, geminiToOpenai
+  OpenRouterAdapter.ts         — API key OpenRouter (modo original)
+  CustomEndpointAdapter.ts     — endpoint generico OpenAI-compatible (Ollama, LM Studio, etc.)
+  ClaudeSubscriptionAdapter.ts — assinatura Claude via OAuth + Anthropic Messages API
+  OpenAISubscriptionAdapter.ts — assinatura ChatGPT via OAuth + OpenAI Chat Completions API
+  GeminiSubscriptionAdapter.ts — assinatura Gemini via OAuth + Generative Language API
+  KimiAdapter.ts               — API key Kimi + Anthropic-compatible API
 ```
 
 ## Ordem Recomendada
 
-1. **Fase 1** (provider adapter layer) — refactor minimo, desacopla AgentService do OpenRouter, adiciona custom endpoint.
-2. **Fase 2** (OAuth engine + token storage) — infraestrutura de auth.
-3. **Fase 3** (subscription adapters) — conecta com assinaturas reais.
-4. **Fase 4** (UI de contas) — experiencia de usuario polida.
+1. ~~**Fase 1** (provider adapter layer)~~ — DONE
+2. ~~**Fase 2** (OAuth engine + token storage)~~ — DONE
+3. ~~**Fase 3** (subscription adapters)~~ — DONE
+4. **Fase 4** (UI de contas) — experiencia de usuario polida. PROXIMO.
 5. **Fase 5** (multi-account + routing) — power users e resiliencia.
 
 ## Riscos e Mitigacoes

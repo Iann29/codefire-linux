@@ -8,8 +8,9 @@ import { readConfig } from '../services/ConfigStore'
 const providerRouter = new ProviderRouter()
 const tokenStore = new TokenStore()
 const oauthEngine = new OAuthEngine(tokenStore)
+providerRouter.setOAuthEngine(oauthEngine)
 
-export { tokenStore, oauthEngine }
+export { providerRouter, tokenStore, oauthEngine }
 
 export function registerAgentHandlers(agentService: AgentService): void {
   // ── Provider handlers ──

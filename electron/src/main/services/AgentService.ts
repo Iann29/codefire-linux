@@ -458,7 +458,7 @@ export class AgentService {
   private readonly noteDAO: NoteDAO
   private readonly sessionDAO: SessionDAO
   private readonly projectDAO: ProjectDAO
-  private readonly providerRouter: ProviderRouter
+  private providerRouter: ProviderRouter
   private activeRun: ActiveRun | null = null
 
   constructor(
@@ -472,6 +472,10 @@ export class AgentService {
     this.noteDAO = new NoteDAO(db)
     this.sessionDAO = new SessionDAO(db)
     this.projectDAO = new ProjectDAO(db)
+  }
+
+  setProviderRouter(router: ProviderRouter): void {
+    this.providerRouter = router
   }
 
   startRun(input: AgentStartInput): { runId: string } {
