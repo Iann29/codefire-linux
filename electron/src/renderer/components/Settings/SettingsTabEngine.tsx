@@ -117,15 +117,48 @@ function IndexStatusPanel() {
 export default function SettingsTabEngine({ config, onChange }: Props) {
   return (
     <div className="space-y-6">
-      <Section title="API Key">
-        <TextInput
-          label="OpenRouter API Key"
-          hint="Used for embeddings, chat, and image generation. Get one at openrouter.ai"
-          placeholder="sk-or-..."
-          value={config.openRouterKey}
-          onChange={(v) => onChange({ openRouterKey: v })}
-          secret
+      <Section title="AI Provider">
+        <Select
+          label="Provider"
+          hint="Choose how the agent connects to AI models."
+          value={config.aiProvider || 'openrouter'}
+          onChange={(v) => onChange({ aiProvider: v as 'openrouter' | 'custom' })}
+          options={[
+            { value: 'openrouter', label: 'OpenRouter (API key)' },
+            { value: 'custom', label: 'Custom Endpoint (OpenAI-compatible)' },
+          ]}
         />
+
+        {(config.aiProvider || 'openrouter') === 'openrouter' && (
+          <TextInput
+            label="OpenRouter API Key"
+            hint="Used for embeddings, chat, and image generation. Get one at openrouter.ai"
+            placeholder="sk-or-..."
+            value={config.openRouterKey}
+            onChange={(v) => onChange({ openRouterKey: v })}
+            secret
+          />
+        )}
+
+        {config.aiProvider === 'custom' && (
+          <>
+            <TextInput
+              label="Endpoint URL"
+              hint="Base URL of an OpenAI-compatible API (e.g. http://localhost:8080/v1). Works with CLIProxyAPI, Ollama, LM Studio, LiteLLM, etc."
+              placeholder="http://localhost:8080/v1"
+              value={config.customEndpointUrl}
+              onChange={(v) => onChange({ customEndpointUrl: v })}
+            />
+            <TextInput
+              label="API Key (optional)"
+              hint="Leave empty if your endpoint doesn't require authentication."
+              placeholder="sk-..."
+              value={config.customEndpointKey}
+              onChange={(v) => onChange({ customEndpointKey: v })}
+              secret
+            />
+          </>
+        )}
       </Section>
 
       <Section title="Models">

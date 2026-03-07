@@ -1,7 +1,25 @@
 import { ipcMain } from 'electron'
 import { AgentService } from '../services/AgentService'
+import { ProviderRouter } from '../services/providers/ProviderRouter'
+import { readConfig } from '../services/ConfigStore'
+
+const providerRouter = new ProviderRouter()
 
 export function registerAgentHandlers(agentService: AgentService): void {
+  // ── Provider handlers ──
+
+  ipcMain.handle('provider:listModels', async () => {
+    const config = readConfig()
+    return providerRouter.listModels(config)
+  })
+
+  ipcMain.handle('provider:healthCheck', async () => {
+    const config = readConfig()
+    return providerRouter.healthCheck(config)
+  })
+
+  // ── Agent handlers ──
+
   ipcMain.handle(
     'agent:start',
     (_event, payload: {

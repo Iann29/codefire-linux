@@ -19,7 +19,10 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   defaultTerminalPath: '',
 
   // Engine
+  aiProvider: 'openrouter' as const,
   openRouterKey: '',
+  customEndpointUrl: '',
+  customEndpointKey: '',
   contextSearchEnabled: true,
   embeddingModel: 'openai/text-embedding-3-small',
   chatModel: 'google/gemini-3.1-pro-preview',

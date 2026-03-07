@@ -12,6 +12,8 @@ import type { SearchEngine } from './SearchEngine'
 import { GitService } from './GitService'
 import { BrowserBridge } from './BrowserBridge'
 import { readConfig } from './ConfigStore'
+import { ProviderRouter } from './providers/ProviderRouter'
+import type { ChatCompletionToolCall as ToolCall } from './providers/BaseProvider'
 
 type AgentEventChannel =
   | 'agent:stream'
@@ -59,31 +61,6 @@ export interface AgentStartInput {
   temperature?: number
   planEnforcement?: boolean
   contextCompaction?: boolean
-}
-
-interface OpenRouterToolCall {
-  id: string
-  type: 'function'
-  function: {
-    name: string
-    arguments: string
-  }
-}
-
-interface OpenRouterChoiceMessage {
-  content: unknown
-  tool_calls?: OpenRouterToolCall[]
-}
-
-interface OpenRouterCompletionResponse {
-  choices?: Array<{
-    message?: OpenRouterChoiceMessage
-  }>
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    total_tokens?: number
-  }
 }
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-20250514'
@@ -481,6 +458,7 @@ export class AgentService {
   private readonly noteDAO: NoteDAO
   private readonly sessionDAO: SessionDAO
   private readonly projectDAO: ProjectDAO
+  private readonly providerRouter: ProviderRouter
   private activeRun: ActiveRun | null = null
 
   constructor(
@@ -489,6 +467,7 @@ export class AgentService {
     private readonly browserBridge: BrowserBridge,
     private readonly searchEngine?: SearchEngine
   ) {
+    this.providerRouter = new ProviderRouter()
     this.taskDAO = new TaskDAO(db)
     this.noteDAO = new NoteDAO(db)
     this.sessionDAO = new SessionDAO(db)
@@ -539,10 +518,7 @@ export class AgentService {
   private async executeRun(run: ActiveRun, input: AgentStartInput): Promise<void> {
     try {
       const config = readConfig()
-      const apiKey = input.apiKey || config.openRouterKey
-      if (!apiKey) {
-        throw new Error('OpenRouter API key not configured in Settings > Engine.')
-      }
+      const provider = this.providerRouter.resolveProvider(config, { apiKey: input.apiKey })
 
       const projectName = input.projectName || this.resolveProjectName(run.projectId)
       const projectPath = this.resolveProjectPath(run.projectId)
@@ -566,18 +542,18 @@ export class AgentService {
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         this.throwIfAborted(run.abortController.signal)
 
-        const response = await this.requestCompletion({
-          apiKey,
+        const response = await provider.chatCompletion({
           model,
           temperature,
           messages: loopMessages,
+          tools: AGENT_TOOLS,
           signal: run.abortController.signal,
         })
 
         const message = response.choices?.[0]?.message
         if (!message) throw new Error('No response from model')
 
-        const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : []
+        const toolCalls: ToolCall[] = Array.isArray(message.tool_calls) ? message.tool_calls : []
         const assistantContent = normalizeAssistantContent(message.content)
 
         if (toolCalls.length === 0) {
@@ -688,38 +664,6 @@ export class AgentService {
         this.activeRun = null
       }
     }
-  }
-
-  private async requestCompletion(args: {
-    apiKey: string
-    model: string
-    temperature: number
-    messages: Array<Record<string, unknown>>
-    signal: AbortSignal
-  }): Promise<OpenRouterCompletionResponse> {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${args.apiKey}`,
-        'X-Title': 'CodeFire',
-      },
-      body: JSON.stringify({
-        model: args.model,
-        messages: args.messages,
-        tools: AGENT_TOOLS,
-        temperature: args.temperature,
-        max_tokens: 4096,
-      }),
-      signal: args.signal,
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => `HTTP ${response.status}`)
-      throw new Error(`OpenRouter API error: ${errorText.slice(0, 400)}`)
-    }
-
-    return (await response.json()) as OpenRouterCompletionResponse
   }
 
   private buildConversationHistory(conversationId: number): Array<{ role: string; content: string }> {

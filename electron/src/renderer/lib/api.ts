@@ -478,6 +478,13 @@ export const api = {
       }>,
   },
 
+  provider: {
+    listModels: () =>
+      invoke('provider:listModels') as Promise<Array<{ id: string; name: string }>>,
+    healthCheck: () =>
+      invoke('provider:healthCheck') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
+  },
+
   update: {
     check: () =>
       invoke('update:check') as Promise<{

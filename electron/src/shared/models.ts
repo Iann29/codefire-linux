@@ -285,7 +285,10 @@ export interface AppConfig {
   defaultTerminalPath: string
 
   // Engine
+  aiProvider: 'openrouter' | 'custom'
   openRouterKey: string
+  customEndpointUrl: string
+  customEndpointKey: string
   contextSearchEnabled: boolean
   embeddingModel: string
   chatModel: string
