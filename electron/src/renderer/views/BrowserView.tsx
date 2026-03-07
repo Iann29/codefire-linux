@@ -436,6 +436,142 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
         }
         case 'browser_console_logs':
           return { entries: consoleEntries }
+        case 'browser_wait_element': {
+          if (!wv) throw new Error('No active webview')
+          const sel = typeof args.selector === 'string' ? args.selector : ''
+          const state = typeof args.state === 'string' ? args.state : 'visible'
+          const timeoutMs = typeof args.timeout === 'number' ? args.timeout : 5000
+          return await wv.executeJavaScript(`
+            (() => {
+              return new Promise((resolve) => {
+                const start = Date.now();
+                const check = () => {
+                  const el = document.querySelector(${JSON.stringify(sel)});
+                  const state = ${JSON.stringify(state)};
+                  let found = false;
+                  if (state === 'attached') found = !!el;
+                  else if (state === 'detached') found = !el;
+                  else if (state === 'visible') {
+                    if (el) {
+                      const r = el.getBoundingClientRect();
+                      const s = window.getComputedStyle(el);
+                      found = s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+                    }
+                  } else if (state === 'hidden') {
+                    if (!el) found = true;
+                    else {
+                      const r = el.getBoundingClientRect();
+                      const s = window.getComputedStyle(el);
+                      found = s.display === 'none' || s.visibility === 'hidden' || r.width === 0 || r.height === 0;
+                    }
+                  }
+                  if (found) return resolve({ success: true, elapsed: Date.now() - start });
+                  if (Date.now() - start > ${timeoutMs}) return resolve({ error: 'Timeout waiting for element', selector: ${JSON.stringify(sel)}, state: ${JSON.stringify(state)} });
+                  setTimeout(check, 150);
+                };
+                check();
+              });
+            })()
+          `)
+        }
+        case 'browser_wait_navigation': {
+          if (!wv) throw new Error('No active webview')
+          const strategy = typeof args.strategy === 'string' ? args.strategy : 'load'
+          const navTimeout = typeof args.timeout === 'number' ? args.timeout : 10000
+          if (strategy === 'urlchange') {
+            const currentUrl = await wv.executeJavaScript('location.href')
+            return await new Promise<Record<string, unknown>>((resolve) => {
+              const timer = setTimeout(() => resolve({ error: 'Timeout waiting for URL change' }), navTimeout)
+              const check = setInterval(async () => {
+                try {
+                  const newUrl = await wv.executeJavaScript('location.href')
+                  if (newUrl !== currentUrl) {
+                    clearInterval(check)
+                    clearTimeout(timer)
+                    resolve({ success: true, url: newUrl })
+                  }
+                } catch { /* webview busy */ }
+              }, 200)
+            })
+          }
+          // load or networkidle — wait for did-stop-loading
+          return await new Promise<Record<string, unknown>>((resolve) => {
+            const timer = setTimeout(() => resolve({ error: 'Timeout waiting for navigation' }), navTimeout)
+            wv.addEventListener('did-stop-loading', () => {
+              clearTimeout(timer)
+              resolve({ success: true })
+            }, { once: true })
+          })
+        }
+        case 'browser_get_content': {
+          if (!wv) throw new Error('No active webview')
+          const mode = typeof args.mode === 'string' ? args.mode : 'text'
+          return await wv.executeJavaScript(`
+            (() => {
+              const mode = ${JSON.stringify(mode)};
+              if (mode === 'url') return { url: location.href, title: document.title };
+              if (mode === 'title') return { title: document.title };
+              if (mode === 'html') return { html: document.documentElement.outerHTML.slice(0, 50000) };
+              if (mode === 'links') {
+                return { links: Array.from(document.querySelectorAll('a[href]')).slice(0, 100).map(a => ({ text: a.textContent?.trim().slice(0, 80) || '', href: a.href })) };
+              }
+              if (mode === 'meta') {
+                const metas = {};
+                document.querySelectorAll('meta[name],meta[property]').forEach(m => {
+                  const key = m.getAttribute('name') || m.getAttribute('property');
+                  if (key) metas[key] = m.getAttribute('content') || '';
+                });
+                return { url: location.href, title: document.title, meta: metas };
+              }
+              // default: text
+              return { text: document.body?.innerText?.slice(0, 20000) || '', url: location.href, title: document.title };
+            })()
+          `)
+        }
+        case 'browser_press_key': {
+          if (!wv) throw new Error('No active webview')
+          const key = typeof args.key === 'string' ? args.key : ''
+          const modifiers = Array.isArray(args.modifiers) ? args.modifiers as string[] : []
+          return await wv.executeJavaScript(`
+            (() => {
+              const key = ${JSON.stringify(key)};
+              const mods = ${JSON.stringify(modifiers)};
+              const opts = {
+                key,
+                code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+                bubbles: true,
+                cancelable: true,
+                ctrlKey: mods.includes('Control') || mods.includes('Ctrl'),
+                shiftKey: mods.includes('Shift'),
+                altKey: mods.includes('Alt'),
+                metaKey: mods.includes('Meta') || mods.includes('Command'),
+              };
+              const target = document.activeElement || document.body;
+              target.dispatchEvent(new KeyboardEvent('keydown', opts));
+              target.dispatchEvent(new KeyboardEvent('keypress', opts));
+              target.dispatchEvent(new KeyboardEvent('keyup', opts));
+              return { success: true, key, target: (target.tagName || '').toLowerCase() };
+            })()
+          `)
+        }
+        case 'browser_extract_table': {
+          if (!wv) throw new Error('No active webview')
+          const tableSel = typeof args.selector === 'string' ? args.selector : 'table'
+          return await wv.executeJavaScript(`
+            (() => {
+              const table = document.querySelector(${JSON.stringify(tableSel)});
+              if (!table) return { error: 'Table not found: ${tableSel}' };
+              const headers = Array.from(table.querySelectorAll('thead th, tr:first-child th')).map(th => th.textContent?.trim() || '');
+              const rows = [];
+              table.querySelectorAll('tbody tr, tr').forEach((tr, i) => {
+                if (i === 0 && headers.length > 0 && tr.querySelector('th')) return;
+                const cells = Array.from(tr.querySelectorAll('td, th')).map(td => td.textContent?.trim() || '');
+                if (cells.length > 0) rows.push(cells);
+              });
+              return { headers, rows: rows.slice(0, 200), totalRows: rows.length };
+            })()
+          `)
+        }
         default:
           throw new Error(`Unsupported browser command: ${tool}`)
       }

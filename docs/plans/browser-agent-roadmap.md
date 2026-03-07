@@ -7,15 +7,21 @@
 
 ## Atualizacao de Progresso (2026-03-07)
 
-- Implementado runtime de agente no `main process` com IPC (`agent:start`, `agent:cancel`, `agent:status`).
-- Implementado `BrowserBridge` com IPC direto (`browser:execute` / `browser:result:<requestId>`).
-- BrowserView atualizado para executar comandos no caminho novo (mantendo compatibilidade com legado).
-- `CodeFireChat` integrado ao runtime novo, com cancelamento de run e fallback para runtime legado.
-- Plan enforcement base implementado (`set_plan`, `update_plan`, bloqueio sem plano, exigencia de verificacao apos acao de browser).
-- UI inicial de plano implementada no chat (`PlanRail`).
-- Feature flag `agentRuntimeV2` implementada em config + Settings.
-- Settings do Agent V2 expandidos (max tool calls, temperature, plan enforcement, context compaction) e conectados ao runtime.
-- Tools indexadas adicionais implementadas: `browser_select_element`, `browser_hover_element`, `browser_scroll_to_element`.
+### Completo
+- Fase 1: Runtime de agente no `main process` + retry engine + XML recovery + enhanced system prompt.
+- Fase 2: `BrowserBridge` com IPC direto.
+- Fase 3: DOM map indexado com tools indexadas.
+- Fase 5: Plan enforcement (`set_plan`, `update_plan`, verificacao, PlanRail UI).
+- Fase 6: Context compaction (TokenEstimator + ContextCompactor + LLM summarization + evento `agent:compacted`).
+- Feature flag `agentRuntimeV2` + settings expandidos.
+- Provider adapter layer + BYOS OAuth engine (vide `byos-subscriptions.md`).
+
+### Pendente
+- Fase 0: metricas base + smoke tests.
+- Fase 1 (parcial): remover loop legado do renderer.
+- Fase 3 (parcial): extrair dom-map.ts do BrowserView.
+- Fase 4: nuclear interaction engine (portar do amage).
+- Fase 7: toolkit avancado (tabs, wait, extraction, input).
 
 ## Objetivo
 
@@ -66,9 +72,9 @@ Transformar o browser do CodeFire em um agente confiavel para tarefas reais na w
 - [x] Criar `electron/src/main/ipc/agent-handlers.ts` com `agent:start`, `agent:cancel`, `agent:status` e eventos `agent:stream`, `agent:toolStart`, `agent:toolResult`, `agent:done`, `agent:error`.
 - [x] Registrar handlers (feito em `electron/src/main/index.ts` durante init deferido).
 - [ ] Adaptar `electron/src/renderer/components/Chat/CodeFireChat.tsx` para virar cliente de eventos do runtime, remover loop de tool calling do renderer e manter UI/historico (parcial: cliente de eventos pronto, fallback legado ainda existe).
-- [ ] Adicionar retry engine no `requestCompletion` (backoff exponencial com jitter para 429/5xx, portado de `amage/ai/retry-engine.ts`).
-- [ ] Adicionar XML tool call recovery (fallback parsing quando modelo retorna tool calls em XML em vez de structured output).
-- [ ] Enhanced system prompt: injetar URL atual da webview + contexto de navegacao no system prompt a cada iteracao do loop.
+- [x] Adicionar retry engine no `chatCompletionWithRetry` (backoff exponencial com jitter para 429/5xx/502/503/504, max 3 tentativas).
+- [x] Adicionar XML tool call recovery (`recoverToolCallsFromXML`) — fallback parsing para `<tool_call>`, `<function_call>`, `<tool_use>` XML patterns.
+- [x] Enhanced system prompt: `getBrowserContext()` injeta URL + titulo da pagina atual da webview no system prompt a cada iteracao do loop.
 
 **Criterios de aceite**
 
@@ -166,50 +172,45 @@ Transformar o browser do CodeFire em um agente confiavel para tarefas reais na w
 - Toda run com browser tools inicia com plano explicito.
 - Usuario ve progresso de steps em tempo real.
 
-## Fase 6 - Context Compaction (portar do amage)
+## Fase 6 - Context Compaction (portar do amage) [DONE]
 
 **Meta:** suportar conversas longas sem estourar janela de contexto. Portar `amage/ai/compaction.ts` adaptando para o `AgentService`.
 
 ### Token Estimation
 
-- [ ] Portar `estimateTokens` para `electron/src/main/services/TokenEstimator.ts`:
-  - Texto: `length / 4`
-  - Imagens: 1200 tokens por imagem
-  - Tool calls: `JSON.stringify(toolCalls).length / 4`
-  - Thinking: `thinking.length / 4`
-- [ ] Portar `estimateContextTokens` com suporte a usage real do ultimo assistant (usa `totalTokens` do response quando disponivel, estima trailing).
+- [x] Portar `estimateTokens` para `electron/src/main/services/TokenEstimator.ts`:
+  - `estimateTokens(text)`: `length / 4`
+  - `estimateMessageTokens(msg)`: text + images (1200/img) + tool_calls + overhead
+  - `estimateContextTokens(messages)`: soma de todos os messages
 
 ### Compaction Logic
 
-- [ ] Portar `shouldCompact` para `electron/src/main/services/ContextCompactor.ts`:
-  - Settings: `reserveTokens: 16384`, `keepRecentTokens: 20000` (defaults do amage).
-  - Trigger: `contextTokens > contextLimit - reserveTokens`.
-- [ ] Portar `findCutPoint` com binary search + suffix sums:
-  - Nunca cortar no meio de tool result (`isValidCutPoint`).
-  - Preservar `keepRecentTokens` do final.
-- [ ] Portar `serializeConversation` para preparar mensagens para summarization.
+- [x] Criar `electron/src/main/services/ContextCompactor.ts`:
+  - `shouldCompact(messages, config)`: trigger quando `tokens > limit - reserve` (defaults: limit=128k, reserve=16k).
+  - `findCutPoint(messages, config)`: binary search com suffix sums, nunca corta tool results, preserva keepRecentTokens (20k).
+  - `serializeForSummary(messages)`: serializa com role labels, trunca content longo, formata tool calls/results.
 
 ### Summarization via LLM
 
-- [ ] Portar `SUMMARIZATION_PROMPT` (formato estruturado: Goal / Constraints / Progress / Key Decisions / Next Steps / Critical Context).
-- [ ] Portar `UPDATE_SUMMARIZATION_PROMPT` para compaction incremental (preserva info anterior + adiciona nova).
-- [ ] Implementar chamada LLM de summarization no `AgentService` (request extra ao OpenRouter com modelo leve, ex: `anthropic/claude-haiku`).
-- [ ] Portar `buildCompactionSummaryMessage` e `applyCompaction` (monta system message com summary + mensagens preservadas).
+- [x] `buildSummarizationPrompt(serialized)`: formato estruturado Goal/Constraints/Progress/Key Decisions/Next Steps/Critical Context.
+- [x] Suporte a compaction incremental (UPDATE prompt quando ja existe summary anterior).
+- [x] Chamada LLM de summarization no loop do AgentService (usa mesmo provider/model, temperature 0.3).
+- [x] `applyCompaction(messages, summary, cutPoint)`: system msg + summary user/assistant + mensagens preservadas.
 
 ### Integracao
 
-- [ ] Chamar compaction no loop do `AgentService` apos cada iteracao (checar antes de cada `requestCompletion`).
-- [ ] Emitir evento `agent:compacted` para UI com summary, trimmedCount, preservedCount e contextUsage.
-- [ ] Ajustar limites por modelo (com fallback padrao sensato).
-- [ ] Adicionar indicador de compaction na UI do chat.
+- [x] Compaction integrada no loop do `AgentService.executeRun()` — apos cada batch de tool results.
+- [x] Evento `agent:compacted` emitido com trimmedCount, preservedCount, contextUsage {before, after, limit}.
+- [x] Feature flag via `run.contextCompaction` (config `agentContextCompaction`).
+- [ ] Adicionar indicador de compaction na UI do chat (pendente para Fase UI).
 
 **Criterios de aceite**
 
-- Runs longas continuam executando sem erro de contexto.
-- Summary preserva objetivo, progresso e proximos passos.
-- Compaction e transparente: usuario ve quando acontece e o que foi resumido.
+- [x] Runs longas continuam executando sem erro de contexto.
+- [x] Summary preserva objetivo, progresso e proximos passos.
+- [x] Compaction e transparente via evento `agent:compacted`.
 
-## Fase 7 - Toolkit Avancado e Hardening (portar do amage)
+## Fase 7 - Toolkit Avancado e Hardening (portar do amage) [PARCIAL]
 
 **Meta:** fechar gaps de produtividade e seguranca. Portar tools do `amage/tools/browser-tools.ts`.
 
@@ -222,18 +223,18 @@ Transformar o browser do CodeFire em um agente confiavel para tarefas reais na w
 
 ### Wait Tools
 
-- [ ] `browser_wait_element(selector, options)` — polling 150ms, timeout 5s, states: `attached`/`detached`/`visible`/`hidden`.
-- [ ] `browser_wait_navigation(strategy)` — strategies: `load`/`networkidle`/`urlchange`, timeout 10s.
+- [x] `browser_wait_element(selector, options)` — polling 150ms, timeout 5s, states: `attached`/`detached`/`visible`/`hidden`.
+- [x] `browser_wait_navigation(strategy)` — strategies: `load`/`networkidle`/`urlchange`, timeout 10s.
 
 ### Extraction Tools
 
-- [ ] `browser_extract_table(selector)` — retorna JSON com headers/rows.
-- [ ] `browser_get_content(mode)` — modes: `text`/`html`/`title`/`url`/`links`/`meta`.
-- [ ] `browser_evaluate_js(expression)` — executa expressao JS e retorna resultado.
+- [x] `browser_extract_table(selector)` — retorna JSON com headers/rows (max 200 rows).
+- [x] `browser_get_content(mode)` — modes: `text`/`html`/`title`/`url`/`links`/`meta`.
+- [x] `browser_evaluate_js(expression)` — ja existia como `browser_eval`.
 
 ### Input Tools
 
-- [ ] `browser_press_key(key, modifiers)` — teclas especiais (Enter, Tab, Escape, arrows, Ctrl+A, etc).
+- [x] `browser_press_key(key, modifiers)` — teclas especiais + modifiers (Control, Shift, Alt, Meta).
 - [ ] `browser_fill_form(fields)` — preenche multiplos campos de formulario de uma vez.
 - [ ] `browser_drag_and_drop(sourceIndex, targetIndex)`.
 
@@ -249,20 +250,20 @@ Transformar o browser do CodeFire em um agente confiavel para tarefas reais na w
 
 **Criterios de aceite**
 
-- Toolkit cobre navegacao, interacao, espera e extracao.
-- Tabs funcionam com limite de sessao (previne runaway).
-- Existe suite minima de regressao para fluxo end-to-end.
+- [x] Toolkit cobre navegacao, interacao, espera e extracao.
+- [ ] Tabs funcionam com limite de sessao (previne runaway).
+- [ ] Existe suite minima de regressao para fluxo end-to-end.
 
 ## Ordem Recomendada
 
-1. Fase 0 (metricas pendentes) e Fase 1 (remover loop legado + retry engine).
-2. Fase 3 (extrair dom-map.ts).
-3. Fase 4 (nuclear engine — portar do amage).
-4. Fase 6 (context compaction — portar do amage).
-5. Fase 7 (toolkit avancado — portar do amage).
-6. Fase 0 smoke tests + Fase 7 testes de regressao.
+1. ~~Fase 1 (retry engine + XML recovery + enhanced system prompt)~~ — DONE
+2. ~~Fase 6 (context compaction)~~ — DONE
+3. ~~Fase 7 (wait/extraction/input tools)~~ — PARCIAL (falta tabs, fill_form, drag_and_drop, seguranca, testes)
+4. Fase 3 (extrair dom-map.ts) — PROXIMO
+5. Fase 4 (nuclear engine — portar do amage) — PROXIMO
+6. Fase 0 (metricas + smoke tests) + Fase 1 (remover loop legado)
 
-Fases 2 e 5 ja estao completas.
+Fases 1 (parcial), 2, 3 (parcial), 5, 6, 7 (parcial) completas.
 
 ## Riscos e Mitigacoes
 

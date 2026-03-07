@@ -14,12 +14,14 @@ import { BrowserBridge } from './BrowserBridge'
 import { readConfig } from './ConfigStore'
 import { ProviderRouter } from './providers/ProviderRouter'
 import type { ChatCompletionToolCall as ToolCall } from './providers/BaseProvider'
+import { ContextCompactor } from './ContextCompactor'
 
 type AgentEventChannel =
   | 'agent:stream'
   | 'agent:toolStart'
   | 'agent:toolResult'
   | 'agent:planUpdate'
+  | 'agent:compacted'
   | 'agent:done'
   | 'agent:error'
 
@@ -67,6 +69,9 @@ const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-20250514'
 const MAX_HISTORY_CHARS = 25_000
 const DEFAULT_MAX_ITERATIONS = 10
 const MAX_MAX_ITERATIONS = 30
+const RETRY_MAX_ATTEMPTS = 3
+const RETRY_BASE_DELAY_MS = 1000
+const RETRY_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
 
 const AGENT_TOOLS = [
   {
@@ -402,6 +407,77 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'browser_wait_element',
+      description: 'Wait for an element to reach a state: attached, detached, visible, or hidden.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector' },
+          state: { type: 'string', enum: ['attached', 'detached', 'visible', 'hidden'] },
+          timeout: { type: 'number', description: 'Timeout in ms (default 5000)' },
+        },
+        required: ['selector'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_wait_navigation',
+      description: 'Wait for page navigation to complete.',
+      parameters: {
+        type: 'object',
+        properties: {
+          strategy: { type: 'string', enum: ['load', 'networkidle', 'urlchange'] },
+          timeout: { type: 'number', description: 'Timeout in ms (default 10000)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_get_content',
+      description: 'Get page content in different modes: text, html, url, title, links, or meta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', enum: ['text', 'html', 'url', 'title', 'links', 'meta'] },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_press_key',
+      description: 'Press a keyboard key with optional modifiers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Key name: Enter, Tab, Escape, ArrowDown, a, etc.' },
+          modifiers: { type: 'array', items: { type: 'string' }, description: 'Array of modifiers: Control, Shift, Alt, Meta' },
+        },
+        required: ['key'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_extract_table',
+      description: 'Extract a table from the page as JSON with headers and rows.',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: { type: 'string', description: 'CSS selector for the table (default: "table")' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_file',
       description: 'Read a file from disk.',
       parameters: {
@@ -444,6 +520,11 @@ const BROWSER_TOOL_NAMES = new Set<string>([
   'browser_hover_element',
   'browser_scroll_to_element',
   'browser_get_element_info',
+  'browser_wait_element',
+  'browser_wait_navigation',
+  'browser_get_content',
+  'browser_press_key',
+  'browser_extract_table',
 ])
 
 const VERIFICATION_BROWSER_TOOLS = new Set<string>([
@@ -459,6 +540,7 @@ export class AgentService {
   private readonly sessionDAO: SessionDAO
   private readonly projectDAO: ProjectDAO
   private providerRouter: ProviderRouter
+  private readonly contextCompactor = new ContextCompactor()
   private activeRun: ActiveRun | null = null
 
   constructor(
@@ -536,17 +618,25 @@ export class AgentService {
       run.planEnforcement = input.planEnforcement ?? config.agentPlanEnforcement ?? true
       run.contextCompaction = input.contextCompaction ?? config.agentContextCompaction ?? false
 
-      const systemPrompt = this.buildSystemPrompt(projectName, run.planEnforcement)
       const history = this.buildConversationHistory(run.conversationId)
       let loopMessages: Array<Record<string, unknown>> = [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement) },
         ...history,
       ]
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         this.throwIfAborted(run.abortController.signal)
 
-        const response = await provider.chatCompletion({
+        // Enhanced system prompt: inject current browser URL context per iteration
+        const browserContext = await this.getBrowserContext()
+        if (browserContext) {
+          loopMessages[0] = {
+            role: 'system',
+            content: this.buildSystemPrompt(projectName, run.planEnforcement) + '\n\n' + browserContext,
+          }
+        }
+
+        const response = await this.chatCompletionWithRetry(provider, {
           model,
           temperature,
           messages: loopMessages,
@@ -557,8 +647,17 @@ export class AgentService {
         const message = response.choices?.[0]?.message
         if (!message) throw new Error('No response from model')
 
-        const toolCalls: ToolCall[] = Array.isArray(message.tool_calls) ? message.tool_calls : []
+        let toolCalls: ToolCall[] = Array.isArray(message.tool_calls) ? message.tool_calls : []
         const assistantContent = normalizeAssistantContent(message.content)
+
+        // XML tool call recovery: if no structured tool calls but content contains XML tool patterns
+        if (toolCalls.length === 0 && assistantContent) {
+          const recovered = this.recoverToolCallsFromXML(assistantContent)
+          if (recovered && recovered.length > 0) {
+            console.log(`[AgentService] Recovered ${recovered.length} tool call(s) from XML in response`)
+            toolCalls = recovered
+          }
+        }
 
         if (toolCalls.length === 0) {
           const finalContent = assistantContent || 'Done.'
@@ -633,6 +732,40 @@ export class AgentService {
             content: result,
           })
         }
+
+        // Context compaction: check if we need to compact before next iteration
+        if (run.contextCompaction && this.contextCompactor.shouldCompact(loopMessages)) {
+          const cutPoint = this.contextCompactor.findCutPoint(loopMessages)
+          const serialized = this.contextCompactor.serializeForSummary(loopMessages.slice(1, cutPoint))
+          const summaryPrompt = this.contextCompactor.buildSummarizationPrompt(serialized)
+
+          try {
+            const summaryResponse = await this.chatCompletionWithRetry(provider, {
+              model,
+              temperature: 0.3,
+              messages: [
+                { role: 'system', content: 'You are a conversation summarizer. Be concise and structured.' },
+                { role: 'user', content: summaryPrompt },
+              ],
+              signal: run.abortController.signal,
+            })
+
+            const summary = normalizeAssistantContent(summaryResponse.choices?.[0]?.message?.content) || 'Summary unavailable.'
+            const result = this.contextCompactor.applyCompaction(loopMessages, summary, cutPoint)
+            loopMessages = result.messages
+
+            this.sendEvent(run, 'agent:compacted', {
+              runId: run.id,
+              trimmedCount: result.trimmedCount,
+              preservedCount: result.preservedCount,
+              contextUsage: result.contextUsage,
+            })
+
+            console.log(`[AgentService] Context compacted: ${result.trimmedCount} messages trimmed, ${result.contextUsage.before} → ${result.contextUsage.after} tokens`)
+          } catch (err) {
+            console.error('[AgentService] Compaction failed, continuing without:', err)
+          }
+        }
       }
 
       const fallback = 'I reached the maximum number of tool calls. Please refine your request.'
@@ -668,6 +801,105 @@ export class AgentService {
         this.activeRun = null
       }
     }
+  }
+
+  /**
+   * Enhanced system prompt: get current browser URL + title for context injection.
+   */
+  private async getBrowserContext(): Promise<string | null> {
+    try {
+      const result = await this.browserBridge.executeCommand({
+        tool: 'browser_get_content',
+        args: { mode: 'url' },
+        projectId: null,
+        timeoutMs: 2000,
+      })
+      if (result && typeof result === 'object' && 'url' in (result as Record<string, unknown>)) {
+        const r = result as Record<string, unknown>
+        const url = r.url as string
+        const title = r.title as string | undefined
+        if (url && url !== 'about:blank') {
+          return `[Browser context] Current page: ${title ? `"${title}" at ` : ''}${url}`
+        }
+      }
+    } catch { /* browser not available, skip context */ }
+    return null
+  }
+
+  /**
+   * Retry engine: exponential backoff with jitter for transient errors (429, 5xx).
+   */
+  private async chatCompletionWithRetry(
+    provider: { chatCompletion: (req: import('./providers/BaseProvider').ChatCompletionRequest) => Promise<import('./providers/BaseProvider').ChatCompletionResponse> },
+    request: import('./providers/BaseProvider').ChatCompletionRequest
+  ): Promise<import('./providers/BaseProvider').ChatCompletionResponse> {
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+      try {
+        const response = await provider.chatCompletion(request)
+        return response
+      } catch (err) {
+        if (isAbortError(err)) throw err
+
+        lastError = err instanceof Error ? err : new Error(String(err))
+        const statusMatch = lastError.message.match(/\b(\d{3})\b/)
+        const statusCode = statusMatch ? Number(statusMatch[1]) : 0
+
+        if (!RETRY_RETRYABLE_STATUS.has(statusCode) && attempt === 0 && !lastError.message.includes('fetch failed')) {
+          throw lastError
+        }
+
+        if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+          const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500
+          console.log(`[AgentService] Retry ${attempt + 1}/${RETRY_MAX_ATTEMPTS} after ${Math.round(delay)}ms: ${lastError.message.slice(0, 100)}`)
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+      }
+    }
+
+    throw lastError ?? new Error('All retry attempts failed')
+  }
+
+  /**
+   * XML tool call recovery: parse tool calls from XML when structured output fails.
+   * Some models wrap tool calls in <tool_call>, <function_call>, or <tool_use> XML.
+   */
+  private recoverToolCallsFromXML(content: string): ToolCall[] | null {
+    // Match patterns like <tool_call>{"name":"...", "arguments":{...}}</tool_call>
+    // or <function_call name="...">{"arg": "val"}</function_call>
+    const patterns = [
+      /<tool_call>\s*({[\s\S]*?})\s*<\/tool_call>/g,
+      /<function_call[^>]*>\s*({[\s\S]*?})\s*<\/function_call>/g,
+      /<tool_use[^>]*>\s*({[\s\S]*?})\s*<\/tool_use>/g,
+    ]
+
+    const calls: ToolCall[] = []
+
+    for (const pattern of patterns) {
+      let match: RegExpExecArray | null
+      while ((match = pattern.exec(content)) !== null) {
+        try {
+          const parsed = JSON.parse(match[1]) as Record<string, unknown>
+          const name = (parsed.name as string) ?? (parsed.function as string)
+          const args = parsed.arguments ?? parsed.input ?? parsed.params ?? {}
+
+          if (name) {
+            calls.push({
+              id: `call_xml_${calls.length}_${Math.random().toString(36).slice(2, 8)}`,
+              type: 'function',
+              function: {
+                name,
+                arguments: typeof args === 'string' ? args : JSON.stringify(args),
+              },
+            })
+          }
+        } catch { /* invalid JSON in XML block, skip */ }
+      }
+      if (calls.length > 0) return calls
+    }
+
+    return null
   }
 
   private buildConversationHistory(conversationId: number): Array<{ role: string; content: string }> {
