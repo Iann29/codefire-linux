@@ -33,7 +33,7 @@ export class KimiAdapter implements ProviderAdapter {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey,
         'User-Agent': KIMI_CONFIG.userAgent ?? 'claude-code/1.0',
-        'anthropic-version': '2024-10-22',
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(anthropicRequest),
       signal: request.signal,
@@ -70,7 +70,7 @@ export class KimiAdapter implements ProviderAdapter {
           'Content-Type': 'application/json',
           'x-api-key': this.apiKey,
           'User-Agent': KIMI_CONFIG.userAgent ?? 'claude-code/1.0',
-          'anthropic-version': '2024-10-22',
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
           model: 'kimi-k2.5',

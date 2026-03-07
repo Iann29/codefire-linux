@@ -11,7 +11,7 @@ import { openaiToAnthropic, anthropicToOpenai } from './format-translators'
 import { CLAUDE_OAUTH } from './oauth-configs'
 
 const PROVIDER_ID = 'claude-subscription'
-const API_VERSION = '2024-10-22'
+const API_VERSION = '2023-06-01'
 
 /** Headers required for Claude Max subscription tokens (OAuth-derived / setup-token) */
 const SUBSCRIPTION_HEADERS: Record<string, string> = {

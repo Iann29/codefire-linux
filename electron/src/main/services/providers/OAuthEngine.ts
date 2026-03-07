@@ -126,6 +126,9 @@ export class OAuthEngine {
     providerId: string,
     token: string
   ): Promise<{ success: boolean; error?: string; accountIndex?: number }> {
+    // Strip whitespace/newlines that may come from copy-paste
+    token = token.replace(/\s+/g, '')
+
     const config = ALL_SUBSCRIPTION_PROVIDERS[providerId]
     if (!config || !isOAuthConfig(config)) {
       return { success: false, error: `Unknown provider: ${providerId}` }
@@ -169,7 +172,7 @@ export class OAuthEngine {
     try {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
-        'anthropic-version': '2024-10-22',
+        'anthropic-version': '2023-06-01',
         ...config.extraApiHeaders,
       }
 
@@ -445,7 +448,7 @@ export class OAuthEngine {
       const res = await fetch(config.profileUrl, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'anthropic-version': '2024-10-22',
+          'anthropic-version': '2023-06-01',
         },
       })
 
