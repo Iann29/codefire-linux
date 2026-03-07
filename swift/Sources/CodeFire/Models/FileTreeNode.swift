@@ -27,6 +27,10 @@ class FileTreeNode: Identifiable, ObservableObject {
         ".expo", "coverage", "vendor", "target", ".claude"
     ]
 
+    static let skipFiles: Set<String> = [
+        ".DS_Store"
+    ]
+
     // MARK: - Sorted Children
 
     var sortedChildren: [FileTreeNode] {
@@ -48,7 +52,7 @@ class FileTreeNode: Identifiable, ObservableObject {
         guard let contents = try? fm.contentsOfDirectory(
             at: fullPath,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             children = []
             return
@@ -56,6 +60,7 @@ class FileTreeNode: Identifiable, ObservableObject {
 
         children = contents.compactMap { url in
             let name = url.lastPathComponent
+            if Self.skipFiles.contains(name) { return nil }
             if Self.skipDirectories.contains(name) { return nil }
 
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
@@ -108,11 +113,12 @@ class FileTreeNode: Identifiable, ObservableObject {
         guard let contents = try? fm.contentsOfDirectory(
             at: rootURL,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else { return [] }
 
         return contents.compactMap { url in
             let name = url.lastPathComponent
+            if skipFiles.contains(name) { return nil }
             if skipDirectories.contains(name) { return nil }
 
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false

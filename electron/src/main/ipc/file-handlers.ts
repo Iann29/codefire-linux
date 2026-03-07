@@ -52,10 +52,7 @@ export function registerFileHandlers() {
         const result: FileEntry[] = []
 
         for (const entry of entries) {
-          // Skip hidden files/dirs (except .env files) and known skip dirs
-          if (entry.name.startsWith('.') && !entry.name.startsWith('.env')) {
-            continue
-          }
+          // Skip known unneeded dirs/files
           if (SKIP_DIRS.has(entry.name)) {
             continue
           }
