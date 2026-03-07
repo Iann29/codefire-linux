@@ -700,9 +700,9 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
           label="Max tool calls per run"
           hint="Hard cap for tool-calling loop in agent mode."
           value={config.agentMaxToolCalls}
-          onChange={(v) => onChange({ agentMaxToolCalls: Number.isFinite(v) ? Math.max(1, Math.min(60, Math.round(v))) : 30 })}
+          onChange={(v) => onChange({ agentMaxToolCalls: Number.isFinite(v) ? Math.max(1, Math.min(100, Math.round(v))) : 30 })}
           min={1}
-          max={60}
+          max={100}
           step={1}
         />
         <Slider

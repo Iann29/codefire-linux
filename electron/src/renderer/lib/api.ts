@@ -457,6 +457,12 @@ export const api = {
       maxTokens?: number
     }) =>
       invoke('chat:providerCompletion', payload) as Promise<{ content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>,
+    streamProviderCompletion: (payload: {
+      messages: Array<{ role: string; content: string }>
+      model: string
+      maxTokens?: number
+    }) =>
+      invoke('chat:streamProviderCompletion', payload) as Promise<{ content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>,
   },
 
   agent: {

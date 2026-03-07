@@ -158,6 +158,54 @@ function getModelShortName(modelValue: string): string {
   return parts.length > 1 ? parts.slice(1).join('/') : modelValue.replace(/-\d{8,}$/, '')
 }
 
+function formatChatError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+
+  // Authentication error
+  if (raw.includes('authentication_error') || raw.includes('invalid x-api-key') || raw.includes('401')) {
+    return 'Token inválido ou expirado. Gere um novo com `claude setup-token` e atualize em Settings > Engine.'
+  }
+
+  // Rate limit
+  if (raw.includes('rate_limit_error') || raw.includes('429')) {
+    const retryMatch = raw.match(/retry.after.*?(\d+)/i)
+    const retryAfter = retryMatch ? ` Aguarde ${retryMatch[1]} segundos.` : ' Aguarde um momento antes de tentar novamente.'
+    return `Rate limit atingido.${retryAfter}`
+  }
+
+  // Overloaded
+  if (raw.includes('overloaded') || raw.includes('529')) {
+    return 'API temporariamente sobrecarregada. Tente novamente em alguns instantes.'
+  }
+
+  // Invalid request
+  if (raw.includes('invalid_request_error')) {
+    const msgMatch = raw.match(/"message"\s*:\s*"([^"]+)"/)
+    return msgMatch ? `Erro na requisição: ${msgMatch[1]}` : 'Requisição inválida. Verifique o modelo selecionado.'
+  }
+
+  // Network errors
+  if (raw.includes('fetch failed') || raw.includes('ENOTFOUND') || raw.includes('ECONNREFUSED') || raw.includes('NetworkError')) {
+    return 'Sem conexão com a API. Verifique sua internet.'
+  }
+
+  // Not connected
+  if (raw.includes('not connected') || raw.includes('setup-token')) {
+    return 'Claude subscription não conectado. Execute `claude setup-token` e cole o token em Settings > Engine.'
+  }
+
+  // OpenRouter key missing
+  if (raw.includes('API key not configured') || raw.includes('openRouterKey')) {
+    return 'API key não configurada. Adicione sua chave em Settings > Engine.'
+  }
+
+  // Generic: trim IPC wrapping noise
+  return raw
+    .replace(/^Error: Error invoking remote method '[^']+': /, '')
+    .replace(/^ProviderHttpError: /, '')
+    .slice(0, 300)
+}
+
 // ─── Context Builder (Mode 1 — matches Swift ContextAssembler) ───────────────
 
 async function buildContextWithRAG(
@@ -338,6 +386,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [lastBrowserAction, setLastBrowserAction] = useState<string | null>(null)
   const [compactionInfo, setCompactionInfo] = useState<{ trimmedCount: number; before: number; after: number } | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ runId: string; action: string; details: Record<string, unknown> } | null>(null)
+  const [showContinue, setShowContinue] = useState(false)
+  const [messageUsage, setMessageUsage] = useState<Record<number, { prompt_tokens?: number; completion_tokens?: number }>>({})
   const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null)
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false)
   const [rateLimitCountdown, setRateLimitCountdown] = useState('')
@@ -547,7 +597,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       if (!runId || runId !== activeRunIdRef.current) return
 
       if (payload?.message) {
-        setMessages((prev) => [...prev, payload.message as ChatMessage])
+        const msg = payload.message as ChatMessage
+        setMessages((prev) => [...prev, msg])
+        if (payload?.usage) {
+          setMessageUsage((prev) => ({ ...prev, [msg.id]: payload.usage }))
+        }
       }
 
       setStreaming(false)
@@ -556,6 +610,10 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       setAwaitingVerification(false)
       setCompactionInfo(null)
       setConfirmAction(null)
+
+      if (payload?.hitLimit) {
+        setShowContinue(true)
+      }
 
       activeRunIdRef.current = null
       setActiveRunId(null)
@@ -631,11 +689,12 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
   // ─── Send (dispatches to mode) ─────────────────────────────────────────────
 
-  async function handleSend() {
-    if (!input.trim() || sending) return
+  async function handleSend(contentOverride?: string) {
+    const rawContent = contentOverride || input.trim()
+    if (!rawContent || sending) return
 
-    const content = input.trim()
-    setInput('')
+    const content = rawContent
+    if (!contentOverride) setInput('')
     setSending(true)
     setErrorMessage(null)
     setToolExecutions([])
@@ -643,6 +702,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     setAwaitingVerification(false)
     setLastBrowserAction(null)
     setCompactionInfo(null)
+    setShowContinue(false)
 
     // Ensure conversation
     let convId = activeConversationId
@@ -698,7 +758,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       model = resolveModelAlias(config?.chatModel || 'anthropic/claude-sonnet-4-6')
       runtimeOptions = {
         maxToolCalls: typeof config?.agentMaxToolCalls === 'number'
-          ? Math.max(1, Math.min(60, Math.round(config.agentMaxToolCalls)))
+          ? Math.max(1, Math.min(100, Math.round(config.agentMaxToolCalls)))
           : 30,
         temperature: typeof config?.agentTemperature === 'number'
           ? Math.max(0, Math.min(1, config.agentTemperature))
@@ -741,10 +801,10 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       console.error('Chat error:', err)
       setStreaming(false)
       setStreamedContent('')
-      const errText = err instanceof Error ? err.message : String(err)
+      const friendlyError = formatChatError(err)
       setMessages((prev) => [...prev, {
         id: -Date.now(), conversationId: convId, role: 'assistant',
-        content: `**Error:** ${errText}`, createdAt: new Date().toISOString(),
+        content: `**Error:** ${friendlyError}`, createdAt: new Date().toISOString(),
       }])
     } finally {
       setSending(false)
@@ -810,23 +870,38 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
 
     setStreaming(true)
-    setStreamedContent('Thinking...')
-
-    const result = await api.chat.providerCompletion({
-      model,
-      messages: [
-        { role: 'system', content: context },
-        ...history.slice(-20),
-      ],
-    })
-
-    setStreaming(false)
     setStreamedContent('')
 
-    if (result.content) {
-      const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: result.content })
-      setMessages((prev) => [...prev, assistantMsg])
-      updateConversationTitle(convId, _userContent)
+    // Listen for streaming chunks from main process
+    const cleanupChunk = window.api.on('chat:streamChunk', (chunk: unknown) => {
+      const text = String(chunk ?? '')
+      if (text) setStreamedContent((prev) => prev + text)
+    })
+
+    try {
+      const result = await api.chat.streamProviderCompletion({
+        model,
+        messages: [
+          { role: 'system', content: context },
+          ...history.slice(-20),
+        ],
+      })
+
+      cleanupChunk()
+      setStreaming(false)
+      setStreamedContent('')
+
+      if (result.content) {
+        const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: result.content })
+        setMessages((prev) => [...prev, assistantMsg])
+        if (result.usage) {
+          setMessageUsage((prev) => ({ ...prev, [assistantMsg.id]: result.usage! }))
+        }
+        updateConversationTitle(convId, _userContent)
+      }
+    } catch (err) {
+      cleanupChunk()
+      throw err
     }
   }
 
@@ -966,6 +1041,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const runId = activeRunIdRef.current
     if (!runId) return
     await api.agent.cancel(runId).catch(() => {})
+  }
+
+  function handleContinue() {
+    setShowContinue(false)
+    handleSend('Continue from where you left off. Complete the remaining steps.')
   }
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
@@ -1185,6 +1265,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 key={msg.id}
                 role={msg.role}
                 content={msg.content}
+                usage={messageUsage[msg.id]}
                 onCopy={handleCopyMessage}
                 onCreateTask={handleCreateTask}
                 onCreateNote={handleCreateNote}
@@ -1257,6 +1338,18 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 <span className="text-[10px] text-blue-400">
                   Context compacted: {compactionInfo.trimmedCount} messages summarized ({Math.round(compactionInfo.before / 1000)}k → {Math.round(compactionInfo.after / 1000)}k tokens)
                 </span>
+              </div>
+            )}
+            {showContinue && !sending && chatMode === 'agent' && (
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <button
+                  onClick={handleContinue}
+                  className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg bg-codefire-orange/15 text-codefire-orange hover:bg-codefire-orange/25 transition-colors border border-codefire-orange/30"
+                >
+                  <Zap size={12} />
+                  Continue
+                </button>
+                <span className="text-[10px] text-neutral-500">Tool call limit reached — continue from where it left off</span>
               </div>
             )}
             {sending && !streaming && toolExecutions.length === 0 && (
@@ -1337,7 +1430,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
             </button>
           ) : (
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!input.trim() || sending}
               className="px-3 py-2 bg-codefire-orange/20 text-codefire-orange rounded-lg hover:bg-codefire-orange/30 transition-colors disabled:opacity-40 self-end"
             >
@@ -1355,6 +1448,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 function ChatBubble({
   role,
   content,
+  usage,
   onCopy,
   onCreateTask,
   onCreateNote,
@@ -1362,6 +1456,7 @@ function ChatBubble({
 }: {
   role: string
   content: string
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
   onCopy: (content: string) => void
   onCreateTask: (content: string) => void
   onCreateNote: (content: string) => void
@@ -1387,14 +1482,21 @@ function ChatBubble({
           <MarkdownContent content={content} />
         </div>
 
-        {showActions && !isUser && (
-          <div className="flex items-center gap-0.5 mt-1">
-            <ActionButton icon={<Copy size={10} />} title="Copy" onClick={() => onCopy(content)} />
-            <ActionButton icon={<ListTodo size={10} />} title="Create Task" onClick={() => onCreateTask(content)} />
-            <ActionButton icon={<StickyNote size={10} />} title="Add to Notes" onClick={() => onCreateNote(content)} />
-            <ActionButton icon={<Terminal size={10} />} title="Copy to Clipboard" onClick={() => onSendToTerminal(content)} />
-          </div>
-        )}
+        <div className="flex items-center justify-between mt-1">
+          {showActions && !isUser ? (
+            <div className="flex items-center gap-0.5">
+              <ActionButton icon={<Copy size={10} />} title="Copy" onClick={() => onCopy(content)} />
+              <ActionButton icon={<ListTodo size={10} />} title="Create Task" onClick={() => onCreateTask(content)} />
+              <ActionButton icon={<StickyNote size={10} />} title="Add to Notes" onClick={() => onCreateNote(content)} />
+              <ActionButton icon={<Terminal size={10} />} title="Copy to Clipboard" onClick={() => onSendToTerminal(content)} />
+            </div>
+          ) : <div />}
+          {usage && !isUser && (usage.prompt_tokens || usage.completion_tokens) && (
+            <span className="text-[9px] text-neutral-600 tabular-nums" title={`Input: ${usage.prompt_tokens ?? 0} | Output: ${usage.completion_tokens ?? 0}`}>
+              {usage.prompt_tokens ?? 0}↓ {usage.completion_tokens ?? 0}↑
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )

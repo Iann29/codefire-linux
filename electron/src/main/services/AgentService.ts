@@ -69,8 +69,8 @@ export interface AgentStartInput {
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6'
 const MAX_HISTORY_CHARS = 25_000
-const DEFAULT_MAX_ITERATIONS = 10
-const MAX_MAX_ITERATIONS = 30
+const DEFAULT_MAX_ITERATIONS = 30
+const MAX_MAX_ITERATIONS = 100
 const RETRY_MAX_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
@@ -980,7 +980,7 @@ export class AgentService {
         }
       }
 
-      const fallback = 'I reached the maximum number of tool calls. Please refine your request.'
+      const fallback = 'I reached the maximum number of tool calls. You can continue from where I left off.'
       this.sendEvent(run, 'agent:stream', {
         runId: run.id,
         channel: 'text',
@@ -992,6 +992,7 @@ export class AgentService {
         cancelled: false,
         message: savedMessage,
         usage: null,
+        hitLimit: true,
       })
     } catch (error) {
       if (isAbortError(error)) {

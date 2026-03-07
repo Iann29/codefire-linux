@@ -3,6 +3,7 @@ import Database from 'better-sqlite3'
 import { providerRouter } from './agent-handlers'
 import { readConfig } from '../services/ConfigStore'
 import type { ChatCompletionRequest } from '../services/providers/BaseProvider'
+import { ClaudeSubscriptionAdapter } from '../services/providers/ClaudeSubscriptionAdapter'
 
 export function registerChatHandlers(db: Database.Database) {
   console.log('[chat-handlers] Registering chat IPC handlers')
@@ -19,6 +20,43 @@ export function registerChatHandlers(db: Database.Database) {
       messages: payload.messages as ChatCompletionRequest['messages'],
       maxTokens: payload.maxTokens ?? 4096,
     }
+    const response = await providerRouter.chatCompletion(config, request)
+    return {
+      content: response.choices?.[0]?.message?.content ?? '',
+      usage: response.usage,
+    }
+  })
+
+  // Streaming chat completion for subscription providers (sends chunks via IPC events)
+  ipcMain.handle('chat:streamProviderCompletion', async (event, payload: {
+    messages: Array<{ role: string; content: string }>
+    model: string
+    maxTokens?: number
+  }) => {
+    const config = readConfig()
+    const request: ChatCompletionRequest = {
+      model: payload.model,
+      messages: payload.messages as ChatCompletionRequest['messages'],
+      maxTokens: payload.maxTokens ?? 4096,
+    }
+
+    // Try streaming if the provider supports it (Claude subscription)
+    const provider = providerRouter.resolveProviderForModel(config, request.model)
+    if (provider instanceof ClaudeSubscriptionAdapter) {
+      try {
+        const result = await provider.streamChatCompletion(request, (chunk) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('chat:streamChunk', chunk)
+          }
+        })
+        return { content: result.content, usage: result.usage }
+      } catch (err) {
+        // Fallback to non-streaming on error
+        console.warn('[chat:streamProviderCompletion] Streaming failed, falling back:', err)
+      }
+    }
+
+    // Fallback: non-streaming
     const response = await providerRouter.chatCompletion(config, request)
     return {
       content: response.choices?.[0]?.message?.content ?? '',

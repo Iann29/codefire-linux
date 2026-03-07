@@ -59,6 +59,85 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
     return anthropicToOpenai(anthropicResponse)
   }
 
+  async streamChatCompletion(
+    request: ChatCompletionRequest,
+    onChunk: (text: string) => void,
+  ): Promise<{ content: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
+    const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
+    if (!token) throw new Error('Claude subscription not connected. Run "claude setup-token" and paste the token in Settings > Engine.')
+
+    const anthropicRequest = openaiToAnthropic(request)
+
+    const res = await fetch(`${CLAUDE_OAUTH.apiBaseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'anthropic-version': API_VERSION,
+        ...SUBSCRIPTION_HEADERS,
+      },
+      body: JSON.stringify({ ...anthropicRequest, stream: true }),
+      signal: request.signal,
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => `HTTP ${res.status}`)
+      throw new ProviderHttpError(
+        `Claude API error: ${text.slice(0, 400)}`,
+        res.status,
+        res.headers,
+      )
+    }
+
+    if (!res.body) throw new Error('No response body for streaming')
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let fullContent = ''
+    let inputTokens = 0
+    let outputTokens = 0
+    let buffer = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+
+          try {
+            const parsed = JSON.parse(data)
+
+            if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+              const text = parsed.delta.text ?? ''
+              fullContent += text
+              onChunk(text)
+            } else if (parsed.type === 'message_delta' && parsed.usage) {
+              outputTokens = parsed.usage.output_tokens ?? outputTokens
+            } else if (parsed.type === 'message_start' && parsed.message?.usage) {
+              inputTokens = parsed.message.usage.input_tokens ?? inputTokens
+            }
+          } catch { /* ignore malformed SSE */ }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+
+    const usage = (inputTokens || outputTokens)
+      ? { prompt_tokens: inputTokens, completion_tokens: outputTokens }
+      : undefined
+
+    return { content: fullContent, usage }
+  }
+
   async listModels(): Promise<ModelInfo[]> {
     const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) return []

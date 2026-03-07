@@ -120,6 +120,7 @@ export type ChatChannel =
   | 'chat:deleteConversation'
   | 'chat:browserCommand'
   | 'chat:providerCompletion'
+  | 'chat:streamProviderCompletion'
 
 export type UpdateChannel = 'update:check' | 'update:download'
 
