@@ -67,7 +67,7 @@ export interface AgentStartInput {
   contextCompaction?: boolean
 }
 
-const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-20250514'
+const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6'
 const MAX_HISTORY_CHARS = 25_000
 const DEFAULT_MAX_ITERATIONS = 10
 const MAX_MAX_ITERATIONS = 30

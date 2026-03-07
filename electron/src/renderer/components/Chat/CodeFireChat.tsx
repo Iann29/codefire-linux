@@ -56,9 +56,9 @@ const CHAT_MODELS: ChatModelOption[] = [
   { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', capabilities: ['tools', 'streaming'] },
   { value: 'openai/gpt-5.4', label: 'GPT-5.4', capabilities: ['tools', 'vision', 'streaming'] },
   // Subscription-native models
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'claude-haiku-4-20250414', label: 'Claude Haiku 4', provider: 'claude-subscription', capabilities: ['vision', 'streaming'] },
-  { value: 'claude-opus-4-20250514', label: 'Claude Opus 4', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'claude-subscription', capabilities: ['vision', 'streaming'] },
   { value: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
   { value: 'o3', label: 'o3', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
   { value: 'o4-mini', label: 'o4 Mini', provider: 'openai-subscription', capabilities: ['streaming'] },
@@ -75,8 +75,8 @@ interface ModelAlias {
 }
 
 const MODEL_ALIASES: Record<string, ModelAlias> = {
-  best: { model: 'claude-opus-4-20250514', provider: 'claude-subscription', description: 'Claude Opus 4' },
-  fast: { model: 'claude-haiku-4-20250414', provider: 'claude-subscription', description: 'Claude Haiku 4' },
+  best: { model: 'claude-opus-4-6', provider: 'claude-subscription', description: 'Claude Opus 4.6' },
+  fast: { model: 'claude-haiku-4-5-20251001', provider: 'claude-subscription', description: 'Claude Haiku 4.5' },
   cheap: { model: 'google/gemini-3-flash-preview', description: 'Gemini 3 Flash' },
   smart: { model: 'google/gemini-3.1-pro-preview', description: 'Gemini 3.1 Pro' },
   code: { model: 'qwen/qwen3-coder-next', description: 'Qwen3 Coder Next' },
@@ -673,9 +673,10 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       return
     }
 
-    // Get API key
+    // Get config
     let apiKey: string | undefined
     let model: string
+    let provider: string = 'openrouter'
     let runtimeOptions: AgentRuntimeOptions = {
       maxToolCalls: 30,
       temperature: 0.7,
@@ -686,13 +687,15 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       const config = (await window.api.invoke('settings:get')) as {
         openRouterKey?: string
         chatModel?: string
+        aiProvider?: string
         agentMaxToolCalls?: number
         agentTemperature?: number
         agentPlanEnforcement?: boolean
         agentContextCompaction?: boolean
       } | undefined
       apiKey = config?.openRouterKey
-      model = resolveModelAlias(config?.chatModel || 'anthropic/claude-sonnet-4-20250514')
+      provider = config?.aiProvider || 'openrouter'
+      model = resolveModelAlias(config?.chatModel || 'anthropic/claude-sonnet-4-6')
       runtimeOptions = {
         maxToolCalls: typeof config?.agentMaxToolCalls === 'number'
           ? Math.max(1, Math.min(60, Math.round(config.agentMaxToolCalls)))
@@ -708,10 +711,13 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           : false,
       }
     } catch {
-      model = 'anthropic/claude-sonnet-4-20250514'
+      model = 'anthropic/claude-sonnet-4-6'
     }
 
-    if (!apiKey) {
+    const isSubscription = provider.endsWith('-subscription')
+
+    // Only require OpenRouter key when using OpenRouter
+    if (!isSubscription && !apiKey) {
       const noKeyMessage = `**OpenRouter API key required**\n\nTo use the CodeFire agent, add your API key in **Settings** > **Engine** tab.`
       try {
         const errorMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: noKeyMessage })
@@ -725,9 +731,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
     try {
       if (chatMode === 'agent') {
-        await handleAgentModeMain(convId, content, userMsg, apiKey, model, runtimeOptions)
+        await handleAgentModeMain(convId, content, userMsg, apiKey ?? '', model, runtimeOptions)
+      } else if (isSubscription) {
+        await handleContextModeProvider(convId, content, userMsg, model)
       } else {
-        await handleContextMode(convId, content, userMsg, apiKey, model)
+        await handleContextMode(convId, content, userMsg, apiKey!, model)
       }
     } catch (err) {
       console.error('Chat error:', err)
@@ -777,6 +785,46 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
     if (fullContent) {
       const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: fullContent })
+      setMessages((prev) => [...prev, assistantMsg])
+      updateConversationTitle(convId, _userContent)
+    }
+  }
+
+  // ─── Context Mode via ProviderRouter (subscription providers) ──────────────
+
+  async function handleContextModeProvider(
+    convId: number,
+    _userContent: string,
+    userMsg: ChatMessage,
+    model: string,
+  ) {
+    const context = await buildContextWithRAG(projectId, projectName, _userContent, isGlobal)
+    const allMessages = [...messages, userMsg]
+    let historyChars = 0
+    const history: { role: string; content: string }[] = []
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i]
+      if (historyChars + m.content.length > 25000) break
+      history.unshift({ role: m.role, content: m.content })
+      historyChars += m.content.length
+    }
+
+    setStreaming(true)
+    setStreamedContent('Thinking...')
+
+    const result = await api.chat.providerCompletion({
+      model,
+      messages: [
+        { role: 'system', content: context },
+        ...history.slice(-20),
+      ],
+    })
+
+    setStreaming(false)
+    setStreamedContent('')
+
+    if (result.content) {
+      const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: result.content })
       setMessages((prev) => [...prev, assistantMsg])
       updateConversationTitle(convId, _userContent)
     }

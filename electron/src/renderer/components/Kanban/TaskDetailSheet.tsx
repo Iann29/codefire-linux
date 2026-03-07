@@ -211,7 +211,7 @@ export default function TaskDetailSheet({
     try {
       const config = (await window.api.invoke('settings:get')) as { openRouterKey?: string; chatModel?: string } | undefined
       const apiKey = config?.openRouterKey
-      const model = config?.chatModel || 'anthropic/claude-sonnet-4-20250514'
+      const model = config?.chatModel || 'anthropic/claude-sonnet-4-6'
       if (!apiKey) return
 
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {

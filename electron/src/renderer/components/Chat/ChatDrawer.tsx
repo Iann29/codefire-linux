@@ -84,15 +84,18 @@ export default function ChatDrawer({ projectId, onClose }: ChatDrawerProps) {
       })
       setMessages((prev) => [...prev, userMsg])
 
-      // Call AI via OpenRouter
+      // Call AI
       const config = (await window.api.invoke('settings:get')) as {
         openRouterKey?: string
         chatModel?: string
+        aiProvider?: string
       } | undefined
       const apiKey = config?.openRouterKey
-      const model = config?.chatModel || 'anthropic/claude-sonnet-4-20250514'
+      const model = config?.chatModel || 'anthropic/claude-sonnet-4-6'
+      const provider = config?.aiProvider || 'openrouter'
+      const isSubscription = provider.endsWith('-subscription')
 
-      if (!apiKey) {
+      if (!isSubscription && !apiKey) {
         const errorMsg = await api.chat.sendMessage({
           conversationId: activeConversationId,
           role: 'assistant',
@@ -109,53 +112,59 @@ export default function ChatDrawer({ projectId, onClose }: ChatDrawerProps) {
       }))
 
       setStreaming(true)
-      setStreamedContent('')
+      setStreamedContent(isSubscription ? 'Thinking...' : '')
 
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+      const chatMessages = [
+        {
+          role: 'system',
+          content: 'You are a helpful coding assistant integrated into CodeFire, a project management tool for developers. Be concise and helpful.',
         },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful coding assistant integrated into CodeFire, a project management tool for developers. Be concise and helpful.',
-            },
-            ...history.slice(-20),
-          ],
-          stream: true,
-        }),
-      })
+        ...history.slice(-20),
+      ]
 
-      if (!resp.ok || !resp.body) {
-        throw new Error(`API error: ${resp.status}`)
-      }
-
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
       let fullContent = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      if (isSubscription) {
+        // Subscription providers: use main-process ProviderRouter
+        const result = await api.chat.providerCompletion({ model, messages: chatMessages })
+        fullContent = result.content
+      } else {
+        // OpenRouter: direct streaming fetch
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({ model, messages: chatMessages, stream: true }),
+        })
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n').filter((l) => l.startsWith('data: '))
+        if (!resp.ok || !resp.body) {
+          throw new Error(`API error: ${resp.status}`)
+        }
 
-        for (const line of lines) {
-          const data = line.slice(6)
-          if (data === '[DONE]') continue
-          try {
-            const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta?.content
-            if (delta) {
-              fullContent += delta
-              setStreamedContent(fullContent)
-            }
-          } catch { /* ignore parse errors in stream */ }
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value, { stream: true })
+          const lines = chunk.split('\n').filter((l) => l.startsWith('data: '))
+
+          for (const line of lines) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              const delta = parsed.choices?.[0]?.delta?.content
+              if (delta) {
+                fullContent += delta
+                setStreamedContent(fullContent)
+              }
+            } catch { /* ignore parse errors in stream */ }
+          }
         }
       }
 

@@ -217,7 +217,7 @@ export class ProviderRouter {
     if (!p) return false
 
     if (p.endsWith('*') && !p.slice(0, -1).includes('*')) {
-      // Prefix match: "claude-opus*" matches "claude-opus-4-20250514"
+      // Prefix match: "claude-opus*" matches "claude-opus-4-6"
       return m.startsWith(p.slice(0, -1))
     }
 

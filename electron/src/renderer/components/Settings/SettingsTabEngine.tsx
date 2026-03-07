@@ -669,15 +669,18 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
           value={config.chatModel}
           onChange={(v) => onChange({ chatModel: v })}
           options={[
+            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6' },
+            { value: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+            { value: 'anthropic/claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
             { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro' },
             { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+            { value: 'openai/gpt-5.4', label: 'GPT-5.4' },
             { value: 'qwen/qwen3.5-plus-02-15', label: 'Qwen 3.5 Plus' },
             { value: 'qwen/qwen3-coder-next', label: 'Qwen3 Coder Next' },
             { value: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2' },
             { value: 'minimax/minimax-m2.5', label: 'MiniMax M2.5' },
             { value: 'z-ai/glm-5', label: 'GLM-5' },
             { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5' },
-            { value: 'openai/gpt-5.4', label: 'GPT-5.4' },
           ]}
         />
         <Select

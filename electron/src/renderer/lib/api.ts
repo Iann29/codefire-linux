@@ -451,6 +451,12 @@ export const api = {
       invoke('chat:sendMessage', data) as Promise<ChatMessage>,
     deleteConversation: (id: number) =>
       invoke('chat:deleteConversation', id) as Promise<boolean>,
+    providerCompletion: (payload: {
+      messages: Array<{ role: string; content: string }>
+      model: string
+      maxTokens?: number
+    }) =>
+      invoke('chat:providerCompletion', payload) as Promise<{ content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>,
   },
 
   agent: {
