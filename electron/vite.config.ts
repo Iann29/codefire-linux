@@ -4,8 +4,12 @@ import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron/simple'
 import electronFull from 'vite-plugin-electron'
 import path from 'path'
+import pkg from './package.json'
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     tailwindcss(),
     react(),

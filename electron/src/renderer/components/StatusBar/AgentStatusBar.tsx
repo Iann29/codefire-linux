@@ -64,10 +64,10 @@ export default function AgentStatusBar({
         />
       </div>
 
-      {/* Right: Project path */}
-      <div className="flex items-center gap-1.5 cursor-default min-w-0">
+      {/* Right: Project path + version */}
+      <div className="flex items-center gap-3 cursor-default min-w-0">
         {projectPath && (
-          <>
+          <div className="flex items-center gap-1.5 min-w-0">
             <Folder className="w-3 h-3 text-neutral-600 flex-shrink-0" />
             <span
               className="text-tiny text-neutral-600 font-mono truncate max-w-48"
@@ -75,8 +75,11 @@ export default function AgentStatusBar({
             >
               {truncatePath(projectPath)}
             </span>
-          </>
+          </div>
         )}
+        <span className="text-tiny text-neutral-700 font-mono flex-shrink-0">
+          v{__APP_VERSION__}
+        </span>
       </div>
     </div>
   )

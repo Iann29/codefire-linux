@@ -86,3 +86,19 @@ When creating a GitHub release:
 ## Testing
 
 Tests are in `electron/src/__tests__/` using Vitest with jsdom. Setup file at `electron/src/__tests__/setup.ts`.
+
+## REGRA OBRIGATÓRIA: Version Bumping Automático
+
+**Esta regra é INQUEBRÁVEL e deve ser seguida em TODA interação que modifique código.**
+
+Sempre que qualquer mudança for feita no código do projeto:
+
+1. **DETECTAR** o tipo de mudança:
+   - **PATCH** (x.y.Z): Bug fixes, ajustes pequenos, refatorações, mudanças de estilo
+   - **MINOR** (x.Y.0): Novas features, melhorias significativas
+   - **MAJOR** (X.0.0): Breaking changes, redesign incompatível
+2. **BUMPAR** a versão em `electron/package.json` (campo `"version"`)
+3. **VERIFICAR** relendo o arquivo para confirmar que a versão foi alterada
+4. **SUGERIR** mensagem de commit ao usuário
+
+A versão é exibida no app via `__APP_VERSION__` (injetada pelo Vite) nos status bars.

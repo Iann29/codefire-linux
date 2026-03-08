@@ -71,8 +71,11 @@ export default function MainLayout() {
         </div>
 
         {/* Status bar */}
-        <div className="w-full h-7 flex-shrink-0 flex items-center px-3 bg-neutral-950 border-t border-neutral-800 no-drag">
+        <div className="w-full h-7 flex-shrink-0 flex items-center justify-between px-3 bg-neutral-950 border-t border-neutral-800 no-drag">
           <MCPIndicator status={mcpStatus} sessionCount={mcpSessionCount} onConnect={startMCP} onDisconnect={stopMCP} />
+          <span className="text-tiny text-neutral-700 font-mono flex-shrink-0">
+            v{__APP_VERSION__}
+          </span>
         </div>
       </div>
 
