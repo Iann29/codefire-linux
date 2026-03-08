@@ -88,6 +88,17 @@ export function registerAgentHandlers(agentService: AgentService): void {
     return agentService.cancelRun(runId)
   })
 
+  ipcMain.handle('agent:continue', (_event, payload: {
+    conversationId: number
+    projectId?: string | null
+  }) => {
+    return agentService.continueRun({
+      conversationId: payload.conversationId,
+      projectId: payload.projectId ?? null,
+      senderWebContentsId: _event.sender.id,
+    })
+  })
+
   ipcMain.handle('agent:status', () => {
     return agentService.getStatus()
   })

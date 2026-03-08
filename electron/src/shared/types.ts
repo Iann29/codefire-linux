@@ -133,7 +133,7 @@ export type BrowserCommandChannel = 'browser:executeCommand'
 
 export type BrowserChannel = 'browser:clearSession'
 
-export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status'
+export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status' | 'agent:continue'
 
 export type ProviderChannel =
   | 'provider:listModels'

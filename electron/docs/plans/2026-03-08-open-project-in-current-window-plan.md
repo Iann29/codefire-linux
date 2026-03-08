@@ -1,7 +1,14 @@
 # Open Project In Current Window Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - NavigationContext em App.tsx com `navigateToProject` e `navigateHome`
+> - Call sites atualizados: ProjectDropdown, Sidebar, ProjectItem, ProjectTaskSummary
+> - Botão "Back" (ArrowLeft) no ProjectLayout top bar
+> - Multi-window mantido como fallback opcional
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

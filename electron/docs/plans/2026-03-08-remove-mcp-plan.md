@@ -1,7 +1,15 @@
 # Remove MCP Completely Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - Deletados: MCPServerManager, mcp-handlers, useMCPStatus, MCPIndicator, src/mcp/, mcp-server/
+> - Removido de: MainLayout, ProjectLayout, AgentStatusBar, ProjectHeaderBar, types, api, settings
+> - Build: removido MCP do vite.config.ts e scripts
+> - Dependência @modelcontextprotocol/sdk removida do package.json
+> - Copy atualizado: "browser MCP tools" → "browser automation tools"
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

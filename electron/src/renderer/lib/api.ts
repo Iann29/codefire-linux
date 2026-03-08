@@ -472,6 +472,8 @@ export const api = {
     }) => invoke('agent:start', payload) as Promise<{ runId: string }>,
     cancel: (runId?: string) =>
       invoke('agent:cancel', runId) as Promise<{ cancelled: boolean }>,
+    continue: (conversationId: number, projectId?: string | null) =>
+      invoke('agent:continue', { conversationId, projectId }) as Promise<{ runId: string }>,
     status: () =>
       invoke('agent:status') as Promise<{
         status: 'idle' | 'running'

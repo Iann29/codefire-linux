@@ -11,9 +11,6 @@ import BriefingDrawer from '@renderer/components/Dashboard/BriefingDrawer'
 import AgentStatusBar from '@renderer/components/StatusBar/AgentStatusBar'
 import { ProjectHeaderLeft, ProjectHeaderRight } from '@renderer/components/Header/ProjectHeaderBar'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
-import { usePremium } from '@renderer/hooks/usePremium'
-import NotificationBell from '@renderer/components/NotificationBell'
-import PresenceAvatars from '@renderer/components/Presence/PresenceAvatars'
 import logoIcon from '../../../resources/icon.png'
 
 // Eager: default tab (Tasks) and lightweight views
@@ -32,9 +29,6 @@ const ImagesView = lazy(() => import('@renderer/views/ImagesView'))
 const RecordingsView = lazy(() => import('@renderer/views/RecordingsView'))
 const BrowserView = lazy(() => import('@renderer/views/BrowserView'))
 const VisualizerView = lazy(() => import('@renderer/views/VisualizerView'))
-const ActivityView = lazy(() => import('@renderer/views/ActivityView'))
-const DocsView = lazy(() => import('@renderer/views/DocsView'))
-const ReviewsView = lazy(() => import('@renderer/views/ReviewsView'))
 
 interface ProjectLayoutProps {
   projectId: string
@@ -45,7 +39,6 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const [project, setProject] = useState<Project | null>(null)
   const [activeTab, setActiveTab] = useState('Tasks')
   const [error, setError] = useState<string | null>(null)
-  const { status: premiumStatus } = usePremium()
   const [indexStatus, setIndexStatus] = useState<'idle' | 'indexing' | 'ready' | 'error'>('idle')
   const [indexLastError, setIndexLastError] = useState<string | undefined>()
   const [showBriefing, setShowBriefing] = useState(false)
@@ -172,10 +165,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {tab === 'Recordings' && <RecordingsView projectId={pid} />}
         {tab === 'Browser' && <BrowserView key={browserKey} projectId={pid} />}
         {tab === 'Visualizer' && <VisualizerView projectId={pid} projectPath={project!.path} />}
-        {tab === 'Activity' && <ActivityView projectId={pid} />}
-        {tab === 'Docs' && <DocsView projectId={pid} />}
-        {tab === 'Reviews' && <ReviewsView projectId={pid} />}
-        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Browser','Visualizer','Activity','Docs','Reviews'].includes(tab) && (
+        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Browser','Visualizer'].includes(tab) && (
           <div className="flex-1 p-4 overflow-y-auto">
             <h2 className="text-title text-neutral-300">{tab}</h2>
             <p className="text-sm text-neutral-600 mt-1">Coming soon</p>
@@ -230,9 +220,6 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           <div className="w-px h-4 bg-neutral-700" />
           <ProjectHeaderLeft projectName={project.name} projectPath={project.path} />
           <div className="flex-1" />
-          {premiumStatus?.enabled && premiumStatus.authenticated && (
-            <PresenceAvatars projectId={projectId} />
-          )}
           <button
             onClick={() => setShowTerminal(v => !v)}
             className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
@@ -245,7 +232,6 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
             <Terminal size={13} />
             <span className="hidden sm:inline">Terminal</span>
           </button>
-          <NotificationBell />
           <div className="w-px h-4 bg-neutral-700" />
           <ProjectHeaderRight
             indexStatus={indexStatus}

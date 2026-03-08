@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Folder, FolderOpen, Settings, Plus, ChevronDown, ChevronRight, Check, X, LayoutGrid } from 'lucide-react'
+import { Folder, FolderOpen, Settings, Plus, ChevronDown, ChevronRight, Check, X } from 'lucide-react'
 import type { Project, Client } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import { useNavigation } from '@renderer/App'

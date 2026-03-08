@@ -810,6 +810,25 @@ export class AgentService {
     return { cancelled: true }
   }
 
+  continueRun(input: {
+    conversationId: number
+    projectId?: string | null
+    senderWebContentsId: number
+  }): { runId: string } {
+    if (this.activeRun) {
+      throw new Error('Another agent run is already in progress')
+    }
+
+    // Reuse the existing conversation history by starting a new run
+    // with a "continue" user message that won't be saved separately
+    return this.startRun({
+      conversationId: input.conversationId,
+      userMessage: 'Continue from where you left off. Complete the remaining steps.',
+      senderWebContentsId: input.senderWebContentsId,
+      projectId: input.projectId ?? null,
+    })
+  }
+
   getStatus(): AgentRunStatus {
     if (!this.activeRun) return { status: 'idle', metrics: this.metrics.toJSON() }
     return {

@@ -769,7 +769,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         setActiveConversationId(conv.id)
         convId = conv.id
       } catch (err) {
-        setErrorMessage(`Failed to create conversation: ${err instanceof Error ? err.message : String(err)}`)
+        setErrorMessage(`Falha ao criar conversa: ${formatChatError(err)}`)
         setSending(false)
         setInput(content)
         return
@@ -782,16 +782,17 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       userMsg = await api.chat.sendMessage({ conversationId: convId, role: 'user', content })
       setMessages((prev) => [...prev, userMsg])
     } catch (err) {
-      setErrorMessage(`Failed to save message: ${err instanceof Error ? err.message : String(err)}`)
+      setErrorMessage(`Falha ao salvar mensagem: ${formatChatError(err)}`)
       setSending(false)
       setInput(content)
       return
     }
 
-    // Get config
+    // Get config — use local dropdown state for model/provider (most up-to-date),
+    // read persisted settings only for API key and agent runtime options.
     let apiKey: string | undefined
-    let model: string
-    let provider: string = 'openrouter'
+    const model = resolveModelAlias(chatModel)
+    const provider = aiProvider
     let runtimeOptions: AgentRuntimeOptions = {
       maxToolCalls: 30,
       temperature: 0.7,
@@ -801,16 +802,12 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     try {
       const config = (await window.api.invoke('settings:get')) as {
         openRouterKey?: string
-        chatModel?: string
-        aiProvider?: string
         agentMaxToolCalls?: number
         agentTemperature?: number
         agentPlanEnforcement?: boolean
         agentContextCompaction?: boolean
       } | undefined
       apiKey = config?.openRouterKey
-      provider = config?.aiProvider || 'openrouter'
-      model = resolveModelAlias(config?.chatModel || 'anthropic/claude-sonnet-4-6')
       runtimeOptions = {
         maxToolCalls: typeof config?.agentMaxToolCalls === 'number'
           ? Math.max(1, Math.min(100, Math.round(config.agentMaxToolCalls)))
@@ -826,7 +823,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           : false,
       }
     } catch {
-      model = 'anthropic/claude-sonnet-4-6'
+      // Defaults already set above
     }
 
     const isSubscription = provider.endsWith('-subscription')
@@ -1099,9 +1096,42 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     await api.agent.cancel(runId).catch(() => {})
   }
 
-  function handleContinue() {
+  async function handleContinue() {
+    if (!activeConversationId || sending) return
     setShowContinue(false)
-    handleSend('Continue from where you left off. Complete the remaining steps.')
+    setSending(true)
+    setRunStartedAt(Date.now())
+    setStreaming(true)
+    setStreamedContent('')
+    setErrorMessage(null)
+    setToolExecutions([])
+    setPlanSteps([])
+    setAwaitingVerification(false)
+    setLastBrowserAction(null)
+    setCompactionInfo(null)
+
+    try {
+      const started = await api.agent.continue(activeConversationId, projectId || null)
+      activeRunIdRef.current = started.runId
+      setActiveRunId(started.runId)
+
+      await new Promise<void>((resolve, reject) => {
+        pendingRunsRef.current.set(started.runId, { resolve, reject })
+      })
+    } catch (err) {
+      activeRunIdRef.current = null
+      setActiveRunId(null)
+      setStreaming(false)
+      setStreamedContent('')
+      const friendlyError = err instanceof Error ? err.message : String(err)
+      setMessages((prev) => [...prev, {
+        id: -Date.now(), conversationId: activeConversationId, role: 'assistant',
+        content: `**Error continuing:** ${friendlyError}`, createdAt: new Date().toISOString(),
+      }])
+    } finally {
+      setSending(false)
+      setRunStartedAt(null)
+    }
   }
 
   const activeConversation = conversations.find(c => c.id === activeConversationId)
