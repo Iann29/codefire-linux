@@ -4,6 +4,7 @@ import { ProviderRouter } from '../services/providers/ProviderRouter'
 import { OAuthEngine } from '../services/providers/OAuthEngine'
 import { TokenStore } from '../services/providers/TokenStore'
 import { readConfig } from '../services/ConfigStore'
+import type { ChatAttachment } from '@shared/models'
 
 const providerRouter = new ProviderRouter()
 const tokenStore = new TokenStore()
@@ -67,6 +68,7 @@ export function registerAgentHandlers(agentService: AgentService): void {
       temperature?: number
       planEnforcement?: boolean
       contextCompaction?: boolean
+      attachments?: ChatAttachment[]
     }) => {
       return agentService.startRun({
         conversationId: payload.conversationId,
@@ -80,6 +82,7 @@ export function registerAgentHandlers(agentService: AgentService): void {
         planEnforcement: payload.planEnforcement,
         contextCompaction: payload.contextCompaction,
         senderWebContentsId: _event.sender.id,
+        attachments: payload.attachments,
       })
     }
   )
