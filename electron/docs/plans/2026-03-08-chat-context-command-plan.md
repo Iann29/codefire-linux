@@ -1,7 +1,14 @@
 # Chat `/context` Command Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - Criado `chatCommands.ts` com parser de slash commands e registry de context windows
+> - `/context` mostra: modelo, provider, mensagens, tokens estimados, % usado, barra visual, compaction
+> - Comandos desconhecidos mostram erro local sem enviar ao provider
+> - Integrado no `handleSend()` do CodeFireChat
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

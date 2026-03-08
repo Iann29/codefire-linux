@@ -54,6 +54,26 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const [terminalOnLeft, setTerminalOnLeft] = useState(false)
   const [dragOverSide, setDragOverSide] = useState<'left' | 'right' | 'active' | null>(null)
 
+  // ── Plan 3: Browser Reset On Tab Switch ──
+  // Force BrowserView remount with a fresh key whenever the user leaves and returns to Browser
+  const [browserKey, setBrowserKey] = useState(0)
+  const [prevTab, setPrevTab] = useState(activeTab)
+  if (activeTab !== prevTab) {
+    // Tab just changed
+    if (prevTab === 'Browser') {
+      // Leaving Browser → bump key so next visit gets a fresh instance
+      setBrowserKey(k => k + 1)
+    }
+    setPrevTab(activeTab)
+  }
+
+  // ── Plan 4: Browser Layout Preset ──
+  // Wider content split for Browser tab; key-based remount reapplies defaultSize
+  const isBrowserTab = activeTab === 'Browser'
+  const contentDefault = isBrowserTab ? '78%' : '60%'
+  const sideDefault = isBrowserTab ? '22%' : '40%'
+  const layoutKey = `${terminalOnLeft ? 'tl' : 'tr'}-${isBrowserTab ? 'browser' : 'default'}`
+
   const handleRequestIndex = useCallback(async () => {
     setIndexStatus('indexing')
     setIndexLastError(undefined)
@@ -150,7 +170,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {tab === 'Git' && <GitView projectId={pid} projectPath={project!.path} />}
         {tab === 'Images' && <ImagesView projectId={pid} />}
         {tab === 'Recordings' && <RecordingsView projectId={pid} />}
-        {tab === 'Browser' && <BrowserView projectId={pid} />}
+        {tab === 'Browser' && <BrowserView key={browserKey} projectId={pid} />}
         {tab === 'Visualizer' && <VisualizerView projectId={pid} projectPath={project!.path} />}
         {tab === 'Activity' && <ActivityView projectId={pid} />}
         {tab === 'Docs' && <DocsView projectId={pid} />}
@@ -254,14 +274,14 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           onDrop={() => setDragOverSide(null)}
         >
           {showTerminal ? (
-            <Group orientation="horizontal" id="project-layout" key={terminalOnLeft ? 'tl' : 'tr'}>
+            <Group orientation="horizontal" id="project-layout" key={layoutKey}>
               {terminalOnLeft ? (
                 <>
-                  <Panel id="terminal-chat" defaultSize="40%" minSize="20%">
+                  <Panel id="terminal-chat" defaultSize={sideDefault} minSize="20%">
                     {renderTerminalChat()}
                   </Panel>
                   <Separator className="w-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
-                  <Panel id="content" defaultSize="60%" minSize="30%">
+                  <Panel id="content" defaultSize={contentDefault} minSize="30%">
                     <div className="h-full overflow-hidden flex flex-col">
                       {renderActiveView(activeTab, projectId, setActiveTab)}
                     </div>
@@ -269,13 +289,13 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
                 </>
               ) : (
                 <>
-                  <Panel id="content" defaultSize="60%" minSize="30%">
+                  <Panel id="content" defaultSize={contentDefault} minSize="30%">
                     <div className="h-full overflow-hidden flex flex-col">
                       {renderActiveView(activeTab, projectId, setActiveTab)}
                     </div>
                   </Panel>
                   <Separator className="w-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
-                  <Panel id="terminal-chat" defaultSize="40%" minSize="20%">
+                  <Panel id="terminal-chat" defaultSize={sideDefault} minSize="20%">
                     {renderTerminalChat()}
                   </Panel>
                 </>

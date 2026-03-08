@@ -1,7 +1,13 @@
 # Browser Reset On Tab Switch Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - `browserKey` incrementa ao sair da aba Browser, forçando remount limpo
+> - `prevTab` tracking para detectar transição Browser → outra aba
+> - BrowserView recebe `key={browserKey}` para reset determinístico
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

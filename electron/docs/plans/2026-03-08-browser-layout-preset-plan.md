@@ -1,7 +1,13 @@
 # Browser Layout Preset Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - Browser ativo: split 78/22 (content/terminal-chat)
+> - Outras abas: split 60/40 (padrão mantido)
+> - `layoutKey` muda ao trocar para/de Browser, remontando panels com novos defaults
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

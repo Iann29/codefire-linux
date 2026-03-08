@@ -2,7 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
-import { ipcMain, webContents } from 'electron'
+import { ipcMain, session, webContents } from 'electron'
 import type { ChatMessage } from '@shared/models'
 import { TaskDAO } from '../database/dao/TaskDAO'
 import { NoteDAO } from '../database/dao/NoteDAO'
@@ -603,6 +603,14 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'browser_reset_session',
+      description: 'Clear all browser cookies, cache, localStorage, and session data. Use before testing login, onboarding, or stateful flows.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'read_file',
       description: 'Read a file from disk.',
       parameters: {
@@ -658,6 +666,7 @@ const BROWSER_TOOL_NAMES = new Set<string>([
   'browser_switch_tab',
   'browser_fill_form',
   'browser_drag_and_drop',
+  'browser_reset_session',
 ])
 
 const VERIFICATION_BROWSER_TOOLS = new Set<string>([
@@ -1468,6 +1477,15 @@ export class AgentService {
         if (!filePath) return JSON.stringify({ error: 'path is required' })
         const content = await fs.readFile(filePath, 'utf-8')
         return content.slice(0, 8_000)
+      }
+
+      case 'browser_reset_session': {
+        const ses = session.fromPartition('persist:browser')
+        await ses.clearStorageData({
+          storages: ['cookies', 'localstorage', 'indexdb', 'serviceworkers', 'cachestorage'],
+        })
+        await ses.clearCache()
+        return JSON.stringify({ success: true, message: 'Browser session cleared: cookies, localStorage, indexedDB, service workers, cache storage, and HTTP cache.' })
       }
 
       case 'list_files': {

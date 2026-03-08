@@ -1,7 +1,15 @@
 # Browser Clear Session Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - Handler `browser:clearSession` no main process (limpa cookies, cache, storage)
+> - Botão "Clear Session" no BrowserToolbar com ícone Trash2
+> - `handleClearSession` no BrowserView: limpa sessão, remove webviews, reseta tabs
+> - `resetTabs()` no hook useBrowserTabs
+> - Tool `browser_reset_session` no AgentService para automação
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 
