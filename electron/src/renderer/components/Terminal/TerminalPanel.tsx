@@ -207,7 +207,7 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
                 setContextMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
               }}
             >
-              <span className="text-[#f97316] text-[10px]">&#9654;</span>
+              <span className="text-[#b8adcf] text-[10px]">&#9654;</span>
               <span>{tab.label}</span>
               {tabs.length > 1 && (
                 <span
@@ -240,7 +240,7 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
             <button
               className={`flex items-center gap-1.5 px-3 h-9 text-xs font-medium transition-colors ${
                 showChat
-                  ? 'text-[#f97316] bg-[#f97316]/10'
+                  ? 'text-[#b8adcf] bg-[#b8adcf]/10'
                   : 'text-[#737373] hover:text-[#e5e5e5] hover:bg-[#1a1a1a]'
               }`}
               onClick={onToggleChat}

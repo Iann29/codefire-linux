@@ -16,6 +16,7 @@ import type {
   BriefingItem,
   ChatConversation,
   ChatMessage,
+  ChatAttachment,
   VisualBaseline,
   VisualComparison,
 } from '@shared/models'
@@ -444,7 +445,7 @@ export const api = {
       invoke('chat:createConversation', data) as Promise<ChatConversation>,
     listMessages: (conversationId: number) =>
       invoke('chat:listMessages', conversationId) as Promise<ChatMessage[]>,
-    sendMessage: (data: { conversationId: number; role: string; content: string }) =>
+    sendMessage: (data: { conversationId: number; role: string; content: string; attachments?: ChatAttachment[] }) =>
       invoke('chat:sendMessage', data) as Promise<ChatMessage>,
     deleteConversation: (id: number) =>
       invoke('chat:deleteConversation', id) as Promise<boolean>,
@@ -475,6 +476,7 @@ export const api = {
       temperature?: number
       planEnforcement?: boolean
       contextCompaction?: boolean
+      attachments?: ChatAttachment[]
     }) => invoke('agent:start', payload) as Promise<{ runId: string }>,
     cancel: (runId?: string) =>
       invoke('agent:cancel', runId) as Promise<{ cancelled: boolean }>,

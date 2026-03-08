@@ -97,6 +97,38 @@ export function TextInput({
   )
 }
 
+/* ─── Text Area ────────────────────────────────────────────────────────────── */
+
+export function TextArea({
+  label,
+  hint,
+  placeholder,
+  value,
+  onChange,
+  rows = 4,
+}: {
+  label: string
+  hint?: string
+  placeholder?: string
+  value: string
+  onChange: (v: string) => void
+  rows?: number
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs text-neutral-400 block">{label}</label>
+      {hint && <p className="text-[10px] text-neutral-600">{hint}</p>}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={rows}
+        className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-xs text-neutral-200 placeholder:text-neutral-600 font-mono focus:outline-none focus:border-codefire-orange/50 resize-vertical leading-relaxed"
+      />
+    </div>
+  )
+}
+
 /* ─── Number Input ─────────────────────────────────────────────────────────── */
 
 export function NumberInput({

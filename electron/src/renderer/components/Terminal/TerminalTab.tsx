@@ -38,9 +38,9 @@ export default function TerminalTab({ terminalId, isActive }: TerminalTabProps) 
       theme: {
         background: '#171717',
         foreground: '#e5e5e5',
-        cursor: '#f97316',
+        cursor: '#b8adcf',
         cursorAccent: '#171717',
-        selectionBackground: 'rgba(249, 115, 22, 0.3)',
+        selectionBackground: 'rgba(184, 173, 207, 0.3)',
         black: '#171717',
         red: '#ef4444',
         green: '#4ade80',

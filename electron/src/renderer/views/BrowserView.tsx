@@ -13,6 +13,7 @@ import VisualBaselinePanel from '@renderer/components/Browser/VisualBaselinePane
 import FormTesterPanel from '@renderer/form-tester/FormTesterPanel'
 import ContentStudioSheet from '@renderer/components/Browser/ContentStudioSheet'
 import ReviewModeBar from '@renderer/components/Browser/ReviewModeBar'
+import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 import { api } from '@renderer/lib/api'
 
 interface BrowserViewProps {
@@ -910,9 +911,7 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
           dataUrl,
           source: 'screenshot' as const,
         }
-        window.dispatchEvent(new CustomEvent('codefire:chat-attachment', { detail: attachment }))
-        // Ensure the chat panel is visible
-        window.dispatchEvent(new CustomEvent('codefire:open-chat'))
+        chatComposerStore.addAttachment(attachment)
       })
     }
   }

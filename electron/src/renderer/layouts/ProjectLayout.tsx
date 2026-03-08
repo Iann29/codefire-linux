@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
-import { Group, Panel, Separator } from 'react-resizable-panels'
-import { Terminal, ArrowLeft } from 'lucide-react'
+import { MessageSquare, ArrowLeft, X } from 'lucide-react'
 import type { Project } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import { useNavigation } from '@renderer/App'
-import TerminalPanel from '@renderer/components/Terminal/TerminalPanel'
 import TabBar from '@renderer/components/TabBar/TabBar'
 import CodeFireChat from '@renderer/components/Chat/CodeFireChat'
 import BriefingDrawer from '@renderer/components/Dashboard/BriefingDrawer'
@@ -12,6 +10,7 @@ import AgentStatusBar from '@renderer/components/StatusBar/AgentStatusBar'
 import { ProjectHeaderLeft, ProjectHeaderRight } from '@renderer/components/Header/ProjectHeaderBar'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
 import logoIcon from '../../../resources/icon.png'
+import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 
 // Eager: default tab (Tasks) and lightweight views
 import TasksView from '@renderer/views/TasksView'
@@ -29,6 +28,7 @@ const ImagesView = lazy(() => import('@renderer/views/ImagesView'))
 const RecordingsView = lazy(() => import('@renderer/views/RecordingsView'))
 const BrowserView = lazy(() => import('@renderer/views/BrowserView'))
 const VisualizerView = lazy(() => import('@renderer/views/VisualizerView'))
+const TerminalView = lazy(() => import('@renderer/views/TerminalView'))
 
 interface ProjectLayoutProps {
   projectId: string
@@ -43,16 +43,6 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const [indexLastError, setIndexLastError] = useState<string | undefined>()
   const [showBriefing, setShowBriefing] = useState(false)
   const [showChat, setShowChat] = useState(false)
-  const [showTerminal, setShowTerminal] = useState(true)
-  const [terminalOnLeft, setTerminalOnLeft] = useState(false)
-  const [dragOverSide, setDragOverSide] = useState<'left' | 'right' | 'active' | null>(null)
-
-  // ── Plan 4: Browser Layout Preset ──
-  // Wider content split for Browser tab; key-based remount reapplies defaultSize
-  const isBrowserTab = activeTab === 'Browser'
-  const contentDefault = isBrowserTab ? '78%' : '60%'
-  const sideDefault = isBrowserTab ? '22%' : '40%'
-  const layoutKey = `${terminalOnLeft ? 'tl' : 'tr'}-${isBrowserTab ? 'browser' : 'default'}`
 
   const handleRequestIndex = useCallback(async () => {
     setIndexStatus('indexing')
@@ -68,13 +58,13 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     }
   }, [projectId])
 
-  // Listen for open-chat events (e.g. from BrowserView screenshot → chat routing)
+  // Listen for chat open requests from the store (e.g., screenshot -> chat)
   useEffect(() => {
-    function handleOpenChat() {
-      setShowChat(true)
-    }
-    window.addEventListener('codefire:open-chat', handleOpenChat)
-    return () => window.removeEventListener('codefire:open-chat', handleOpenChat)
+    return chatComposerStore.subscribe(() => {
+      if (chatComposerStore.consumeOpenRequest()) {
+        setShowChat(true)
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -162,8 +152,9 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {tab === 'Git' && <GitView projectId={pid} projectPath={project!.path} />}
         {tab === 'Images' && <ImagesView projectId={pid} />}
         {tab === 'Recordings' && <RecordingsView projectId={pid} />}
+        {tab === 'Terminal' && <TerminalView projectId={pid} projectPath={project!.path} />}
         {tab === 'Visualizer' && <VisualizerView projectId={pid} projectPath={project!.path} />}
-        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Visualizer'].includes(tab) && (
+        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Terminal','Visualizer'].includes(tab) && (
           <div className="flex-1 p-4 overflow-y-auto">
             <h2 className="text-title text-neutral-300">{tab}</h2>
             <p className="text-sm text-neutral-600 mt-1">Coming soon</p>
@@ -186,33 +177,6 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     )
   }
 
-  function renderTerminalChat() {
-    const terminalPanel = (
-      <TerminalPanel
-        projectId={projectId}
-        projectPath={project!.path}
-        showChat={showChat}
-        onToggleChat={() => setShowChat(v => !v)}
-        terminalOnLeft={terminalOnLeft}
-        onSwapPanels={() => setTerminalOnLeft(v => !v)}
-      />
-    )
-
-    if (!showChat) return terminalPanel
-
-    return (
-      <Group orientation="vertical" id="terminal-chat-split">
-        <Panel id="terminal" defaultSize="50%" minSize="15%">
-          {terminalPanel}
-        </Panel>
-        <Separator className="h-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
-        <Panel id="chat" defaultSize="50%" minSize="15%">
-          <CodeFireChat projectId={projectId} projectName={project!.name} />
-        </Panel>
-      </Group>
-    )
-  }
-
   return (
     <div className="h-screen w-screen overflow-hidden bg-neutral-900">
       <div className="flex flex-col h-screen">
@@ -232,16 +196,16 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           <ProjectHeaderLeft projectName={project.name} projectPath={project.path} />
           <div className="flex-1" />
           <button
-            onClick={() => setShowTerminal(v => !v)}
+            onClick={() => setShowChat(v => !v)}
             className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-              showTerminal
+              showChat
                 ? 'text-codefire-orange bg-codefire-orange/10 hover:bg-codefire-orange/20'
                 : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'
             }`}
-            title={showTerminal ? 'Hide Terminal' : 'Show Terminal'}
+            title={showChat ? 'Hide Chat' : 'Show Chat'}
           >
-            <Terminal size={13} />
-            <span className="hidden sm:inline">Terminal</span>
+            <MessageSquare size={13} />
+            <span className="hidden sm:inline">Chat</span>
           </button>
           <div className="w-px h-4 bg-neutral-700" />
           <ProjectHeaderRight
@@ -255,96 +219,25 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {/* Tab bar */}
         <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {/* Content: view + terminal/chat columns (swappable via drag) */}
-        <div
-          className="flex-1 overflow-hidden relative"
-          onDragOver={(e) => {
-            // Activate drop zones when a panel drag is in progress
-            if (e.dataTransfer.types.includes('application/x-codefire-panel')) {
-              e.preventDefault()
-              if (dragOverSide === null) setDragOverSide('active')
-            }
-          }}
-          onDragLeave={(e) => {
-            // Only clear if leaving the container entirely
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-              setDragOverSide(null)
-            }
-          }}
-          onDrop={() => setDragOverSide(null)}
-        >
-          {showTerminal ? (
-            <Group orientation="horizontal" id="project-layout" key={layoutKey}>
-              {terminalOnLeft ? (
-                <>
-                  <Panel id="terminal-chat" defaultSize={sideDefault} minSize="20%">
-                    {renderTerminalChat()}
-                  </Panel>
-                  <Separator className="w-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
-                  <Panel id="content" defaultSize={contentDefault} minSize="30%">
-                    <div className="h-full overflow-hidden flex flex-col">
-                      {renderContentWithPersistentBrowser(activeTab)}
-                    </div>
-                  </Panel>
-                </>
-              ) : (
-                <>
-                  <Panel id="content" defaultSize={contentDefault} minSize="30%">
-                    <div className="h-full overflow-hidden flex flex-col">
-                      {renderContentWithPersistentBrowser(activeTab)}
-                    </div>
-                  </Panel>
-                  <Separator className="w-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
-                  <Panel id="terminal-chat" defaultSize={sideDefault} minSize="20%">
-                    {renderTerminalChat()}
-                  </Panel>
-                </>
-              )}
-            </Group>
-          ) : (
-            <div className="h-full overflow-hidden flex flex-col">
-              {renderContentWithPersistentBrowser(activeTab)}
-            </div>
-          )}
+        {/* Content area */}
+        <div className="flex-1 overflow-hidden relative">
+          <div className="h-full overflow-hidden flex flex-col">
+            {renderContentWithPersistentBrowser(activeTab)}
+          </div>
 
-          {/* Drop zones — full-height overlays on left/right edges, visible during drag */}
-          {dragOverSide !== null && (
-            <>
-              <div
-                className={`absolute inset-y-0 left-0 w-1/2 z-40 transition-colors duration-100 ${
-                  dragOverSide === 'left'
-                    ? 'bg-codefire-orange/10 border-l-4 border-codefire-orange/40'
-                    : 'bg-transparent'
-                }`}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'move'
-                  setDragOverSide('left')
-                }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  setDragOverSide(null)
-                  if (!terminalOnLeft) setTerminalOnLeft(true)
-                }}
-              />
-              <div
-                className={`absolute inset-y-0 right-0 w-1/2 z-40 transition-colors duration-100 ${
-                  dragOverSide === 'right'
-                    ? 'bg-codefire-orange/10 border-r-4 border-codefire-orange/40'
-                    : 'bg-transparent'
-                }`}
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'move'
-                  setDragOverSide('right')
-                }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  setDragOverSide(null)
-                  if (terminalOnLeft) setTerminalOnLeft(false)
-                }}
-              />
-            </>
+          {/* Chat drawer overlay */}
+          {showChat && (
+            <div className="absolute right-0 top-0 bottom-0 w-[400px] z-30 border-l border-neutral-800 bg-neutral-900 flex flex-col">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
+                <span className="text-xs text-neutral-400 font-medium">Chat</span>
+                <button onClick={() => setShowChat(false)} className="text-neutral-600 hover:text-neutral-300">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <CodeFireChat projectId={projectId} projectName={project!.name} />
+              </div>
+            </div>
           )}
         </div>
 

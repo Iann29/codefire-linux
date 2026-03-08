@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square, Cpu, X, AlertTriangle, Paperclip, Image as ImageIcon } from 'lucide-react'
-import type { ChatConversation, ChatMessage, ChatAttachment, Session, RateLimitInfo } from '@shared/models'
+import type { ChatConversation, ChatMessage, ChatAttachment, ChatMessageAttachment, Session, RateLimitInfo } from '@shared/models'
 import { api } from '@renderer/lib/api'
+import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 import PlanRail from './PlanRail'
 import AgentRunStatus from './AgentRunStatus'
 import { parseSlashCommand, formatContextCommand, getContextWindowSize, estimateTokens } from './chatCommands'
@@ -474,16 +475,18 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     return () => clearInterval(intervalId)
   }, [rateLimitInfo, rateLimitDismissed])
 
-  // Listen for chat attachment events (from BrowserView screenshot, etc.)
+  // Consume pending attachments from the store when component mounts or store changes
   useEffect(() => {
-    function handleAttachment(e: Event) {
-      const detail = (e as CustomEvent<ChatAttachment>).detail
-      if (detail && detail.dataUrl) {
-        setDraftAttachments(prev => [...prev, detail])
+    function consumePending() {
+      const pending = chatComposerStore.consumeAttachments()
+      if (pending.length > 0) {
+        setDraftAttachments(prev => [...prev, ...pending])
       }
     }
-    window.addEventListener('codefire:chat-attachment', handleAttachment)
-    return () => window.removeEventListener('codefire:chat-attachment', handleAttachment)
+    // Consume immediately on mount (handles case where attachments were added before mount)
+    consumePending()
+    // Subscribe for future changes
+    return chatComposerStore.subscribe(consumePending)
   }, [])
 
   // Load conversations and sessions
@@ -805,7 +808,12 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     // Save user message
     let userMsg: ChatMessage
     try {
-      userMsg = await api.chat.sendMessage({ conversationId: convId, role: 'user', content })
+      userMsg = await api.chat.sendMessage({
+        conversationId: convId,
+        role: 'user',
+        content,
+        attachments: attachments.length > 0 ? attachments : undefined
+      })
       setMessages((prev) => [...prev, userMsg])
     } catch (err) {
       setErrorMessage(`Falha ao salvar mensagem: ${formatChatError(err)}`)
@@ -869,7 +877,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
     try {
       if (chatMode === 'agent') {
-        await handleAgentModeMain(convId, content, userMsg, apiKey ?? '', model, runtimeOptions)
+        await handleAgentModeMain(convId, content, userMsg, apiKey ?? '', model, runtimeOptions, attachments)
       } else if (isSubscription) {
         await handleContextModeProvider(convId, content, userMsg, model, attachments)
       } else {
@@ -1035,7 +1043,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     _userMsg: ChatMessage,
     apiKey: string,
     model: string,
-    runtimeOptions: AgentRuntimeOptions
+    runtimeOptions: AgentRuntimeOptions,
+    attachments: ChatAttachment[] = []
   ) {
     setStreaming(true)
     setStreamedContent('')
@@ -1054,6 +1063,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         temperature: runtimeOptions.temperature,
         planEnforcement: runtimeOptions.planEnforcement,
         contextCompaction: runtimeOptions.contextCompaction,
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
     } catch (error) {
       activeRunIdRef.current = null
@@ -1422,6 +1432,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 content={msg.content}
                 usage={messageUsage[msg.id]}
                 tools={messageTools[msg.id]}
+                attachments={msg.attachments}
                 onCopy={handleCopyMessage}
                 onCreateTask={handleCreateTask}
                 onCreateNote={handleCreateNote}
@@ -1716,6 +1727,7 @@ function ChatBubble({
   content,
   usage,
   tools,
+  attachments,
   onCopy,
   onCreateTask,
   onCreateNote,
@@ -1725,6 +1737,7 @@ function ChatBubble({
   content: string
   usage?: { prompt_tokens?: number; completion_tokens?: number }
   tools?: ToolExecution[]
+  attachments?: ChatMessageAttachment[]
   onCopy: (content: string) => void
   onCreateTask: (content: string) => void
   onCreateNote: (content: string) => void
@@ -1781,6 +1794,19 @@ function ChatBubble({
           }`}
         >
           <MarkdownContent content={content} />
+          {attachments && attachments.length > 0 && (
+            <div className="flex gap-1.5 mt-1.5 flex-wrap">
+              {attachments.map((att) => (
+                <div key={att.id} className="rounded border border-neutral-700 overflow-hidden" style={{ width: 56, height: 56 }}>
+                  {att.kind === 'image' ? (
+                    <img src={att.dataUrl} alt={att.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-[8px] text-neutral-500">{att.name}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Footer: actions + usage */}

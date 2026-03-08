@@ -572,4 +572,26 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 23: Chat message attachments table
+  {
+    version: 23,
+    name: 'v22_createChatMessageAttachments',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS chatMessageAttachments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          messageId INTEGER NOT NULL REFERENCES chatMessages(id) ON DELETE CASCADE,
+          attachmentId TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          name TEXT NOT NULL,
+          mimeType TEXT NOT NULL,
+          dataUrl TEXT NOT NULL,
+          source TEXT,
+          createdAt DATETIME NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chatMessageAttachments_messageId ON chatMessageAttachments(messageId);
+      `)
+    },
+  },
 ]

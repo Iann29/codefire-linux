@@ -212,6 +212,20 @@ export interface ChatAttachment {
   source?: 'screenshot' | 'paste' | 'upload'
 }
 
+// ─── Chat Message Attachment Models ──────────────────────────────────────────
+
+export interface ChatMessageAttachment {
+  id: number
+  messageId: number
+  attachmentId: string
+  kind: 'image' | 'file'
+  name: string
+  mimeType: string
+  dataUrl: string
+  source?: string
+  createdAt: string
+}
+
 // ─── Chat Models ──────────────────────────────────────────────────────────────
 
 export interface ChatConversation {
@@ -228,6 +242,7 @@ export interface ChatMessage {
   role: string // 'user' | 'assistant' | 'system'
   content: string
   createdAt: string
+  attachments?: ChatMessageAttachment[]
 }
 
 // ─── Briefing Models ──────────────────────────────────────────────────────────
@@ -366,6 +381,13 @@ export interface AppConfig {
   supabaseUrl: string
   supabaseAnonKey: string
   autoShareSessions: boolean
+
+  // Prompt overrides (empty string = use default)
+  promptAgentSystem?: string
+  promptContextSystem?: string
+  promptSummarization?: string
+  promptTaskExtraction?: string
+  promptTaskDescription?: string
 }
 
 // ─── Visual Regression Models ────────────────────────────────────────────────

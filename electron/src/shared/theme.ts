@@ -1,6 +1,6 @@
 export const COLORS = {
-  orange: '#f97316',
-  orangeHover: '#ea580c',
+  orange: '#b8adcf',
+  orangeHover: '#9d8fb1',
   success: '#4ade80',
   warning: '#fb923c',
   error: '#ef4444',

@@ -7,6 +7,6 @@ describe('test setup', () => {
 
   it('can import shared types', async () => {
     const { COLORS } = await import('../shared/theme')
-    expect(COLORS.orange).toBe('#f97316')
+    expect(COLORS.orange).toBe('#b8adcf')
   })
 })
