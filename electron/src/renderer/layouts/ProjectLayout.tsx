@@ -47,19 +47,6 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const [terminalOnLeft, setTerminalOnLeft] = useState(false)
   const [dragOverSide, setDragOverSide] = useState<'left' | 'right' | 'active' | null>(null)
 
-  // ── Plan 3: Browser Reset On Tab Switch ──
-  // Force BrowserView remount with a fresh key whenever the user leaves and returns to Browser
-  const [browserKey, setBrowserKey] = useState(0)
-  const [prevTab, setPrevTab] = useState(activeTab)
-  if (activeTab !== prevTab) {
-    // Tab just changed
-    if (prevTab === 'Browser') {
-      // Leaving Browser → bump key so next visit gets a fresh instance
-      setBrowserKey(k => k + 1)
-    }
-    setPrevTab(activeTab)
-  }
-
   // ── Plan 4: Browser Layout Preset ──
   // Wider content split for Browser tab; key-based remount reapplies defaultSize
   const isBrowserTab = activeTab === 'Browser'
@@ -80,6 +67,15 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
       setIndexStatus('error')
     }
   }, [projectId])
+
+  // Listen for open-chat events (e.g. from BrowserView screenshot → chat routing)
+  useEffect(() => {
+    function handleOpenChat() {
+      setShowChat(true)
+    }
+    window.addEventListener('codefire:open-chat', handleOpenChat)
+    return () => window.removeEventListener('codefire:open-chat', handleOpenChat)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -152,6 +148,9 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         return <NotesView projectId={pid} />
     }
 
+    // Browser is always mounted but hidden — see persistent render below
+    if (tab === 'Browser') return null
+
     // Lazy-loaded views (heavy dependencies)
     return (
       <Suspense fallback={lazyFallback}>
@@ -163,15 +162,27 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {tab === 'Git' && <GitView projectId={pid} projectPath={project!.path} />}
         {tab === 'Images' && <ImagesView projectId={pid} />}
         {tab === 'Recordings' && <RecordingsView projectId={pid} />}
-        {tab === 'Browser' && <BrowserView key={browserKey} projectId={pid} />}
         {tab === 'Visualizer' && <VisualizerView projectId={pid} projectPath={project!.path} />}
-        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Browser','Visualizer'].includes(tab) && (
+        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Visualizer'].includes(tab) && (
           <div className="flex-1 p-4 overflow-y-auto">
             <h2 className="text-title text-neutral-300">{tab}</h2>
             <p className="text-sm text-neutral-600 mt-1">Coming soon</p>
           </div>
         )}
       </Suspense>
+    )
+  }
+
+  function renderContentWithPersistentBrowser(tab: string) {
+    return (
+      <>
+        {renderActiveView(tab, projectId, setActiveTab)}
+        <Suspense fallback={lazyFallback}>
+          <div style={{ display: tab === 'Browser' ? 'flex' : 'none' }} className="flex-1 flex-col h-full">
+            <BrowserView projectId={projectId} />
+          </div>
+        </Suspense>
+      </>
     )
   }
 
@@ -272,7 +283,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
                   <Separator className="w-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
                   <Panel id="content" defaultSize={contentDefault} minSize="30%">
                     <div className="h-full overflow-hidden flex flex-col">
-                      {renderActiveView(activeTab, projectId, setActiveTab)}
+                      {renderContentWithPersistentBrowser(activeTab)}
                     </div>
                   </Panel>
                 </>
@@ -280,7 +291,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
                 <>
                   <Panel id="content" defaultSize={contentDefault} minSize="30%">
                     <div className="h-full overflow-hidden flex flex-col">
-                      {renderActiveView(activeTab, projectId, setActiveTab)}
+                      {renderContentWithPersistentBrowser(activeTab)}
                     </div>
                   </Panel>
                   <Separator className="w-[2px] bg-neutral-800 hover:bg-codefire-orange active:bg-codefire-orange transition-colors duration-150" />
@@ -292,7 +303,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
             </Group>
           ) : (
             <div className="h-full overflow-hidden flex flex-col">
-              {renderActiveView(activeTab, projectId, setActiveTab)}
+              {renderContentWithPersistentBrowser(activeTab)}
             </div>
           )}
 

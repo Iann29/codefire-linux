@@ -201,6 +201,17 @@ export interface WhitelistRule {
   note: string | null
 }
 
+// ─── Chat Attachment Models ───────────────────────────────────────────────────
+
+export interface ChatAttachment {
+  id: string
+  kind: 'image' | 'file'
+  name: string
+  mimeType: string
+  dataUrl: string  // base64 data URL for images
+  source?: 'screenshot' | 'paste' | 'upload'
+}
+
 // ─── Chat Models ──────────────────────────────────────────────────────────────
 
 export interface ChatConversation {

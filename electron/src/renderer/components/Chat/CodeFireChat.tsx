@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square, Cpu, X, AlertTriangle } from 'lucide-react'
-import type { ChatConversation, ChatMessage, Session, RateLimitInfo } from '@shared/models'
+import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square, Cpu, X, AlertTriangle, Paperclip, Image as ImageIcon } from 'lucide-react'
+import type { ChatConversation, ChatMessage, ChatAttachment, Session, RateLimitInfo } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import PlanRail from './PlanRail'
 import AgentRunStatus from './AgentRunStatus'
@@ -158,6 +158,13 @@ function getModelShortName(modelValue: string): string {
   // Fallback: strip provider/ prefix or clean up model id
   const parts = modelValue.split('/')
   return parts.length > 1 ? parts.slice(1).join('/') : modelValue.replace(/-\d{8,}$/, '')
+}
+
+/** Check if a model supports vision (images) */
+function modelHasVision(modelValue: string): boolean {
+  const resolved = resolveModelAlias(modelValue)
+  const found = CHAT_MODELS.find(m => m.value === resolved)
+  return found?.capabilities?.includes('vision') ?? false
 }
 
 function formatChatError(err: unknown): string {
@@ -395,6 +402,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false)
   const [rateLimitCountdown, setRateLimitCountdown] = useState('')
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
+  const [draftAttachments, setDraftAttachments] = useState<ChatAttachment[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -465,6 +473,18 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const intervalId = setInterval(updateCountdown, 1000)
     return () => clearInterval(intervalId)
   }, [rateLimitInfo, rateLimitDismissed])
+
+  // Listen for chat attachment events (from BrowserView screenshot, etc.)
+  useEffect(() => {
+    function handleAttachment(e: Event) {
+      const detail = (e as CustomEvent<ChatAttachment>).detail
+      if (detail && detail.dataUrl) {
+        setDraftAttachments(prev => [...prev, detail])
+      }
+    }
+    window.addEventListener('codefire:chat-attachment', handleAttachment)
+    return () => window.removeEventListener('codefire:chat-attachment', handleAttachment)
+  }, [])
 
   // Load conversations and sessions
   const loadConversations = useCallback(async () => {
@@ -703,10 +723,14 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
   async function handleSend(contentOverride?: string) {
     const rawContent = contentOverride || input.trim()
-    if (!rawContent || sending) return
+    if ((!rawContent && draftAttachments.length === 0) || sending) return
+
+    // If only attachments but no text, provide a default prompt
+    const effectiveContent = rawContent || (draftAttachments.length > 0 ? 'Analyze the attached image(s).' : '')
+    if (!effectiveContent) return
 
     // Check for slash commands before sending
-    const cmdResult = parseSlashCommand(rawContent)
+    const cmdResult = parseSlashCommand(effectiveContent)
     if (cmdResult.kind === 'error') {
       setMessages(prev => [...prev, {
         id: -Date.now(),
@@ -747,8 +771,10 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       return
     }
 
-    const content = rawContent
+    const content = effectiveContent
+    const attachments = [...draftAttachments]
     if (!contentOverride) setInput('')
+    setDraftAttachments([])
     setSending(true)
     setRunStartedAt(Date.now())
     setErrorMessage(null)
@@ -845,9 +871,9 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       if (chatMode === 'agent') {
         await handleAgentModeMain(convId, content, userMsg, apiKey ?? '', model, runtimeOptions)
       } else if (isSubscription) {
-        await handleContextModeProvider(convId, content, userMsg, model)
+        await handleContextModeProvider(convId, content, userMsg, model, attachments)
       } else {
-        await handleContextMode(convId, content, userMsg, apiKey!, model)
+        await handleContextMode(convId, content, userMsg, apiKey!, model, attachments)
       }
     } catch (err) {
       console.error('Chat error:', err)
@@ -872,17 +898,39 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     _userContent: string,
     userMsg: ChatMessage,
     apiKey: string,
-    model: string
+    model: string,
+    attachments: ChatAttachment[] = []
   ) {
     const context = await buildContextWithRAG(projectId, projectName, _userContent, isGlobal)
     const allMessages = [...messages, userMsg]
     let historyChars = 0
-    const history: { role: string; content: string }[] = []
+    const history: { role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }[] = []
     for (let i = allMessages.length - 1; i >= 0; i--) {
       const m = allMessages[i]
       if (historyChars + m.content.length > 25000) break
       history.unshift({ role: m.role, content: m.content })
       historyChars += m.content.length
+    }
+
+    // If there are image attachments and model supports vision, build multimodal content for last user message
+    const imageAttachments = attachments.filter(a => a.kind === 'image')
+    if (imageAttachments.length > 0 && modelHasVision(model) && history.length > 0) {
+      const lastMsg = history[history.length - 1]
+      if (lastMsg.role === 'user') {
+        const textContent = typeof lastMsg.content === 'string' ? lastMsg.content : _userContent
+        const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+        for (const img of imageAttachments) {
+          contentParts.push({ type: 'image_url', image_url: { url: img.dataUrl } })
+        }
+        contentParts.push({ type: 'text', text: textContent })
+        lastMsg.content = contentParts
+      }
+    } else if (imageAttachments.length > 0 && !modelHasVision(model) && history.length > 0) {
+      // Non-vision model: append a note about the images
+      const lastMsg = history[history.length - 1]
+      if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
+        lastMsg.content += `\n\n[${imageAttachments.length} image(s) attached but the current model does not support vision]`
+      }
     }
 
     setStreaming(true)
@@ -891,7 +939,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const fullContent = await streamChat(apiKey, model, [
       { role: 'system', content: context },
       ...history.slice(-20),
-    ])
+    ] as Array<{ role: string; content: string }>)
 
     setStreaming(false)
     setStreamedContent('')
@@ -910,16 +958,37 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     _userContent: string,
     userMsg: ChatMessage,
     model: string,
+    attachments: ChatAttachment[] = []
   ) {
     const context = await buildContextWithRAG(projectId, projectName, _userContent, isGlobal)
     const allMessages = [...messages, userMsg]
     let historyChars = 0
-    const history: { role: string; content: string }[] = []
+    const history: { role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }[] = []
     for (let i = allMessages.length - 1; i >= 0; i--) {
       const m = allMessages[i]
       if (historyChars + m.content.length > 25000) break
       history.unshift({ role: m.role, content: m.content })
       historyChars += m.content.length
+    }
+
+    // If there are image attachments and model supports vision, build multimodal content for last user message
+    const imageAttachments = attachments.filter(a => a.kind === 'image')
+    if (imageAttachments.length > 0 && modelHasVision(model) && history.length > 0) {
+      const lastMsg = history[history.length - 1]
+      if (lastMsg.role === 'user') {
+        const textContent = typeof lastMsg.content === 'string' ? lastMsg.content : _userContent
+        const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+        for (const img of imageAttachments) {
+          contentParts.push({ type: 'image_url', image_url: { url: img.dataUrl } })
+        }
+        contentParts.push({ type: 'text', text: textContent })
+        lastMsg.content = contentParts
+      }
+    } else if (imageAttachments.length > 0 && !modelHasVision(model) && history.length > 0) {
+      const lastMsg = history[history.length - 1]
+      if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
+        lastMsg.content += `\n\n[${imageAttachments.length} image(s) attached but the current model does not support vision]`
+      }
     }
 
     setStreaming(true)
@@ -938,7 +1007,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           { role: 'system', content: context },
           ...history.slice(-20),
         ],
-      })
+      } as any)
 
       cleanupChunk()
       setStreaming(false)
@@ -1009,7 +1078,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   async function streamChat(
     apiKey: string,
     model: string,
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: string | unknown }>
   ): Promise<string> {
     const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -1498,6 +1567,49 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
       {/* Input area */}
       <div className="px-3 py-2.5 border-t border-neutral-800 shrink-0">
+        {/* Attachment previews */}
+        {draftAttachments.length > 0 && (
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {draftAttachments.map((att) => (
+              <div
+                key={att.id}
+                className="relative group rounded-lg border border-neutral-700 bg-neutral-800 overflow-hidden"
+                style={{ width: 48, height: 48 }}
+              >
+                {att.kind === 'image' ? (
+                  <img
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon size={16} className="text-neutral-500" />
+                  </div>
+                )}
+                <button
+                  onClick={() => setDraftAttachments(prev => prev.filter(a => a.id !== att.id))}
+                  className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-neutral-900 border border-neutral-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove attachment"
+                >
+                  <X size={8} className="text-neutral-300" />
+                </button>
+                {att.source === 'screenshot' && (
+                  <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-[7px] text-center text-neutral-300 py-0.5">
+                    screenshot
+                  </span>
+                )}
+              </div>
+            ))}
+            <span className="text-[10px] text-neutral-500">
+              {draftAttachments.length} attachment{draftAttachments.length > 1 ? 's' : ''}
+              {!modelHasVision(chatModel) && (
+                <span className="text-yellow-500 ml-1">(model lacks vision)</span>
+              )}
+            </span>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <textarea
             ref={inputRef}
@@ -1509,11 +1621,71 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 handleSend()
               }
             }}
+            onPaste={(e) => {
+              const items = e.clipboardData?.items
+              if (!items) return
+              for (let i = 0; i < items.length; i++) {
+                const item = items[i]
+                if (item.type.startsWith('image/')) {
+                  e.preventDefault()
+                  const file = item.getAsFile()
+                  if (!file) continue
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    const dataUrl = reader.result as string
+                    const attachment: ChatAttachment = {
+                      id: crypto.randomUUID(),
+                      kind: 'image',
+                      name: `pasted-${Date.now()}.${file.type.split('/')[1] || 'png'}`,
+                      mimeType: file.type,
+                      dataUrl,
+                      source: 'paste',
+                    }
+                    setDraftAttachments(prev => [...prev, attachment])
+                  }
+                  reader.readAsDataURL(file)
+                  break
+                }
+              }
+            }}
             rows={1}
             className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-codefire-orange/50 resize-none max-h-24"
             placeholder={chatMode === 'agent' ? `Ask or command the agent...` : `Ask about ${projectName}...`}
             disabled={sending}
           />
+          <input
+            type="file"
+            id="chat-file-input"
+            className="hidden"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              const reader = new FileReader()
+              reader.onload = () => {
+                const dataUrl = reader.result as string
+                const attachment: ChatAttachment = {
+                  id: crypto.randomUUID(),
+                  kind: 'image',
+                  name: file.name,
+                  mimeType: file.type,
+                  dataUrl,
+                  source: 'upload',
+                }
+                setDraftAttachments(prev => [...prev, attachment])
+              }
+              reader.readAsDataURL(file)
+              e.target.value = ''
+            }}
+          />
+          <button
+            onClick={() => document.getElementById('chat-file-input')?.click()}
+            className="px-2 py-2 text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors self-end"
+            title="Attach image"
+            disabled={sending}
+          >
+            <Paperclip size={14} />
+          </button>
           {sending && chatMode === 'agent' && activeRunId ? (
             <button
               onClick={handleCancelRun}
@@ -1525,7 +1697,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           ) : (
             <button
               onClick={() => handleSend()}
-              disabled={!input.trim() || sending}
+              disabled={(!input.trim() && draftAttachments.length === 0) || sending}
               className="px-3 py-2 bg-codefire-orange/20 text-codefire-orange rounded-lg hover:bg-codefire-orange/30 transition-colors disabled:opacity-40 self-end"
             >
               {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

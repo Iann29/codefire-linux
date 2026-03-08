@@ -901,10 +901,18 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     if (wv && wv.capturePage) {
       wv.capturePage().then((img: any) => {
         const dataUrl = img.toDataURL()
-        const w = window.open('')
-        if (w) {
-          w.document.write(`<img src="${dataUrl}" style="max-width:100%">`)
+        // Dispatch attachment to chat composer
+        const attachment = {
+          id: crypto.randomUUID(),
+          kind: 'image' as const,
+          name: `screenshot-${Date.now()}.png`,
+          mimeType: 'image/png',
+          dataUrl,
+          source: 'screenshot' as const,
         }
+        window.dispatchEvent(new CustomEvent('codefire:chat-attachment', { detail: attachment }))
+        // Ensure the chat panel is visible
+        window.dispatchEvent(new CustomEvent('codefire:open-chat'))
       })
     }
   }

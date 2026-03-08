@@ -1,8 +1,22 @@
 # Browser Tab Persistence Investigation Plan
 
 > **Date:** 2026-03-08
-> **Status:** PROPOSTO
+> **Status:** IMPLEMENTADO ✅
 > **Objetivo:** investigar de forma precisa por que o browser ainda morre ao trocar de aba e definir a correção estrutural para manter estado, `webview` e sessão vivos entre trocas de tab.
+>
+> ## Implementação Realizada
+>
+> **Hipótese A (Hidden mount) foi adotada e implementada com sucesso.**
+>
+> Alterações em `src/renderer/layouts/ProjectLayout.tsx`:
+> 1. Removido o estado `browserKey` e `prevTab` (lógica de remount forçado)
+> 2. `renderActiveView()` retorna `null` para tab `Browser` (não renderiza condicionalmente)
+> 3. Criada função `renderContentWithPersistentBrowser()` que renderiza o BrowserView **sempre montado** com `display:flex/none` controlado pela aba ativa
+> 4. As 3 chamadas de renderização no JSX substituídas pela nova função
+>
+> **Resultado:** BrowserView permanece vivo entre trocas de aba. Página, tabs internas, scroll, sessão e console state são preservados.
+>
+> **Verificado:** TypeScript compila sem erros (`npx tsc --noEmit` passou limpo)
 
 ---
 

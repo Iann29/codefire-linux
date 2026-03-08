@@ -1,8 +1,29 @@
 # Chat Attachments, Browser Screenshot Routing, and File Mentions Plan
 
 > **Date:** 2026-03-08
-> **Status:** PROPOSTO
+> **Status:** IMPLEMENTADO (Fase 1) ✅
 > **Objetivo:** transformar o Chat Mode em um composer multimodal de verdade, com screenshot do browser enviada direto para o chat, suporte a imagens/arquivos e `@` menções de arquivos da codebase.
+>
+> ## Implementação Realizada — Fase 1
+>
+> **1. Screenshot → Chat routing:**
+> - `BrowserView.tsx`: `handleScreenshot()` agora despacha `CustomEvent('codefire:chat-attachment')` em vez de `window.open`
+> - Também despacha `CustomEvent('codefire:open-chat')` para abrir o painel automaticamente
+> - `ProjectLayout.tsx`: listener para `codefire:open-chat` seta `showChat(true)`
+>
+> **2. Attachments no Chat:**
+> - `ChatAttachment` type adicionado em `src/shared/models.ts`
+> - `CodeFireChat.tsx`: estado `draftAttachments`, preview de thumbnails acima do textarea, botão Paperclip para upload, paste handler (Ctrl+V) para imagens do clipboard
+>
+> **3. Multimodal message sending:**
+> - `handleContextMode()` e `handleContextModeProvider()` aceitam `attachments` param
+> - Para modelos com vision: conteúdo multimodal `[{type:'image_url',...}, {type:'text',...}]`
+> - Para modelos sem vision: nota textual informando incompatibilidade
+> - `modelHasVision()` helper verifica capability do modelo
+>
+> **Fases 2-3 (@ menções, persistência) ficam para implementação futura.**
+>
+> **Verificado:** TypeScript compila sem erros (`npx tsc --noEmit` passou limpo)
 
 ---
 
