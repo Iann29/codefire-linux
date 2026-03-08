@@ -3,7 +3,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
 import { ipcMain, session, webContents } from 'electron'
-import type { ChatMessage } from '@shared/models'
+import type { ChatMessage, ChatAttachment } from '@shared/models'
 import { TaskDAO } from '../database/dao/TaskDAO'
 import { NoteDAO } from '../database/dao/NoteDAO'
 import { SessionDAO } from '../database/dao/SessionDAO'
@@ -43,6 +43,7 @@ interface ActiveRun {
   lastBrowserAction: string | null
   planEnforcement: boolean
   contextCompaction: boolean
+  attachments?: ChatAttachment[]
 }
 
 export interface AgentRunStatus {
@@ -65,6 +66,7 @@ export interface AgentStartInput {
   temperature?: number
   planEnforcement?: boolean
   contextCompaction?: boolean
+  attachments?: ChatAttachment[]
 }
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6'
