@@ -798,6 +798,7 @@ export class AgentService {
       lastBrowserAction: null,
       planEnforcement: true,
       contextCompaction: false,
+      attachments: input.attachments,
     }
 
     this.activeRun = run

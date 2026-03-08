@@ -6,9 +6,12 @@ import Database from 'better-sqlite3'
 import { SessionDAO } from '../database/dao/SessionDAO'
 import { ProjectDAO } from '../database/dao/ProjectDAO'
 import { parseLiveSession, type LiveSessionState } from '../services/SessionParser'
+import { ClaudeSessionConnectionService } from '../services/ClaudeSessionConnectionService'
 
 export function registerSessionHandlers(db: Database.Database) {
   const sessionDAO = new SessionDAO(db)
+  const projectDAO = new ProjectDAO(db)
+  const connectionService = new ClaudeSessionConnectionService(db)
 
   ipcMain.handle('sessions:list', (_e, projectId: string) =>
     sessionDAO.list(projectId)
