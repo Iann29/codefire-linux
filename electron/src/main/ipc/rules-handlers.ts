@@ -2,6 +2,9 @@ import { ipcMain } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import Database from 'better-sqlite3'
+import { ProjectDAO } from '../database/dao/ProjectDAO'
+import { resolveClaudeProjectDir } from './memory-handlers'
 
 export interface RuleFile {
   scope: 'global' | 'project' | 'local'
@@ -26,7 +29,9 @@ const DEFAULT_TEMPLATE = `# CLAUDE.md
 /**
  * Register IPC handlers for CLAUDE.md rule file operations.
  */
-export function registerRulesHandlers() {
+export function registerRulesHandlers(db: Database.Database) {
+  const projectDAO = new ProjectDAO(db)
+
   ipcMain.handle(
     'rules:list',
     (_event, projectPath: string): RuleFile[] => {
@@ -123,6 +128,39 @@ export function registerRulesHandlers() {
           `Failed to create rule file: ${err instanceof Error ? err.message : String(err)}`
         )
       }
+    }
+  )
+
+  /**
+   * Return the resolved Claude memory directory path for a project.
+   * Uses the canonical `claudeProject` identifier when available,
+   * falling back to path-encoding.
+   */
+  ipcMain.handle(
+    'rules:getMemoryPath',
+    (_event, projectPath: string, projectId?: string): string => {
+      if (!projectPath || typeof projectPath !== 'string') {
+        throw new Error('projectPath is required and must be a string')
+      }
+
+      let claudeProject: string | null = null
+
+      if (projectId) {
+        const project = projectDAO.getById(projectId)
+        if (project?.claudeProject) {
+          claudeProject = project.claudeProject
+        }
+      }
+
+      if (!claudeProject) {
+        const project = projectDAO.getByPath(projectPath)
+        if (project?.claudeProject) {
+          claudeProject = project.claudeProject
+        }
+      }
+
+      const dirName = resolveClaudeProjectDir(projectPath, claudeProject)
+      return path.join(os.homedir(), '.claude', 'projects', dirName, 'memory')
     }
   )
 }

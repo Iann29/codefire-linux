@@ -16,7 +16,7 @@ interface MemoryViewProps {
   projectPath: string
 }
 
-export default function MemoryView({ projectPath }: MemoryViewProps) {
+export default function MemoryView({ projectId, projectPath }: MemoryViewProps) {
   const [files, setFiles] = useState<MemoryFile[]>([])
   const [selectedFile, setSelectedFile] = useState<MemoryFile | null>(null)
   const [content, setContent] = useState<string | null>(null)
@@ -26,14 +26,14 @@ export default function MemoryView({ projectPath }: MemoryViewProps) {
   // Load file list
   const loadFiles = useCallback(async () => {
     try {
-      const result = await api.memory.list(projectPath)
+      const result = await api.memory.list(projectPath, projectId)
       setFiles(result)
       return result
     } catch (err) {
       console.error('Failed to load memory files:', err)
       return []
     }
-  }, [projectPath])
+  }, [projectPath, projectId])
 
   // Initial load
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function MemoryView({ projectPath }: MemoryViewProps) {
   // Create a new file
   const handleCreate = useCallback(
     async (fileName: string, initialContent?: string) => {
-      const newFile = await api.memory.create(projectPath, fileName)
+      const newFile = await api.memory.create(projectPath, fileName, projectId)
 
       if (initialContent) {
         await api.memory.write(newFile.path, initialContent)
@@ -108,7 +108,7 @@ export default function MemoryView({ projectPath }: MemoryViewProps) {
         handleSelect(created)
       }
     },
-    [projectPath, loadFiles, handleSelect]
+    [projectPath, projectId, loadFiles, handleSelect]
   )
 
   // Create MEMORY.md shortcut

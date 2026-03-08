@@ -1,7 +1,13 @@
 # Chat Pending UI Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - Criado `AgentRunStatus.tsx` com fases derivadas (thinking/streaming/running_tool/awaiting/error)
+> - Timer de tempo decorrido, dots animados, ícones por fase
+> - Integrado no `CodeFireChat.tsx` substituindo spinner genérico
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

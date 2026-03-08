@@ -202,10 +202,10 @@ export const api = {
   },
 
   memory: {
-    getDir: (projectPath: string) =>
-      invoke('memory:getDir', projectPath) as Promise<string>,
-    list: (projectPath: string) =>
-      invoke('memory:list', projectPath) as Promise<
+    getDir: (projectPath: string, projectId?: string) =>
+      invoke('memory:getDir', projectPath, projectId) as Promise<string>,
+    list: (projectPath: string, projectId?: string) =>
+      invoke('memory:list', projectPath, projectId) as Promise<
         Array<{ name: string; path: string; isMain: boolean }>
       >,
     read: (filePath: string) =>
@@ -214,8 +214,8 @@ export const api = {
       invoke('memory:write', filePath, content) as Promise<void>,
     delete: (filePath: string) =>
       invoke('memory:delete', filePath) as Promise<void>,
-    create: (projectPath: string, fileName: string) =>
-      invoke('memory:create', projectPath, fileName) as Promise<{
+    create: (projectPath: string, fileName: string, projectId?: string) =>
+      invoke('memory:create', projectPath, fileName, projectId) as Promise<{
         name: string
         path: string
         isMain: boolean
@@ -239,6 +239,8 @@ export const api = {
       invoke('rules:write', filePath, content) as Promise<void>,
     create: (filePath: string, template?: string) =>
       invoke('rules:create', filePath, template) as Promise<void>,
+    getMemoryPath: (projectPath: string, projectId?: string) =>
+      invoke('rules:getMemoryPath', projectPath, projectId) as Promise<string>,
   },
 
   services: {
@@ -630,6 +632,10 @@ export const api = {
       note?: string; expiresAt?: string;
     }) => invoke('premium:admin:grantTeam', grant) as Promise<TeamGrant>,
     revokeGrant: (grantId: string) => invoke('premium:admin:revokeGrant', grantId) as Promise<void>,
+  },
+
+  browser: {
+    clearSession: () => invoke('browser:clearSession') as Promise<{ success: boolean; partition: string }>,
   },
 
   github: {

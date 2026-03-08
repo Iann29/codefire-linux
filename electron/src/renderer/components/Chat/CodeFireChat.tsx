@@ -3,6 +3,8 @@ import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, T
 import type { ChatConversation, ChatMessage, Session, RateLimitInfo } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import PlanRail from './PlanRail'
+import AgentRunStatus from './AgentRunStatus'
+import { parseSlashCommand, formatContextCommand, getContextWindowSize, estimateTokens } from './chatCommands'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -392,6 +394,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null)
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false)
   const [rateLimitCountdown, setRateLimitCountdown] = useState('')
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -702,9 +705,52 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const rawContent = contentOverride || input.trim()
     if (!rawContent || sending) return
 
+    // Check for slash commands before sending
+    const cmdResult = parseSlashCommand(rawContent)
+    if (cmdResult.kind === 'error') {
+      setMessages(prev => [...prev, {
+        id: -Date.now(),
+        conversationId: activeConversationId ?? 0,
+        role: 'assistant' as const,
+        content: cmdResult.message,
+        createdAt: new Date().toISOString(),
+      }])
+      setInput('')
+      return
+    }
+    if (cmdResult.kind === 'local' && cmdResult.command === 'context') {
+      const contextMessages = messages.filter(m => m.role !== 'system')
+      const allText = contextMessages.map(m => m.content).join('\n')
+      const tokens = estimateTokens(allText)
+      const ctxWindow = getContextWindowSize(chatModel)
+      const percent = ctxWindow ? (tokens / ctxWindow) * 100 : null
+
+      const info = formatContextCommand({
+        model: chatModel,
+        provider: aiProvider,
+        messageCount: contextMessages.length,
+        estimatedTokens: tokens,
+        contextWindow: ctxWindow,
+        percentUsed: percent,
+        hasCompaction: !!compactionInfo,
+        compactionCount: compactionInfo?.trimmedCount,
+      })
+
+      setMessages(prev => [...prev, {
+        id: -Date.now(),
+        conversationId: activeConversationId ?? 0,
+        role: 'assistant' as const,
+        content: info,
+        createdAt: new Date().toISOString(),
+      }])
+      setInput('')
+      return
+    }
+
     const content = rawContent
     if (!contentOverride) setInput('')
     setSending(true)
+    setRunStartedAt(Date.now())
     setErrorMessage(null)
     setToolExecutions([])
     setPlanSteps([])
@@ -817,6 +863,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       }])
     } finally {
       setSending(false)
+      setRunStartedAt(null)
       setToolExecutions([])
     }
   }
@@ -1362,12 +1409,19 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 <span className="text-[10px] text-neutral-500">Tool call limit reached — continue from where it left off</span>
               </div>
             )}
-            {sending && !streaming && toolExecutions.length === 0 && (
+            {sending && chatMode === 'agent' && (
+              <AgentRunStatus
+                sending={sending}
+                streaming={streaming}
+                toolExecutions={toolExecutions}
+                confirmAction={confirmAction ? { tool: confirmAction.action, args: confirmAction.details } : null}
+                startedAt={runStartedAt}
+              />
+            )}
+            {sending && !streaming && toolExecutions.length === 0 && chatMode !== 'agent' && (
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <Loader2 size={12} className="animate-spin text-neutral-500" />
-                <span className="text-[10px] text-neutral-500">
-                  {chatMode === 'agent' ? 'Agent thinking...' : 'Thinking...'}
-                </span>
+                <span className="text-[10px] text-neutral-500">Thinking...</span>
               </div>
             )}
           </>

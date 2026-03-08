@@ -77,7 +77,7 @@ export type MemoryChannel =
   | 'memory:delete'
   | 'memory:create'
 
-export type RulesChannel = 'rules:list' | 'rules:read' | 'rules:write' | 'rules:create'
+export type RulesChannel = 'rules:list' | 'rules:read' | 'rules:write' | 'rules:create' | 'rules:getMemoryPath'
 
 export type ServiceChannel =
   | 'services:detect'
@@ -132,6 +132,8 @@ export type SettingsChannel = 'settings:get' | 'settings:set'
 export type ArenaChannel = 'arena:open'
 
 export type BrowserCommandChannel = 'browser:executeCommand'
+
+export type BrowserChannel = 'browser:clearSession'
 
 export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status'
 
@@ -239,6 +241,7 @@ export type IpcChannel =
   | ArenaChannel
   | ShellChannel
   | BrowserCommandChannel
+  | BrowserChannel
   | AgentChannel
   | ProviderChannel
   | PremiumChannel

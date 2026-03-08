@@ -1,7 +1,14 @@
 # Project Memory And Rules Alignment Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - `resolveClaudeProjectDir()` usa `claudeProject` como fonte primária
+> - Handlers de memória aceitam `projectId` opcional para lookup no DB
+> - Adicionado `rules:getMemoryPath` handler
+> - MemoryView agora passa `projectId` para resolução correta
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

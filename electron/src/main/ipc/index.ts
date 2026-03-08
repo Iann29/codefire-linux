@@ -24,6 +24,7 @@ import { registerMCPHandlers } from './mcp-handlers'
 import { registerBriefingHandlers } from './briefing-handlers'
 import { registerChatHandlers } from './chat-handlers'
 import { registerUpdateHandlers } from './update-handlers'
+import { registerBrowserHandlers } from './browser-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
 import type { GitService } from '../services/GitService'
@@ -74,8 +75,8 @@ export function registerAllHandlers(
     registerSearchHandlers(db, searchEngine, contextEngine)
   }
   registerFileHandlers()
-  registerMemoryHandlers()
-  registerRulesHandlers()
+  registerMemoryHandlers(db)
+  registerRulesHandlers(db)
   registerServiceHandlers()
   registerImageHandlers(db)
   registerRecordingHandlers(db)
@@ -83,6 +84,7 @@ export function registerAllHandlers(
   registerChatHandlers(db)
   registerBriefingHandlers(db)
   registerUpdateHandlers()
+  registerBrowserHandlers()
   if (mcpManager) {
     registerMCPHandlers(mcpManager)
   }

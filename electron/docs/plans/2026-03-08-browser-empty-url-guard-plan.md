@@ -1,7 +1,13 @@
 # Browser Empty URL Guard Plan
 
 > **Date:** 2026-03-08
-> **Status:** Planning (nao implementar ainda)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - Criado `normalizeAddress.ts` com pipeline única de normalização
+> - Atualizado `BrowserToolbar.tsx` para usar normalizer e mostrar erro inline
+> - Atualizado `BrowserView.tsx` handleNavigate com normalizer + try/catch
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 

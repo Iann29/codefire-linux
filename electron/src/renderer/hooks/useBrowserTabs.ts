@@ -67,6 +67,14 @@ export function useBrowserTabs(defaultUrl = 'https://www.google.com') {
     [updateTab]
   )
 
+  const resetTabs = useCallback(() => {
+    const id = `tab-${++tabCounter}`
+    const tab: BrowserTab = { id, url: 'about:blank', title: 'New Tab', isLoading: false }
+    setTabs([tab])
+    setActiveTabId(id)
+    return id
+  }, [])
+
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
 
   return {
@@ -78,5 +86,6 @@ export function useBrowserTabs(defaultUrl = 'https://www.google.com') {
     closeTab,
     updateTab,
     navigateTab,
+    resetTabs,
   }
 }

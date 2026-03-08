@@ -2,6 +2,8 @@ import { ipcMain } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import Database from 'better-sqlite3'
+import { ProjectDAO } from '../database/dao/ProjectDAO'
 
 export interface MemoryEntry {
   name: string
@@ -18,36 +20,82 @@ function encodeProjectPath(projectPath: string): string {
 }
 
 /**
- * Get the memory directory path for a given project path.
+ * Resolve the Claude project directory identifier.
+ * If `claudeProject` is available (from the database), use it directly.
+ * Otherwise, fall back to the path-encoding logic.
  */
-function getMemoryDir(projectPath: string): string {
-  const encoded = encodeProjectPath(projectPath)
-  return path.join(os.homedir(), '.claude', 'projects', encoded, 'memory')
+export function resolveClaudeProjectDir(
+  projectPath: string,
+  claudeProject?: string | null
+): string {
+  if (claudeProject) {
+    return claudeProject
+  }
+  return encodeProjectPath(projectPath)
+}
+
+/**
+ * Get the memory directory path for a given project, preferring the
+ * canonical `claudeProject` identifier when available.
+ */
+function getMemoryDir(projectPath: string, claudeProject?: string | null): string {
+  const dirName = resolveClaudeProjectDir(projectPath, claudeProject)
+  return path.join(os.homedir(), '.claude', 'projects', dirName, 'memory')
+}
+
+/**
+ * Look up a project's claudeProject field from the database.
+ * Returns null if the project is not found or has no claudeProject set.
+ */
+function lookupClaudeProject(
+  db: Database.Database,
+  projectId?: string | null,
+  projectPath?: string | null
+): string | null {
+  const projectDAO = new ProjectDAO(db)
+
+  if (projectId) {
+    const project = projectDAO.getById(projectId)
+    if (project?.claudeProject) {
+      return project.claudeProject
+    }
+  }
+
+  if (projectPath) {
+    const project = projectDAO.getByPath(projectPath)
+    if (project?.claudeProject) {
+      return project.claudeProject
+    }
+  }
+
+  return null
 }
 
 /**
  * Register IPC handlers for memory file operations.
  */
-export function registerMemoryHandlers() {
+export function registerMemoryHandlers(db: Database.Database) {
   ipcMain.handle(
     'memory:getDir',
-    (_event, projectPath: string): string => {
+    (_event, projectPath: string, projectId?: string): string => {
       if (!projectPath || typeof projectPath !== 'string') {
         throw new Error('projectPath is required and must be a string')
       }
 
-      return getMemoryDir(projectPath)
+      const claudeProject = lookupClaudeProject(db, projectId, projectPath)
+      return getMemoryDir(projectPath, claudeProject)
     }
   )
 
   ipcMain.handle(
     'memory:list',
-    (_event, projectPath: string): MemoryEntry[] => {
+    (_event, projectPath: string, projectId?: string): MemoryEntry[] => {
       if (!projectPath || typeof projectPath !== 'string') {
         throw new Error('projectPath is required and must be a string')
       }
 
-      const memDir = getMemoryDir(projectPath)
+      const claudeProject = lookupClaudeProject(db, projectId, projectPath)
+      const memDir = getMemoryDir(projectPath, claudeProject)
 
       try {
         if (!fs.existsSync(memDir)) {
@@ -151,7 +199,7 @@ export function registerMemoryHandlers() {
 
   ipcMain.handle(
     'memory:create',
-    (_event, projectPath: string, fileName: string): MemoryEntry => {
+    (_event, projectPath: string, fileName: string, projectId?: string): MemoryEntry => {
       if (!projectPath || typeof projectPath !== 'string') {
         throw new Error('projectPath is required and must be a string')
       }
@@ -161,7 +209,8 @@ export function registerMemoryHandlers() {
 
       // Ensure .md extension
       const name = fileName.endsWith('.md') ? fileName : `${fileName}.md`
-      const memDir = getMemoryDir(projectPath)
+      const claudeProject = lookupClaudeProject(db, projectId, projectPath)
+      const memDir = getMemoryDir(projectPath, claudeProject)
 
       try {
         if (!fs.existsSync(memDir)) {

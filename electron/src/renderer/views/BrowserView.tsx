@@ -3,8 +3,10 @@ import { Globe } from 'lucide-react'
 import { useBrowserTabs } from '@renderer/hooks/useBrowserTabs'
 import BrowserTabStrip from '@renderer/components/Browser/BrowserTabStrip'
 import BrowserToolbar from '@renderer/components/Browser/BrowserToolbar'
+import { normalizeAddress } from '@renderer/components/Browser/normalizeAddress'
 import CaptureIssueSheet from '@renderer/components/Browser/CaptureIssueSheet'
 import DevToolsPanel from '@renderer/components/Browser/DevToolsPanel'
+import { api } from '@renderer/lib/api'
 
 interface BrowserViewProps {
   projectId: string
@@ -26,6 +28,7 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     closeTab,
     updateTab,
     navigateTab,
+    resetTabs,
   } = useBrowserTabs('about:blank')
 
   const webviewContainerRef = useRef<HTMLDivElement>(null)
@@ -820,21 +823,32 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
   }, [activeTabId, consoleEntries, tabs])
 
   function handleNavigate(url: string) {
-    // Normalize URL
-    let normalized = url.trim()
-    if (!normalized.startsWith('http://') && !normalized.startsWith('https://') && !normalized.startsWith('about:')) {
-      if (normalized.includes('.') && !normalized.includes(' ')) {
-        normalized = `https://${normalized}`
-      } else {
-        normalized = `https://www.google.com/search?q=${encodeURIComponent(normalized)}`
+    // about:blank passthrough (used by Home button)
+    if (url === 'about:blank') {
+      navigateTab(activeTabId, url)
+      const wv = getActiveWebview()
+      if (wv) {
+        wv.loadURL(url)
       }
+      return
     }
 
+    // All toolbar input already runs through normalizeAddress,
+    // but agent commands may call this directly, so normalise here too
+    const result = normalizeAddress(url)
+    if (result.kind === 'noop' || result.kind === 'invalid') return
+
+    const normalized = result.url
     navigateTab(activeTabId, normalized)
 
     const wv = getActiveWebview()
     if (wv) {
-      wv.loadURL(normalized)
+      try {
+        wv.loadURL(normalized)
+      } catch {
+        // loadURL threw synchronously — reset loading state
+        updateTab(activeTabId, { isLoading: false, title: 'Failed to load' })
+      }
     }
     // If no webview exists yet (was about:blank), the useEffect will create one
     // since we just updated the tab URL away from about:blank
@@ -866,6 +880,25 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     }
   }
 
+  async function handleClearSession() {
+    try {
+      await api.browser.clearSession()
+    } catch {
+      // best-effort
+    }
+    // Remove all webview elements from the DOM
+    for (const [, wv] of webviewRefs.current.entries()) {
+      wv.remove()
+    }
+    webviewRefs.current.clear()
+    // Reset tabs to a single about:blank tab
+    resetTabs()
+    // Reset navigation and console state
+    setCanGoBack(false)
+    setCanGoForward(false)
+    setConsoleEntries([])
+  }
+
   const hasWebview = activeTab.url !== 'about:blank' && webviewRefs.current.has(activeTabId)
 
   return (
@@ -886,6 +919,7 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
         onReload={() => getActiveWebview()?.reload()}
         onScreenshot={handleScreenshot}
         onCaptureIssue={handleCaptureIssue}
+        onClearSession={handleClearSession}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
       />
