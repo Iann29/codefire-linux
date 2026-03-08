@@ -12,7 +12,7 @@ export default function MainLayout() {
   const [defaultTerminalPath, setDefaultTerminalPath] = useState('')
 
   useEffect(() => {
-    document.title = 'CodeFire'
+    document.title = 'Pinyino'
     api.settings.get().then((cfg) => {
       if (cfg.defaultTerminalPath) setDefaultTerminalPath(cfg.defaultTerminalPath)
     }).catch(() => {})
@@ -25,8 +25,8 @@ export default function MainLayout() {
       <div className="flex flex-col h-screen">
         {/* Top bar */}
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-800 bg-neutral-950 shrink-0">
-          <img src={logoIcon} alt="CodeFire" className="w-4 h-4" />
-          <span className="text-sm font-semibold text-neutral-200 tracking-tight">CodeFire</span>
+          <img src={logoIcon} alt="Pinyino" className="w-4 h-4" />
+          <span className="text-sm font-semibold text-neutral-200 tracking-tight">Pinyino</span>
 
           <ProjectDropdown />
 

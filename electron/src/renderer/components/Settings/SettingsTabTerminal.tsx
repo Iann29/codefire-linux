@@ -65,7 +65,7 @@ export default function SettingsTabTerminal({ config, onChange }: Props) {
         <div className="mt-2 p-3 bg-neutral-950 border border-neutral-800 rounded font-mono text-neutral-300"
           style={{ fontSize: `${config.terminalFontSize}px` }}
         >
-          $ echo &quot;Hello, CodeFire&quot;
+          $ echo &quot;Hello, Pinyino&quot;
         </div>
       </Section>
 

@@ -288,7 +288,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'list_projects',
-      description: 'List all CodeFire tracked projects.',
+      description: 'List all Pinyino tracked projects.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -860,7 +860,36 @@ export class AgentService {
       run.planEnforcement = input.planEnforcement ?? config.agentPlanEnforcement ?? true
       run.contextCompaction = input.contextCompaction ?? config.agentContextCompaction ?? false
 
-      const history = this.buildConversationHistory(run.conversationId)
+      const history: Array<{ role: string; content: string | Array<Record<string, unknown>> }> =
+        this.buildConversationHistory(run.conversationId)
+
+      // Inject attachments as multimodal content into the last user message
+      if (run.attachments && run.attachments.length > 0) {
+        const imageAttachments = run.attachments.filter(a => a.kind === 'image')
+        if (imageAttachments.length > 0 && history.length > 0) {
+          const lastMsg = history[history.length - 1]
+          if (lastMsg.role === 'user') {
+            const parts: Array<Record<string, unknown>> = []
+            for (const img of imageAttachments) {
+              const base64Match = img.dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+              if (base64Match) {
+                parts.push({
+                  type: 'image_url',
+                  image_url: {
+                    url: img.dataUrl,
+                  },
+                })
+              }
+            }
+            parts.push({
+              type: 'text',
+              text: typeof lastMsg.content === 'string' ? lastMsg.content : '',
+            })
+            lastMsg.content = parts
+          }
+        }
+      }
+
       let loopMessages: Array<Record<string, unknown>> = [
         { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath) },
         ...history,
@@ -1194,7 +1223,7 @@ export class AgentService {
 
   private buildSystemPrompt(projectName: string, planEnforcement: boolean, projectPath?: string | null): string {
     const base = [
-      `You are the CodeFire agent for "${projectName}".`,
+      `You are the Pinyino agent for "${projectName}".`,
     ]
 
     if (projectPath) {

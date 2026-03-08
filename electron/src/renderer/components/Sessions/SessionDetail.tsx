@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Hash,
   Clock,
@@ -70,6 +70,17 @@ export default function SessionDetail({ session }: SessionDetailProps) {
   const [extracting, setExtracting] = useState(false)
   const [extractResult, setExtractResult] = useState<string | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [isActive, setIsActive] = useState(false)
+
+  useEffect(() => {
+    if (!session) {
+      setIsActive(false)
+      return
+    }
+    api.sessions.findActive(session.projectId).then(active => {
+      setIsActive(active?.sessionId === session.id)
+    })
+  }, [session?.id, session?.projectId])
 
   if (!session) {
     return (
@@ -202,6 +213,12 @@ export default function SessionDetail({ session }: SessionDetailProps) {
         <div className="flex items-center gap-2 text-xs text-neutral-500">
           <Hash size={12} />
           <span className="font-mono">{session.id.slice(0, 16)}</span>
+          {isActive && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              Active
+            </span>
+          )}
         </div>
       </div>
 

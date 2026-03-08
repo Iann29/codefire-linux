@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Send, Loader2, Plus, ChevronDown, Trash2, Copy, ListTodo, StickyNote, Terminal, Flame, Zap, BookOpen, Wrench, Square, Cpu, X, AlertTriangle, Paperclip, Image as ImageIcon } from 'lucide-react'
-import type { ChatConversation, ChatMessage, ChatAttachment, ChatMessageAttachment, Session, RateLimitInfo } from '@shared/models'
+import { Loader2, Flame, Zap, BookOpen, Wrench, Square } from 'lucide-react'
+import type { ChatConversation, ChatMessage, ChatAttachment, Session, RateLimitInfo } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 import PlanRail from './PlanRail'
 import AgentRunStatus from './AgentRunStatus'
 import { parseSlashCommand, formatContextCommand, getContextWindowSize, estimateTokens } from './chatCommands'
+import ChatHeader, { resolveModelAlias, modelHasVision } from './ChatHeader'
+import ChatBubble from './ChatBubble'
+import type { ToolExecution } from './ChatBubble'
+import ChatInput from './ChatInput'
+import ChatBanners from './ChatBanners'
+import ChatContextTab from './ChatContextTab'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -14,14 +20,6 @@ type ChatMode = 'context' | 'agent'
 interface CodeFireChatProps {
   projectId?: string
   projectName?: string
-}
-
-interface ToolExecution {
-  callId?: string
-  name: string
-  args: Record<string, unknown>
-  result?: string
-  status: 'running' | 'done' | 'error'
 }
 
 interface PlanStep {
@@ -36,144 +34,14 @@ interface AgentRuntimeOptions {
   contextCompaction: boolean
 }
 
-// ─── Chat Model Options ──────────────────────────────────────────────────────
-
-type ModelCapability = 'tools' | 'vision' | 'streaming'
-
-interface ChatModelOption {
-  value: string
-  label: string
-  provider?: string // subscription provider that offers this model natively
-  capabilities?: ModelCapability[]
-}
-
-const CHAT_MODELS: ChatModelOption[] = [
-  // OpenRouter models (available to all)
-  { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash', capabilities: ['vision', 'streaming'] },
-  { value: 'qwen/qwen3.5-plus-02-15', label: 'Qwen 3.5 Plus', capabilities: ['tools', 'streaming'] },
-  { value: 'qwen/qwen3-coder-next', label: 'Qwen3 Coder Next', capabilities: ['tools', 'streaming'] },
-  { value: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', capabilities: ['tools', 'streaming'] },
-  { value: 'minimax/minimax-m2.5', label: 'MiniMax M2.5', capabilities: ['streaming'] },
-  { value: 'z-ai/glm-5', label: 'GLM-5', capabilities: ['tools', 'streaming'] },
-  { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', capabilities: ['tools', 'streaming'] },
-  { value: 'openai/gpt-5.4', label: 'GPT-5.4', capabilities: ['tools', 'vision', 'streaming'] },
-  // Subscription-native models
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'claude-subscription', capabilities: ['vision', 'streaming'] },
-  { value: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'o3', label: 'o3', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'o4-mini', label: 'o4 Mini', provider: 'openai-subscription', capabilities: ['streaming'] },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'gemini-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'gemini-subscription', capabilities: ['vision', 'streaming'] },
-]
-
-// ─── Model Aliases ────────────────────────────────────────────────────────────
-
-interface ModelAlias {
-  model: string
-  provider?: string
-  description: string
-}
-
-const MODEL_ALIASES: Record<string, ModelAlias> = {
-  best: { model: 'claude-opus-4-6', provider: 'claude-subscription', description: 'Claude Opus 4.6' },
-  fast: { model: 'claude-haiku-4-5-20251001', provider: 'claude-subscription', description: 'Claude Haiku 4.5' },
-  cheap: { model: 'google/gemini-3-flash-preview', description: 'Gemini 3 Flash' },
-  smart: { model: 'google/gemini-3.1-pro-preview', description: 'Gemini 3.1 Pro' },
-  code: { model: 'qwen/qwen3-coder-next', description: 'Qwen3 Coder Next' },
-}
-
-/** Resolve a model alias to the real model value, or return the original */
-function resolveModelAlias(modelValue: string): string {
-  const alias = MODEL_ALIASES[modelValue]
-  return alias ? alias.model : modelValue
-}
-
-/** Get capability badge chars for a model */
-function getCapabilityBadges(capabilities?: ModelCapability[]): { char: string; title: string; key: ModelCapability }[] {
-  if (!capabilities || capabilities.length === 0) return []
-  const badges: { char: string; title: string; key: ModelCapability }[] = []
-  if (capabilities.includes('tools')) badges.push({ char: 'T', title: 'Tools', key: 'tools' })
-  if (capabilities.includes('vision')) badges.push({ char: 'V', title: 'Vision', key: 'vision' })
-  if (capabilities.includes('streaming')) badges.push({ char: 'S', title: 'Streaming', key: 'streaming' })
-  return badges
-}
-
-/** Build alias entries as ChatModelOption items, filtered by provider availability */
-function getAliasOptions(provider: string): ChatModelOption[] {
-  return Object.entries(MODEL_ALIASES)
-    .filter(([, alias]) => {
-      // If the alias points to a subscription model and the user is not on that subscription, hide it
-      if (alias.provider && provider !== alias.provider) return false
-      return true
-    })
-    .map(([name, alias]) => {
-      const target = CHAT_MODELS.find((m) => m.value === alias.model)
-      return {
-        value: `__alias__${name}`,
-        label: `${name}`,
-        provider: alias.provider,
-        capabilities: target?.capabilities,
-        _aliasTarget: alias.model,
-        _aliasDescription: alias.description,
-      } as ChatModelOption & { _aliasTarget: string; _aliasDescription: string }
-    })
-}
-
-/** Get models relevant to the current provider, grouped */
-function getModelsForProvider(provider: string): { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] {
-  const groups: { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] = []
-
-  // Aliases group first
-  const aliases = getAliasOptions(provider)
-  if (aliases.length > 0) {
-    groups.push({ group: 'Quick Aliases', models: aliases })
-  }
-
-  if (provider.endsWith('-subscription')) {
-    const native = CHAT_MODELS.filter((m) => m.provider === provider)
-    const openrouter = CHAT_MODELS.filter((m) => !m.provider)
-    if (native.length > 0) {
-      const label = provider.replace('-subscription', '').replace(/^./, (c) => c.toUpperCase())
-      groups.push({ group: `${label} (subscription)`, models: native })
-    }
-    groups.push({ group: 'OpenRouter', models: openrouter })
-    return groups
-  }
-  // OpenRouter or custom: show only non-subscription models
-  groups.push({ group: '', models: CHAT_MODELS.filter((m) => !m.provider) })
-  return groups
-}
-
-function getModelShortName(modelValue: string): string {
-  const found = CHAT_MODELS.find((m) => m.value === modelValue)
-  if (found) return found.label
-  // Check if it's a resolved alias
-  const resolvedModel = resolveModelAlias(modelValue)
-  if (resolvedModel !== modelValue) {
-    const resolvedFound = CHAT_MODELS.find((m) => m.value === resolvedModel)
-    if (resolvedFound) return resolvedFound.label
-  }
-  // Fallback: strip provider/ prefix or clean up model id
-  const parts = modelValue.split('/')
-  return parts.length > 1 ? parts.slice(1).join('/') : modelValue.replace(/-\d{8,}$/, '')
-}
-
-/** Check if a model supports vision (images) */
-function modelHasVision(modelValue: string): boolean {
-  const resolved = resolveModelAlias(modelValue)
-  const found = CHAT_MODELS.find(m => m.value === resolved)
-  return found?.capabilities?.includes('vision') ?? false
-}
+// ─── Error Formatting ────────────────────────────────────────────────────────
 
 function formatChatError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err)
 
   // Authentication error
   if (raw.includes('authentication_error') || raw.includes('invalid x-api-key') || raw.includes('401')) {
-    return 'Token inválido ou expirado. Gere um novo com `claude setup-token` e atualize em Settings > Engine.'
+    return 'Token invalido ou expirado. Gere um novo com `claude setup-token` e atualize em Settings > Engine.'
   }
 
   // Rate limit
@@ -191,22 +59,22 @@ function formatChatError(err: unknown): string {
   // Invalid request
   if (raw.includes('invalid_request_error')) {
     const msgMatch = raw.match(/"message"\s*:\s*"([^"]+)"/)
-    return msgMatch ? `Erro na requisição: ${msgMatch[1]}` : 'Requisição inválida. Verifique o modelo selecionado.'
+    return msgMatch ? `Erro na requisicao: ${msgMatch[1]}` : 'Requisicao invalida. Verifique o modelo selecionado.'
   }
 
   // Network errors
   if (raw.includes('fetch failed') || raw.includes('ENOTFOUND') || raw.includes('ECONNREFUSED') || raw.includes('NetworkError')) {
-    return 'Sem conexão com a API. Verifique sua internet.'
+    return 'Sem conexao com a API. Verifique sua internet.'
   }
 
   // Not connected
   if (raw.includes('not connected') || raw.includes('setup-token')) {
-    return 'Claude subscription não conectado. Execute `claude setup-token` e cole o token em Settings > Engine.'
+    return 'Claude subscription nao conectado. Execute `claude setup-token` e cole o token em Settings > Engine.'
   }
 
   // OpenRouter key missing
   if (raw.includes('API key not configured') || raw.includes('openRouterKey')) {
-    return 'API key não configurada. Adicione sua chave em Settings > Engine.'
+    return 'API key nao configurada. Adicione sua chave em Settings > Engine.'
   }
 
   // Generic: trim IPC wrapping noise
@@ -332,7 +200,7 @@ async function buildContextWithRAG(
 }
 
 async function buildGlobalContext(): Promise<string> {
-  let context = 'You are a helpful assistant integrated into CodeFire, a project management companion for AI coding agents.\n'
+  let context = 'You are a helpful assistant integrated into Pinyino, a project management companion for AI coding agents.\n'
   context += 'You have context about all projects, global tasks, and notes.\n\n'
   let budget = 8000 - context.length
 
@@ -384,10 +252,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [streaming, setStreaming] = useState(false)
   const [streamedContent, setStreamedContent] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [showDropdown, setShowDropdown] = useState(false)
   const [chatMode, setChatMode] = useState<ChatMode>('context')
   const [chatModel, setChatModel] = useState('google/gemini-3.1-pro-preview')
-  const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [aiProvider, setAiProvider] = useState<string>('openrouter')
   const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
@@ -404,12 +270,12 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [rateLimitCountdown, setRateLimitCountdown] = useState('')
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
   const [draftAttachments, setDraftAttachments] = useState<ChatAttachment[]>([])
+  const [chatSubTab, setChatSubTab] = useState<'chat' | 'context'>('chat')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const modelDropdownRef = useRef<HTMLDivElement>(null)
   const activeRunIdRef = useRef<string | null>(null)
   const pendingRunsRef = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void }>())
+
   // Load config for chat defaults
   useEffect(() => {
     window.api.invoke('settings:get').then((config: any) => {
@@ -483,9 +349,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         setDraftAttachments(prev => [...prev, ...pending])
       }
     }
-    // Consume immediately on mount (handles case where attachments were added before mount)
     consumePending()
-    // Subscribe for future changes
     return chatComposerStore.subscribe(consumePending)
   }, [])
 
@@ -525,21 +389,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     inputRef.current?.focus()
   }, [activeConversationId])
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false)
-      }
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setShowModelDropdown(false)
-      }
-    }
-    if (showDropdown || showModelDropdown) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showDropdown, showModelDropdown])
-
+  // Agent event listeners
   useEffect(() => {
     const cleanupStream = window.api.on('agent:stream', (payload: any) => {
       const runId = String(payload?.runId ?? '')
@@ -695,6 +545,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
   }, [])
 
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+
   async function handleNewConversation() {
     const conv = await api.chat.createConversation({
       projectId: projectId || '__global__',
@@ -703,7 +555,6 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     setConversations((prev) => [conv, ...prev])
     setActiveConversationId(conv.id)
     setMessages([])
-    setShowDropdown(false)
   }
 
   async function handleDeleteConversation(id: number, e: React.MouseEvent) {
@@ -720,6 +571,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const next = chatMode === 'context' ? 'agent' : 'context'
     setChatMode(next)
     api.settings.set({ chatMode: next })
+  }
+
+  function handleModelChange(model: string) {
+    setChatModel(model)
+    api.settings.set({ chatModel: model })
   }
 
   // ─── Send (dispatches to mode) ─────────────────────────────────────────────
@@ -822,8 +678,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       return
     }
 
-    // Get config — use local dropdown state for model/provider (most up-to-date),
-    // read persisted settings only for API key and agent runtime options.
+    // Get config
     let apiKey: string | undefined
     const model = resolveModelAlias(chatModel)
     const provider = aiProvider
@@ -864,7 +719,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
     // Only require OpenRouter key when using OpenRouter
     if (!isSubscription && !apiKey) {
-      const noKeyMessage = `**OpenRouter API key required**\n\nTo use the CodeFire agent, add your API key in **Settings** > **Engine** tab.`
+      const noKeyMessage = `**OpenRouter API key required**\n\nTo use the Pinyino agent, add your API key in **Settings** > **Engine** tab.`
       try {
         const errorMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: noKeyMessage })
         setMessages((prev) => [...prev, errorMsg])
@@ -934,7 +789,6 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         lastMsg.content = contentParts
       }
     } else if (imageAttachments.length > 0 && !modelHasVision(model) && history.length > 0) {
-      // Non-vision model: append a note about the images
       const lastMsg = history[history.length - 1]
       if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
         lastMsg.content += `\n\n[${imageAttachments.length} image(s) attached but the current model does not support vision]`
@@ -1095,7 +949,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        'X-Title': 'CodeFire',
+        'X-Title': 'Pinyino',
       },
       body: JSON.stringify({ model, messages, stream: true, max_tokens: 4096 }),
     })
@@ -1213,200 +1067,60 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
   }
 
-  const activeConversation = conversations.find(c => c.id === activeConversationId)
-  const dropdownLabel = activeConversation?.title || 'Select thread...'
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full bg-neutral-900">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800 bg-neutral-950 shrink-0">
-        <Flame size={14} className="text-codefire-orange shrink-0" />
-        <span className="text-[11px] font-semibold text-neutral-300 shrink-0">CodeFire</span>
+      <ChatHeader
+        chatMode={chatMode}
+        onToggleMode={toggleMode}
+        chatModel={chatModel}
+        onModelChange={handleModelChange}
+        aiProvider={aiProvider}
+        conversations={conversations}
+        sessions={sessions}
+        activeConversationId={activeConversationId}
+        onSelectConversation={setActiveConversationId}
+        onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
+      />
 
-        {/* Mode toggle */}
+      {/* Sub-tab toggle */}
+      <div className="flex border-b border-neutral-800 px-2">
         <button
-          onClick={toggleMode}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors shrink-0 ${
-            chatMode === 'agent'
-              ? 'bg-codefire-orange/20 text-codefire-orange border border-codefire-orange/30'
-              : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-300'
+          onClick={() => setChatSubTab('chat')}
+          className={`px-3 py-1.5 text-[10px] font-medium border-b-2 transition-colors ${
+            chatSubTab === 'chat' ? 'border-codefire-orange text-neutral-200' : 'border-transparent text-neutral-500 hover:text-neutral-400'
           }`}
-          title={chatMode === 'context' ? 'Context Mode — low cost, RAG-enhanced' : 'Agent Mode — full tool calling'}
         >
-          {chatMode === 'agent' ? <Zap size={10} /> : <BookOpen size={10} />}
-          {chatMode === 'agent' ? 'Agent' : 'Context'}
+          Chat
         </button>
-
-        {/* Model selector */}
-        <div className="relative shrink-0" ref={modelDropdownRef}>
-          <button
-            onClick={() => setShowModelDropdown((v) => !v)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-300 transition-colors"
-            title={`Model: ${chatModel}`}
-          >
-            <Cpu size={10} />
-            <span className="max-w-[80px] truncate">{getModelShortName(chatModel)}</span>
-            {aiProvider.endsWith('-subscription') && (
-              <span className="text-[8px] text-green-500 font-bold" title="Using your subscription">SUB</span>
-            )}
-            <ChevronDown size={8} className="text-neutral-500" />
-          </button>
-
-          {showModelDropdown && (
-            <div className="absolute top-full left-0 mt-1 w-64 max-h-80 overflow-y-auto bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50 py-1">
-              {getModelsForProvider(aiProvider).map(({ group, models }) => (
-                <div key={group || 'default'}>
-                  {group && (
-                    <div className="px-3 py-1 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider border-t border-neutral-800 first:border-t-0 mt-1 first:mt-0">
-                      {group}
-                    </div>
-                  )}
-                  {models.map((m) => {
-                    const isAlias = m.value.startsWith('__alias__')
-                    const aliasName = isAlias ? m.value.replace('__alias__', '') : null
-                    const aliasTarget = isAlias ? (m as ChatModelOption & { _aliasTarget?: string })._aliasTarget : null
-                    const aliasDescription = isAlias ? (m as ChatModelOption & { _aliasDescription?: string })._aliasDescription : null
-                    const isActive = isAlias ? chatModel === aliasTarget : m.value === chatModel
-                    const badges = getCapabilityBadges(m.capabilities)
-
-                    return (
-                      <button
-                        key={m.value}
-                        onClick={() => {
-                          const modelToSet = isAlias && aliasTarget ? aliasTarget : m.value
-                          setChatModel(modelToSet)
-                          api.settings.set({ chatModel: modelToSet })
-                          setShowModelDropdown(false)
-                        }}
-                        className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] transition-colors ${
-                          isActive
-                            ? 'bg-neutral-800 text-codefire-orange'
-                            : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300'
-                        }`}
-                      >
-                        {isAlias ? (
-                          <span className="truncate flex-1 text-left">
-                            <span className="font-semibold">{aliasName}</span>
-                            <span className="text-neutral-500"> {'\u2192'} {aliasDescription}</span>
-                          </span>
-                        ) : (
-                          <span className="truncate">{m.label}</span>
-                        )}
-                        {badges.length > 0 && (
-                          <span className="flex items-center gap-0.5 shrink-0">
-                            {badges.map((b) => (
-                              <span
-                                key={b.key}
-                                title={b.title}
-                                className="text-[8px] text-neutral-600 font-mono leading-none px-0.5 rounded bg-neutral-800"
-                              >
-                                {b.char}
-                              </span>
-                            ))}
-                          </span>
-                        )}
-                        {isActive && (
-                          <span className="ml-auto text-[9px] text-codefire-orange/60 shrink-0">active</span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Conversation dropdown */}
-        <div className="relative flex-1 min-w-0" ref={dropdownRef}>
-          <button
-            onClick={() => setShowDropdown(v => !v)}
-            className="flex items-center gap-1.5 w-full px-2 py-1 rounded bg-neutral-800/60 hover:bg-neutral-800 transition-colors text-left min-w-0"
-          >
-            <span className="text-[11px] text-neutral-300 truncate flex-1">{dropdownLabel}</span>
-            <ChevronDown size={12} className="text-neutral-500 shrink-0" />
-          </button>
-
-          {showDropdown && (
-            <div className="absolute top-full left-0 mt-1 w-72 max-h-80 overflow-y-auto bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50">
-              <button
-                onClick={handleNewConversation}
-                className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-codefire-orange hover:bg-neutral-800 transition-colors border-b border-neutral-800"
-              >
-                <Plus size={12} />
-                New Chat
-              </button>
-
-              {conversations.length > 0 && (
-                <div className="py-1">
-                  <div className="px-3 py-1 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider">
-                    Conversations
-                  </div>
-                  {conversations.map((conv) => (
-                    <button
-                      key={conv.id}
-                      onClick={() => { setActiveConversationId(conv.id); setShowDropdown(false) }}
-                      className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] transition-colors group ${
-                        conv.id === activeConversationId
-                          ? 'bg-neutral-800 text-neutral-200'
-                          : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300'
-                      }`}
-                    >
-                      <span className="truncate flex-1 text-left">{conv.title}</span>
-                      <span className="text-[9px] text-neutral-600 shrink-0">
-                        {new Date(conv.updatedAt).toLocaleDateString()}
-                      </span>
-                      <button
-                        onClick={(e) => handleDeleteConversation(conv.id, e)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-neutral-600 hover:text-red-400 transition-all shrink-0"
-                      >
-                        <Trash2 size={10} />
-                      </button>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {sessions.length > 0 && (
-                <div className="py-1 border-t border-neutral-800">
-                  <div className="px-3 py-1 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider">
-                    Claude Sessions
-                  </div>
-                  {sessions.slice(0, 20).map((session) => (
-                    <button
-                      key={session.id}
-                      className="flex items-center gap-2 w-full px-3 py-1.5 text-[11px] text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300 transition-colors"
-                    >
-                      <Terminal size={10} className="shrink-0 text-neutral-600" />
-                      <span className="truncate flex-1 text-left">
-                        {session.summary || session.slug || session.id.slice(0, 8)}
-                      </span>
-                      <span className="text-[9px] text-neutral-600 shrink-0">
-                        {session.startedAt ? new Date(session.startedAt).toLocaleDateString() : ''}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
         <button
-          onClick={handleNewConversation}
-          className="p-1 rounded text-neutral-500 hover:text-codefire-orange hover:bg-neutral-800 transition-colors shrink-0"
-          title="New conversation"
+          onClick={() => setChatSubTab('context')}
+          className={`px-3 py-1.5 text-[10px] font-medium border-b-2 transition-colors ${
+            chatSubTab === 'context' ? 'border-codefire-orange text-neutral-200' : 'border-transparent text-neutral-500 hover:text-neutral-400'
+          }`}
         >
-          <Plus size={14} />
+          Context
         </button>
       </div>
 
+      {chatSubTab === 'context' ? (
+        <ChatContextTab
+          messages={messages}
+          messageUsage={messageUsage}
+          compactionInfo={compactionInfo}
+          chatModel={chatModel}
+          aiProvider={aiProvider}
+        />
+      ) : (
+      <>
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
         {!activeConversationId && messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Flame size={28} className="text-neutral-700 mb-3" />
-            <p className="text-xs text-neutral-500 mb-1">CodeFire Agent</p>
+            <p className="text-xs text-neutral-500 mb-1">Pinyino Agent</p>
             <p className="text-[10px] text-neutral-600 mb-4 max-w-48">
               Ask anything about {projectName}. I have context about your tasks, sessions, notes, and code.
             </p>
@@ -1539,420 +1253,32 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Rate limit banner */}
-      {rateLimitInfo && !rateLimitDismissed && (
-        <div className="px-3 py-2 bg-yellow-500/10 border-t border-yellow-500/20 shrink-0">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={12} className="text-yellow-400 shrink-0" />
-            <p className="text-[11px] text-yellow-300 flex-1">
-              <span className="font-medium">{rateLimitInfo.providerName}</span> rate limited
-              {rateLimitInfo.fallbackProvider && (
-                <span> — using <span className="font-medium">{rateLimitInfo.fallbackProvider}</span></span>
-              )}
-              {rateLimitCountdown && (
-                <span className="text-yellow-400/70"> (back in {rateLimitCountdown})</span>
-              )}
-            </p>
-            {rateLimitInfo.limit !== null && rateLimitInfo.remaining !== null && (
-              <span className="text-[9px] text-yellow-500/60 shrink-0">
-                {rateLimitInfo.remaining}/{rateLimitInfo.limit}
-              </span>
-            )}
-            <button
-              onClick={() => setRateLimitDismissed(true)}
-              className="text-yellow-500/50 hover:text-yellow-400 transition-colors shrink-0"
-              title="Dismiss"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        </div>
+      <ChatBanners
+        rateLimitInfo={rateLimitInfo}
+        rateLimitDismissed={rateLimitDismissed}
+        rateLimitCountdown={rateLimitCountdown}
+        onDismissRateLimit={() => setRateLimitDismissed(true)}
+        errorMessage={errorMessage}
+      />
+
+      <ChatInput
+        input={input}
+        onInputChange={setInput}
+        onSend={handleSend}
+        onCancel={handleCancelRun}
+        sending={sending}
+        streaming={streaming}
+        chatMode={chatMode}
+        chatModel={chatModel}
+        activeRunId={activeRunId}
+        draftAttachments={draftAttachments}
+        onAddAttachment={(att) => setDraftAttachments(prev => [...prev, att])}
+        onRemoveAttachment={(id) => setDraftAttachments(prev => prev.filter(a => a.id !== id))}
+        inputRef={inputRef}
+        projectName={projectName}
+      />
+      </>
       )}
-
-      {/* Error banner */}
-      {errorMessage && (
-        <div className="px-3 py-2 bg-red-900/30 border-t border-red-800/50 shrink-0">
-          <p className="text-[11px] text-red-300">{errorMessage}</p>
-        </div>
-      )}
-
-      {/* Input area */}
-      <div className="px-3 py-2.5 border-t border-neutral-800 shrink-0">
-        {/* Attachment previews */}
-        {draftAttachments.length > 0 && (
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            {draftAttachments.map((att) => (
-              <div
-                key={att.id}
-                className="relative group rounded-lg border border-neutral-700 bg-neutral-800 overflow-hidden"
-                style={{ width: 48, height: 48 }}
-              >
-                {att.kind === 'image' ? (
-                  <img
-                    src={att.dataUrl}
-                    alt={att.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <ImageIcon size={16} className="text-neutral-500" />
-                  </div>
-                )}
-                <button
-                  onClick={() => setDraftAttachments(prev => prev.filter(a => a.id !== att.id))}
-                  className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-neutral-900 border border-neutral-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Remove attachment"
-                >
-                  <X size={8} className="text-neutral-300" />
-                </button>
-                {att.source === 'screenshot' && (
-                  <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-[7px] text-center text-neutral-300 py-0.5">
-                    screenshot
-                  </span>
-                )}
-              </div>
-            ))}
-            <span className="text-[10px] text-neutral-500">
-              {draftAttachments.length} attachment{draftAttachments.length > 1 ? 's' : ''}
-              {!modelHasVision(chatModel) && (
-                <span className="text-yellow-500 ml-1">(model lacks vision)</span>
-              )}
-            </span>
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            onPaste={(e) => {
-              const items = e.clipboardData?.items
-              if (!items) return
-              for (let i = 0; i < items.length; i++) {
-                const item = items[i]
-                if (item.type.startsWith('image/')) {
-                  e.preventDefault()
-                  const file = item.getAsFile()
-                  if (!file) continue
-                  const reader = new FileReader()
-                  reader.onload = () => {
-                    const dataUrl = reader.result as string
-                    const attachment: ChatAttachment = {
-                      id: crypto.randomUUID(),
-                      kind: 'image',
-                      name: `pasted-${Date.now()}.${file.type.split('/')[1] || 'png'}`,
-                      mimeType: file.type,
-                      dataUrl,
-                      source: 'paste',
-                    }
-                    setDraftAttachments(prev => [...prev, attachment])
-                  }
-                  reader.readAsDataURL(file)
-                  break
-                }
-              }
-            }}
-            rows={1}
-            className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-codefire-orange/50 resize-none max-h-24"
-            placeholder={chatMode === 'agent' ? `Ask or command the agent...` : `Ask about ${projectName}...`}
-            disabled={sending}
-          />
-          <input
-            type="file"
-            id="chat-file-input"
-            className="hidden"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (!file) return
-              const reader = new FileReader()
-              reader.onload = () => {
-                const dataUrl = reader.result as string
-                const attachment: ChatAttachment = {
-                  id: crypto.randomUUID(),
-                  kind: 'image',
-                  name: file.name,
-                  mimeType: file.type,
-                  dataUrl,
-                  source: 'upload',
-                }
-                setDraftAttachments(prev => [...prev, attachment])
-              }
-              reader.readAsDataURL(file)
-              e.target.value = ''
-            }}
-          />
-          <button
-            onClick={() => document.getElementById('chat-file-input')?.click()}
-            className="px-2 py-2 text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors self-end"
-            title="Attach image"
-            disabled={sending}
-          >
-            <Paperclip size={14} />
-          </button>
-          {sending && chatMode === 'agent' && activeRunId ? (
-            <button
-              onClick={handleCancelRun}
-              className="px-3 py-2 bg-red-500/15 text-red-300 rounded-lg hover:bg-red-500/25 transition-colors self-end"
-              title="Cancel active run"
-            >
-              <Square size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={() => handleSend()}
-              disabled={(!input.trim() && draftAttachments.length === 0) || sending}
-              className="px-3 py-2 bg-codefire-orange/20 text-codefire-orange rounded-lg hover:bg-codefire-orange/30 transition-colors disabled:opacity-40 self-end"
-            >
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   )
-}
-
-// ─── Chat Bubble ─────────────────────────────────────────────────────────────
-
-function ChatBubble({
-  role,
-  content,
-  usage,
-  tools,
-  attachments,
-  onCopy,
-  onCreateTask,
-  onCreateNote,
-  onSendToTerminal,
-}: {
-  role: string
-  content: string
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
-  tools?: ToolExecution[]
-  attachments?: ChatMessageAttachment[]
-  onCopy: (content: string) => void
-  onCreateTask: (content: string) => void
-  onCreateNote: (content: string) => void
-  onSendToTerminal: (content: string) => void
-}) {
-  const isUser = role === 'user'
-  const [toolsExpanded, setToolsExpanded] = useState(false)
-
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className="relative max-w-[90%]">
-        {/* Tool executions (collapsed by default) */}
-        {tools && tools.length > 0 && (
-          <div className="mb-1.5">
-            <button
-              onClick={() => setToolsExpanded(!toolsExpanded)}
-              className="flex items-center gap-1.5 text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors py-0.5"
-            >
-              <Wrench size={10} className="text-neutral-600" />
-              <span>{tools.length} tool{tools.length > 1 ? 's' : ''} used</span>
-              <ChevronDown size={10} className={`transition-transform ${toolsExpanded ? 'rotate-180' : ''}`} />
-            </button>
-            {toolsExpanded && (
-              <div className="mt-1 space-y-0.5">
-                {tools.map((te, i) => (
-                  <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-800/60 border border-neutral-700/30">
-                    {te.status === 'error' ? (
-                      <X size={9} className="text-red-500 shrink-0" />
-                    ) : (
-                      <Wrench size={9} className="text-neutral-600 shrink-0" />
-                    )}
-                    <span className="text-[10px] text-neutral-400 font-mono truncate flex-1">
-                      {te.name}
-                    </span>
-                    {te.status === 'done' && (
-                      <span className="text-[9px] text-green-600/70 shrink-0">ok</span>
-                    )}
-                    {te.status === 'error' && (
-                      <span className="text-[9px] text-red-500/70 shrink-0">err</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Message bubble */}
-        <div
-          className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
-            isUser
-              ? 'bg-codefire-orange/15 text-neutral-200 border border-codefire-orange/20'
-              : 'bg-neutral-800/80 text-neutral-300 border border-neutral-700/40'
-          }`}
-        >
-          <MarkdownContent content={content} />
-          {attachments && attachments.length > 0 && (
-            <div className="flex gap-1.5 mt-1.5 flex-wrap">
-              {attachments.map((att) => (
-                <div key={att.id} className="rounded border border-neutral-700 overflow-hidden" style={{ width: 56, height: 56 }}>
-                  {att.kind === 'image' ? (
-                    <img src={att.dataUrl} alt={att.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-[8px] text-neutral-500">{att.name}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer: actions + usage */}
-        {!isUser && (
-          <div className="flex items-center justify-between mt-1 min-h-[20px]">
-            <div className="flex items-center gap-0.5">
-              <ActionButton icon={<Copy size={10} />} title="Copy" onClick={() => onCopy(content)} />
-              <ActionButton icon={<ListTodo size={10} />} title="Create Task" onClick={() => onCreateTask(content)} />
-              <ActionButton icon={<StickyNote size={10} />} title="Add to Notes" onClick={() => onCreateNote(content)} />
-              <ActionButton icon={<Terminal size={10} />} title="Copy to Clipboard" onClick={() => onSendToTerminal(content)} />
-            </div>
-            {usage && (usage.prompt_tokens || usage.completion_tokens) && (
-              <span className="text-[9px] text-neutral-600 tabular-nums" title={`Input: ${usage.prompt_tokens ?? 0} | Output: ${usage.completion_tokens ?? 0}`}>
-                {usage.prompt_tokens ?? 0}↓ {usage.completion_tokens ?? 0}↑
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ActionButton({ icon, title, onClick }: { icon: React.ReactNode; title: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className="p-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors"
-    >
-      {icon}
-    </button>
-  )
-}
-
-// ─── Simple Markdown Rendering ───────────────────────────────────────────────
-
-function MarkdownContent({ content }: { content: string }) {
-  const lines = content.split('\n')
-  const elements: React.ReactNode[] = []
-  let inCodeBlock = false
-  let codeBlockContent = ''
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-
-    if (line.startsWith('```')) {
-      if (inCodeBlock) {
-        elements.push(
-          <pre key={i} className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 my-1 overflow-x-auto text-[10px] text-neutral-300">
-            <code>{codeBlockContent.trimEnd()}</code>
-          </pre>
-        )
-        codeBlockContent = ''
-        inCodeBlock = false
-      } else {
-        inCodeBlock = true
-      }
-      continue
-    }
-
-    if (inCodeBlock) {
-      codeBlockContent += (codeBlockContent ? '\n' : '') + line
-      continue
-    }
-
-    if (line.startsWith('### ')) {
-      elements.push(<p key={i} className="font-semibold text-neutral-200 mt-2 mb-0.5">{formatInline(line.slice(4))}</p>)
-    } else if (line.startsWith('## ')) {
-      elements.push(<p key={i} className="font-semibold text-neutral-200 mt-2 mb-0.5">{formatInline(line.slice(3))}</p>)
-    } else if (line.startsWith('# ')) {
-      elements.push(<p key={i} className="font-bold text-neutral-100 mt-2 mb-1">{formatInline(line.slice(2))}</p>)
-    } else if (line.match(/^[-*]\s/)) {
-      elements.push(
-        <p key={i} className="pl-3">
-          <span className="text-neutral-600 mr-1">&bull;</span>
-          {formatInline(line.replace(/^[-*]\s/, ''))}
-        </p>
-      )
-    } else if (line.match(/^\d+\.\s/)) {
-      const match = line.match(/^(\d+)\.\s(.*)/)
-      if (match) {
-        elements.push(
-          <p key={i} className="pl-3">
-            <span className="text-neutral-500 mr-1">{match[1]}.</span>
-            {formatInline(match[2])}
-          </p>
-        )
-      }
-    } else if (line.startsWith('> ')) {
-      elements.push(
-        <p key={i} className="pl-2 border-l-2 border-neutral-600 text-neutral-400 italic">
-          {formatInline(line.slice(2))}
-        </p>
-      )
-    } else if (line.trim() === '') {
-      elements.push(<div key={i} className="h-1.5" />)
-    } else {
-      elements.push(<p key={i} className="whitespace-pre-wrap">{formatInline(line)}</p>)
-    }
-  }
-
-  if (inCodeBlock && codeBlockContent) {
-    elements.push(
-      <pre key="unclosed" className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1.5 my-1 overflow-x-auto text-[10px] text-neutral-300">
-        <code>{codeBlockContent.trimEnd()}</code>
-      </pre>
-    )
-  }
-
-  return <>{elements}</>
-}
-
-function formatInline(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = []
-  let remaining = text
-  let key = 0
-
-  while (remaining.length > 0) {
-    const codeMatch = remaining.match(/^(.*?)`([^`]+)`/)
-    const boldMatch = remaining.match(/^(.*?)\*\*(.+?)\*\*/)
-    const italicMatch = remaining.match(/^(.*?)\*(.+?)\*/)
-
-    const matches = [
-      codeMatch ? { type: 'code', match: codeMatch, index: codeMatch[1].length } : null,
-      boldMatch ? { type: 'bold', match: boldMatch, index: boldMatch[1].length } : null,
-      italicMatch ? { type: 'italic', match: italicMatch, index: italicMatch[1].length } : null,
-    ].filter(Boolean).sort((a, b) => a!.index - b!.index)
-
-    if (matches.length === 0) {
-      parts.push(remaining)
-      break
-    }
-
-    const first = matches[0]!
-    if (first.match![1]) parts.push(first.match![1])
-
-    if (first.type === 'code') {
-      parts.push(<code key={key++} className="bg-neutral-800 text-codefire-orange px-1 py-0.5 rounded text-[10px]">{first.match![2]}</code>)
-    } else if (first.type === 'bold') {
-      parts.push(<strong key={key++} className="font-semibold text-neutral-200">{first.match![2]}</strong>)
-    } else if (first.type === 'italic') {
-      parts.push(<em key={key++}>{first.match![2]}</em>)
-    }
-    remaining = remaining.slice(first.match![0].length)
-  }
-
-  return <>{parts}</>
 }

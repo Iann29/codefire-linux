@@ -60,7 +60,7 @@ export class ImageGenerationService {
 
       request.setHeader('Authorization', `Bearer ${apiKey}`)
       request.setHeader('Content-Type', 'application/json')
-      request.setHeader('X-Title', 'CodeFire')
+      request.setHeader('X-Title', 'Pinyino')
 
       let responseData = ''
 

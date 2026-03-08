@@ -12,7 +12,7 @@ const PROMPT_DEFS = [
     key: 'promptAgentSystem' as const,
     title: 'Agent System Prompt',
     hint: 'System prompt sent to the AI agent when running in Agent Mode. Supports {projectName} placeholder.',
-    placeholder: 'You are the CodeFire agent for "{projectName}"...',
+    placeholder: 'You are the Pinyino agent for "{projectName}"...',
     rows: 5,
   },
   {

@@ -81,7 +81,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         }
 
         setProject(proj)
-        document.title = `${proj.name} — CodeFire`
+        document.title = `${proj.name} — Pinyino`
         api.projects.updateLastOpened(projectId).catch((err) => {
           console.warn('Failed to update lastOpened:', err)
         })
@@ -189,8 +189,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           >
             <ArrowLeft size={14} />
           </button>
-          <img src={logoIcon} alt="CodeFire" className="w-4 h-4" />
-          <span className="text-sm font-semibold text-neutral-200 tracking-tight">CodeFire</span>
+          <img src={logoIcon} alt="Pinyino" className="w-4 h-4" />
+          <span className="text-sm font-semibold text-neutral-200 tracking-tight">Pinyino</span>
           <ProjectDropdown />
           <div className="w-px h-4 bg-neutral-700" />
           <ProjectHeaderLeft projectName={project.name} projectPath={project.path} />

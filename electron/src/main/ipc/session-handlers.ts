@@ -59,7 +59,6 @@ export function registerSessionHandlers(db: Database.Database) {
   )
 
   ipcMain.handle('sessions:getLiveState', (_e, projectId: string): LiveSessionState | null => {
-    const projectDAO = new ProjectDAO(db)
     const project = projectDAO.getById(projectId)
     if (!project?.claudeProject) return null
 
@@ -96,5 +95,21 @@ export function registerSessionHandlers(db: Database.Database) {
     } catch {
       return null
     }
+  })
+
+  ipcMain.handle('sessions:findActive', (_e, projectId: string) => {
+    const project = projectDAO.getById(projectId)
+    if (!project?.claudeProject) return null
+    const dir = path.join(homedir(), '.claude', 'projects', project.claudeProject)
+    const session = connectionService.findActiveSession(dir)
+    if (session) session.projectId = projectId
+    return session
+  })
+
+  ipcMain.handle('sessions:listRecent', (_e, projectId: string) => {
+    const project = projectDAO.getById(projectId)
+    if (!project?.claudeProject) return []
+    const dir = path.join(homedir(), '.claude', 'projects', project.claudeProject)
+    return connectionService.listRecentSessions(dir)
   })
 }

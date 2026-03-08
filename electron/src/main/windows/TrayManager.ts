@@ -24,7 +24,7 @@ export class TrayManager {
     const trayIcon = icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 })
 
     this.tray = new Tray(trayIcon)
-    this.tray.setToolTip('CodeFire')
+    this.tray.setToolTip('Pinyino')
 
     this.updateContextMenu()
 
@@ -40,7 +40,7 @@ export class TrayManager {
 
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Show CodeFire',
+        label: 'Show Pinyino',
         click: () => this.showMainWindow(),
       },
       { type: 'separator' },

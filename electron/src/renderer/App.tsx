@@ -38,13 +38,13 @@ export default function App() {
   const navigateToProject = useCallback((projectId: string) => {
     setCurrentProjectId(projectId)
     window.history.pushState({}, '', `?projectId=${projectId}`)
-    document.title = 'CodeFire'
+    document.title = 'Pinyino'
   }, [])
 
   const navigateHome = useCallback(() => {
     setCurrentProjectId(null)
     window.history.pushState({}, '', '/')
-    document.title = 'CodeFire'
+    document.title = 'Pinyino'
   }, [])
 
   // Load config and check if onboarding is needed

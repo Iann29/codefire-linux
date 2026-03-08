@@ -19,7 +19,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
-        'X-Title': 'CodeFire',
+        'X-Title': 'Pinyino',
       },
       body: JSON.stringify({
         model: request.model,

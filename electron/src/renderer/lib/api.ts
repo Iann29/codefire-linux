@@ -155,6 +155,22 @@ export const api = {
       invoke('sessions:search', query) as Promise<Session[]>,
     getLiveState: (projectId: string) =>
       invoke('sessions:getLiveState', projectId) as Promise<LiveSessionState | null>,
+    findActive: (projectId: string) =>
+      invoke('sessions:findActive', projectId) as Promise<{
+        sessionId: string
+        projectId: string
+        filePath: string
+        isActive: boolean
+        lastActivity: string
+      } | null>,
+    listRecent: (projectId: string) =>
+      invoke('sessions:listRecent', projectId) as Promise<Array<{
+        sessionId: string
+        projectId: string
+        filePath: string
+        isActive: boolean
+        lastActivity: string
+      }>>,
   },
 
   clients: {

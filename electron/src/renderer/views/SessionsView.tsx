@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Loader2, Search } from 'lucide-react'
 import { useSessions } from '@renderer/hooks/useSessions'
 import { api } from '@renderer/lib/api'
@@ -16,6 +16,15 @@ export default function SessionsView({ projectId }: SessionsViewProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Session[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [activeSession, setActiveSession] = useState<{ sessionId: string; lastActivity: string } | null>(null)
+
+  useEffect(() => {
+    api.sessions.findActive(projectId).then(setActiveSession)
+    const interval = setInterval(() => {
+      api.sessions.findActive(projectId).then(setActiveSession)
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [projectId])
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query)
@@ -79,6 +88,17 @@ export default function SessionsView({ projectId }: SessionsViewProps) {
           )}
         </div>
       </div>
+
+      {/* Active session indicator */}
+      {activeSession && (
+        <div className="px-3 py-2 border-b border-neutral-800 bg-green-950/20 shrink-0">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-green-400 font-medium">Active Session</span>
+            <span className="text-neutral-500 truncate">{activeSession.sessionId.slice(0, 8)}...</span>
+          </div>
+        </div>
+      )}
 
       {/* Two-panel layout */}
       <div className="flex flex-1 min-h-0">

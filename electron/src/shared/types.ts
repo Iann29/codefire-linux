@@ -37,6 +37,8 @@ export type SessionChannel =
   | 'sessions:update'
   | 'sessions:search'
   | 'sessions:getLiveState'
+  | 'sessions:findActive'
+  | 'sessions:listRecent'
 
 export type ClientChannel = 'clients:list' | 'clients:get' | 'clients:create' | 'clients:update' | 'clients:delete'
 

@@ -117,7 +117,7 @@ export default function ChatDrawer({ projectId, onClose }: ChatDrawerProps) {
       const chatMessages = [
         {
           role: 'system',
-          content: 'You are a helpful coding assistant integrated into CodeFire, a project management tool for developers. Be concise and helpful.',
+          content: 'You are a helpful coding assistant integrated into Pinyino, a project management tool for developers. Be concise and helpful.',
         },
         ...history.slice(-20),
       ]

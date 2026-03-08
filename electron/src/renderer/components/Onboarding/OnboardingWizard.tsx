@@ -197,7 +197,7 @@ function ChooseStep({ onSelect }: { onSelect: (step: Step) => void }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-neutral-400 mb-4">
-        Choose how CodeFire connects to AI models for chat, summaries, and agent features.
+        Choose how Pinyino connects to AI models for chat, summaries, and agent features.
       </p>
       {options.map((opt) => {
         const Icon = opt.icon

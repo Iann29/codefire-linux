@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What is CodeFire?
+## What is Pinyino?
 
 Persistent memory companion app for AI coding agents (Claude Code, Gemini CLI, Codex CLI, OpenCode). Auto-discovers projects, tracks tasks/sessions, monitors coding activity, and exposes data via MCP server. Linux-only Electron fork.
 

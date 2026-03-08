@@ -1,7 +1,7 @@
 {
-  "name": "codefire-electron",
-  "version": "1.8.1",
-  "description": "CodeFire — Linux companion for AI coding CLIs",
+  "name": "pinyino",
+  "version": "1.13.0",
+  "description": "Pinyino — Linux companion for AI coding CLIs",
   "main": "dist-electron/main/index.js",
   "author": {
     "name": "Website Butlers",
@@ -66,8 +66,8 @@
     "vitest": "^4.0.18"
   },
   "build": {
-    "appId": "com.codefire.electron",
-    "productName": "CodeFire",
+    "appId": "com.pinyino.app",
+    "productName": "Pinyino",
     "publish": null,
     "directories": {
       "output": "release"
@@ -92,7 +92,7 @@
     ],
     "protocols": [
       {
-        "name": "CodeFire",
+        "name": "Pinyino",
         "schemes": [
           "codefire"
         ]

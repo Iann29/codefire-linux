@@ -110,7 +110,7 @@ export default function Sidebar({ selectedProjectId, onProjectSelect, onHomeClic
           &#9632;
         </span>
         <span className="text-sm font-semibold text-neutral-200 tracking-tight">
-          CodeFire
+          Pinyino
         </span>
       </div>
 

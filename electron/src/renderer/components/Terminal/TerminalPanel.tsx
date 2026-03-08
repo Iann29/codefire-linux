@@ -153,7 +153,7 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
         <p className="text-sm font-medium text-neutral-300">Terminal not available</p>
         <p className="text-xs leading-relaxed">
           The terminal requires native build tools that weren&apos;t found during installation.
-          Install build tools and reinstall CodeFire:
+          Install build tools and reinstall Pinyino:
         </p>
         <p className="text-xs text-neutral-500">
           <code className="bg-neutral-800 px-1 rounded">sudo pacman -S base-devel python</code> (Arch) or{' '}

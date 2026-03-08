@@ -519,7 +519,7 @@ export class OAuthEngine {
   private callbackHtml(success: boolean, errorMsg?: string): string {
     const title = success ? 'Authentication Successful' : 'Authentication Failed'
     const message = success
-      ? 'You can close this tab and return to CodeFire.'
+      ? 'You can close this tab and return to Pinyino.'
       : `Error: ${errorMsg ?? 'Unknown error'}. Please try again.`
     const color = success ? '#22c55e' : '#ef4444'
 
