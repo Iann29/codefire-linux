@@ -388,6 +388,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [confirmAction, setConfirmAction] = useState<{ runId: string; action: string; details: Record<string, unknown> } | null>(null)
   const [showContinue, setShowContinue] = useState(false)
   const [messageUsage, setMessageUsage] = useState<Record<number, { prompt_tokens?: number; completion_tokens?: number }>>({})
+  const [messageTools, setMessageTools] = useState<Record<number, ToolExecution[]>>({})
   const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null)
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false)
   const [rateLimitCountdown, setRateLimitCountdown] = useState('')
@@ -602,11 +603,19 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         if (payload?.usage) {
           setMessageUsage((prev) => ({ ...prev, [msg.id]: payload.usage }))
         }
+        // Persist tool executions for this message
+        setToolExecutions((currentTools) => {
+          if (currentTools.length > 0) {
+            setMessageTools((prev) => ({ ...prev, [msg.id]: currentTools }))
+          }
+          return []
+        })
+      } else {
+        setToolExecutions([])
       }
 
       setStreaming(false)
       setStreamedContent('')
-      setToolExecutions([])
       setAwaitingVerification(false)
       setCompactionInfo(null)
       setConfirmAction(null)
@@ -1266,6 +1275,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 role={msg.role}
                 content={msg.content}
                 usage={messageUsage[msg.id]}
+                tools={messageTools[msg.id]}
                 onCopy={handleCopyMessage}
                 onCreateTask={handleCreateTask}
                 onCreateNote={handleCreateNote}
@@ -1449,6 +1459,7 @@ function ChatBubble({
   role,
   content,
   usage,
+  tools,
   onCopy,
   onCreateTask,
   onCreateNote,
@@ -1457,46 +1468,81 @@ function ChatBubble({
   role: string
   content: string
   usage?: { prompt_tokens?: number; completion_tokens?: number }
+  tools?: ToolExecution[]
   onCopy: (content: string) => void
   onCreateTask: (content: string) => void
   onCreateNote: (content: string) => void
   onSendToTerminal: (content: string) => void
 }) {
   const isUser = role === 'user'
-  const [showActions, setShowActions] = useState(false)
+  const [toolsExpanded, setToolsExpanded] = useState(false)
 
   return (
-    <div
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-      onMouseEnter={() => !isUser && setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
-    >
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className="relative max-w-[90%]">
+        {/* Tool executions (collapsed by default) */}
+        {tools && tools.length > 0 && (
+          <div className="mb-1.5">
+            <button
+              onClick={() => setToolsExpanded(!toolsExpanded)}
+              className="flex items-center gap-1.5 text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors py-0.5"
+            >
+              <Wrench size={10} className="text-neutral-600" />
+              <span>{tools.length} tool{tools.length > 1 ? 's' : ''} used</span>
+              <ChevronDown size={10} className={`transition-transform ${toolsExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {toolsExpanded && (
+              <div className="mt-1 space-y-0.5">
+                {tools.map((te, i) => (
+                  <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-800/60 border border-neutral-700/30">
+                    {te.status === 'error' ? (
+                      <X size={9} className="text-red-500 shrink-0" />
+                    ) : (
+                      <Wrench size={9} className="text-neutral-600 shrink-0" />
+                    )}
+                    <span className="text-[10px] text-neutral-400 font-mono truncate flex-1">
+                      {te.name}
+                    </span>
+                    {te.status === 'done' && (
+                      <span className="text-[9px] text-green-600/70 shrink-0">ok</span>
+                    )}
+                    {te.status === 'error' && (
+                      <span className="text-[9px] text-red-500/70 shrink-0">err</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Message bubble */}
         <div
           className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
             isUser
-              ? 'bg-codefire-orange/20 text-neutral-200'
-              : 'bg-neutral-800 text-neutral-300 border border-neutral-700/50'
+              ? 'bg-codefire-orange/15 text-neutral-200 border border-codefire-orange/20'
+              : 'bg-neutral-800/80 text-neutral-300 border border-neutral-700/40'
           }`}
         >
           <MarkdownContent content={content} />
         </div>
 
-        <div className="flex items-center justify-between mt-1">
-          {showActions && !isUser ? (
+        {/* Footer: actions + usage */}
+        {!isUser && (
+          <div className="flex items-center justify-between mt-1 min-h-[20px]">
             <div className="flex items-center gap-0.5">
               <ActionButton icon={<Copy size={10} />} title="Copy" onClick={() => onCopy(content)} />
               <ActionButton icon={<ListTodo size={10} />} title="Create Task" onClick={() => onCreateTask(content)} />
               <ActionButton icon={<StickyNote size={10} />} title="Add to Notes" onClick={() => onCreateNote(content)} />
               <ActionButton icon={<Terminal size={10} />} title="Copy to Clipboard" onClick={() => onSendToTerminal(content)} />
             </div>
-          ) : <div />}
-          {usage && !isUser && (usage.prompt_tokens || usage.completion_tokens) && (
-            <span className="text-[9px] text-neutral-600 tabular-nums" title={`Input: ${usage.prompt_tokens ?? 0} | Output: ${usage.completion_tokens ?? 0}`}>
-              {usage.prompt_tokens ?? 0}↓ {usage.completion_tokens ?? 0}↑
-            </span>
-          )}
-        </div>
+            {usage && (usage.prompt_tokens || usage.completion_tokens) && (
+              <span className="text-[9px] text-neutral-600 tabular-nums" title={`Input: ${usage.prompt_tokens ?? 0} | Output: ${usage.completion_tokens ?? 0}`}>
+                {usage.prompt_tokens ?? 0}↓ {usage.completion_tokens ?? 0}↑
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1507,7 +1553,7 @@ function ActionButton({ icon, title, onClick }: { icon: React.ReactNode; title: 
     <button
       onClick={onClick}
       title={title}
-      className="p-1 rounded text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
+      className="p-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors"
     >
       {icon}
     </button>

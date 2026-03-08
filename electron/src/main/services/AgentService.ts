@@ -831,7 +831,7 @@ export class AgentService {
 
       const history = this.buildConversationHistory(run.conversationId)
       let loopMessages: Array<Record<string, unknown>> = [
-        { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement) },
+        { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath) },
         ...history,
       ]
 
@@ -843,7 +843,7 @@ export class AgentService {
         if (browserContext) {
           loopMessages[0] = {
             role: 'system',
-            content: this.buildSystemPrompt(projectName, run.planEnforcement) + '\n\n' + browserContext,
+            content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath) + '\n\n' + browserContext,
           }
         }
 
@@ -1161,12 +1161,18 @@ export class AgentService {
     return this.projectDAO.getById(projectId)?.path || null
   }
 
-  private buildSystemPrompt(projectName: string, planEnforcement: boolean): string {
+  private buildSystemPrompt(projectName: string, planEnforcement: boolean, projectPath?: string | null): string {
     const base = [
       `You are the CodeFire agent for "${projectName}".`,
-      'You can use tools to manage tasks, notes, sessions, git, files, search, and browser actions.',
-      'Be concise and action-oriented.',
     ]
+
+    if (projectPath) {
+      base.push(`The project directory is: ${projectPath}`)
+      base.push('IMPORTANT: Always use this project path as the base for file operations (read_file, list_files, git_status, etc). Never assume or use a different directory.')
+    }
+
+    base.push('You can use tools to manage tasks, notes, sessions, git, files, search, and browser actions.')
+    base.push('Be concise and action-oriented.')
 
     if (planEnforcement) {
       base.push('Before using browser tools, call set_plan with 3-8 concrete steps.')

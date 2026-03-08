@@ -37,17 +37,26 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
   const [showCaptureIssue, setShowCaptureIssue] = useState(false)
   const [captureScreenshot, setCaptureScreenshot] = useState<string | null>(null)
 
-  // Resize webviews to match container using explicit pixel dimensions
+  // Fixed viewport: webview is always 1920x1080, scaled to fit container
+  const VIEWPORT_W = 1920
+  const VIEWPORT_H = 1080
+
   useEffect(() => {
     const container = webviewContainerRef.current
     if (!container) return
 
     function syncSize() {
-      const w = container!.clientWidth
-      const h = container!.clientHeight
+      const cw = container!.clientWidth
+      const ch = container!.clientHeight
+      const scale = Math.min(cw / VIEWPORT_W, ch / VIEWPORT_H)
+
       for (const [, wv] of webviewRefs.current.entries()) {
         const el = wv as HTMLElement
-        el.setAttribute('style', `display:inline-flex;width:${w}px;height:${h}px;border:none;`)
+        if (el.style.display === 'none') continue
+        el.setAttribute('style',
+          `display:inline-flex;width:${VIEWPORT_W}px;height:${VIEWPORT_H}px;border:none;` +
+          `transform:scale(${scale});transform-origin:top left;`
+        )
       }
     }
 
@@ -70,10 +79,14 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
       wv.setAttribute('src', tab.url)
       wv.setAttribute('allowpopups', 'true')
       wv.setAttribute('partition', 'persist:browser')
-      const w = container.clientWidth
-      const h = container.clientHeight
+      const cw = container.clientWidth
+      const ch = container.clientHeight
+      const scale = Math.min(cw / VIEWPORT_W, ch / VIEWPORT_H)
       const vis = tab.id === activeTabId ? 'inline-flex' : 'none'
-      wv.setAttribute('style', `display:${vis};width:${w}px;height:${h}px;border:none;`)
+      wv.setAttribute('style',
+        `display:${vis};width:${VIEWPORT_W}px;height:${VIEWPORT_H}px;border:none;` +
+        (vis !== 'none' ? `transform:scale(${scale});transform-origin:top left;` : '')
+      )
 
       wv.addEventListener('page-title-updated', (e: any) => {
         updateTab(tab.id, { title: e.title })
@@ -130,12 +143,17 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
   // Show/hide webviews based on active tab
   useEffect(() => {
     const container = webviewContainerRef.current
+    const cw = container?.clientWidth ?? VIEWPORT_W
+    const ch = container?.clientHeight ?? VIEWPORT_H
+    const scale = Math.min(cw / VIEWPORT_W, ch / VIEWPORT_H)
+
     for (const [id, wv] of webviewRefs.current.entries()) {
       const el = wv as HTMLElement
-      const w = container?.clientWidth ?? 0
-      const h = container?.clientHeight ?? 0
       if (id === activeTabId) {
-        el.setAttribute('style', `display:inline-flex;width:${w}px;height:${h}px;border:none;`)
+        el.setAttribute('style',
+          `display:inline-flex;width:${VIEWPORT_W}px;height:${VIEWPORT_H}px;border:none;` +
+          `transform:scale(${scale});transform-origin:top left;`
+        )
       } else {
         el.setAttribute('style', `display:none;`)
       }
