@@ -34,7 +34,6 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   agentContextCompaction: false,
   autoSnapshotSessions: true,
   autoUpdateCodebaseTree: true,
-  mcpServerAutoStart: true,
   instructionInjection: true,
   snapshotDebounce: 30,
 

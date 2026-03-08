@@ -1,6 +1,6 @@
 {
   "name": "codefire-electron",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "CodeFire — Linux companion for AI coding CLIs",
   "main": "dist-electron/main/index.js",
   "author": {
@@ -14,12 +14,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:mcp": "npm run build && node -e \"require('fs').copyFileSync('dist-electron/mcp/server.js','mcp-server/server.js')\" && cd mcp-server && npm install",
     "dist": "npm run build && electron-builder --linux",
     "postinstall": "electron-rebuild --only=better-sqlite3 && node scripts/patch-vite-plugin-electron.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/supabase-js": "^2.98.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^5.0.0",

@@ -12,7 +12,7 @@ export default function SettingsTabBrowser({ config, onChange }: Props) {
       <Section title="Browser Automation">
         <StringList
           label="Allowed domains"
-          hint="Restrict browser MCP tools to these domains. Leave empty to allow all."
+          hint="Restrict browser automation tools to these domains. Leave empty to allow all."
           values={config.browserAllowedDomains}
           onChange={(v) => onChange({ browserAllowedDomains: v })}
           placeholder="example.com"

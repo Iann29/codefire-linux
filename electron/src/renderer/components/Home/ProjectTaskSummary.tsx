@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { FolderKanban, Circle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import type { Project, TaskItem, Client } from '@shared/models'
 import { api } from '@renderer/lib/api'
+import { useNavigation } from '@renderer/App'
 
 type ProjectSortField = 'tasks' | 'name'
 type ProjectSortDir = 'asc' | 'desc'
@@ -14,6 +15,7 @@ interface ProjectTaskCount {
 }
 
 export default function ProjectTaskSummary() {
+  const { navigateToProject } = useNavigation()
   const [summaries, setSummaries] = useState<ProjectTaskCount[]>([])
   const [loading, setLoading] = useState(true)
   const [sortField, setSortField] = useState<ProjectSortField>('tasks')
@@ -144,7 +146,7 @@ export default function ProjectTaskSummary() {
               <button
                 key={summary.project.id}
                 onClick={() =>
-                  api.windows.openProject(summary.project.id)
+                  navigateToProject(summary.project.id)
                 }
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-800/60 transition-colors text-left group"
               >

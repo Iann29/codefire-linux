@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron/simple'
-import electronFull from 'vite-plugin-electron'
 import path from 'path'
 import pkg from './package.json'
 
@@ -17,7 +16,7 @@ export default defineConfig({
       main: {
         entry: 'src/main/index.ts',
         // Start Electron on first build, skip restart on subsequent rebuilds
-        // to prevent killing active terminals/MCP connections
+        // to prevent killing active terminals
         onstart({ startup }) {
           if (!process.electronApp) {
             startup()
@@ -62,25 +61,6 @@ export default defineConfig({
         },
       },
     }),
-    // MCP server — standalone Node.js process for AI agent integration
-    electronFull([
-      {
-        entry: 'src/mcp/server.ts',
-        vite: {
-          resolve: {
-            alias: {
-              '@shared': path.resolve(__dirname, 'src/shared'),
-            },
-          },
-          build: {
-            outDir: 'dist-electron/mcp',
-            rollupOptions: {
-              external: ['better-sqlite3'],
-            },
-          },
-        },
-      },
-    ]),
   ],
   resolve: {
     alias: {

@@ -3,16 +3,13 @@ import { Group, Panel, Separator } from 'react-resizable-panels'
 import logoIcon from '../../../resources/icon.png'
 import { api } from '@renderer/lib/api'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
-import MCPIndicator from '@renderer/components/StatusBar/MCPIndicator'
 import AllProjectsView from '@renderer/views/AllProjectsView'
-import { useMCPStatus } from '@renderer/hooks/useMCPStatus'
 import NotificationBell from '@renderer/components/NotificationBell'
 
 const TerminalPanel = lazy(() => import('@renderer/components/Terminal/TerminalPanel'))
 const CodeFireChat = lazy(() => import('@renderer/components/Chat/CodeFireChat'))
 
 export default function MainLayout() {
-  const { mcpStatus, mcpSessionCount, startMCP, stopMCP } = useMCPStatus()
   const [defaultTerminalPath, setDefaultTerminalPath] = useState('')
 
   useEffect(() => {
@@ -37,7 +34,6 @@ export default function MainLayout() {
           <div className="flex-1" />
 
           <NotificationBell />
-          <MCPIndicator status={mcpStatus} sessionCount={mcpSessionCount} onConnect={startMCP} onDisconnect={stopMCP} />
         </div>
 
         {/* Main content area: dashboard left + terminal/chat right */}
@@ -71,8 +67,7 @@ export default function MainLayout() {
         </div>
 
         {/* Status bar */}
-        <div className="w-full h-7 flex-shrink-0 flex items-center justify-between px-3 bg-neutral-950 border-t border-neutral-800 no-drag">
-          <MCPIndicator status={mcpStatus} sessionCount={mcpSessionCount} onConnect={startMCP} onDisconnect={stopMCP} />
+        <div className="w-full h-7 flex-shrink-0 flex items-center justify-end px-3 bg-neutral-950 border-t border-neutral-800 no-drag">
           <span className="text-tiny text-neutral-700 font-mono flex-shrink-0">
             v{__APP_VERSION__}
           </span>

@@ -1,17 +1,13 @@
 import { useState } from 'react'
-import { Folder, Radio, Code, FolderOpen, Bell } from 'lucide-react'
+import { Folder, Code, FolderOpen, Bell } from 'lucide-react'
 
 interface ProjectHeaderBarProps {
   projectName: string
   projectPath: string
-  mcpStatus: 'connected' | 'disconnected' | 'error'
-  mcpSessionCount: number
   indexStatus: 'idle' | 'indexing' | 'ready' | 'error'
   indexTotalChunks?: number
   indexProgress?: number
   indexLastError?: string
-  onMCPConnect?: () => void
-  onMCPDisconnect?: () => void
   onRequestIndex?: () => void
   onBriefingClick?: () => void
   briefingCount?: number
@@ -38,14 +34,10 @@ export function ProjectHeaderLeft({ projectName, projectPath }: { projectName: s
 }
 
 export function ProjectHeaderRight({
-  mcpStatus,
-  mcpSessionCount,
   indexStatus,
   indexTotalChunks,
   indexProgress,
   indexLastError,
-  onMCPConnect,
-  onMCPDisconnect,
   onRequestIndex,
   onBriefingClick,
   briefingCount,
@@ -60,12 +52,6 @@ export function ProjectHeaderRight({
         onRequestIndex={onRequestIndex}
       />
       <HeaderFilesystemIndicator />
-      <HeaderMCPIndicator
-        status={mcpStatus}
-        sessionCount={mcpSessionCount}
-        onConnect={onMCPConnect}
-        onDisconnect={onMCPDisconnect}
-      />
 
       {/* Briefing bell button */}
       {onBriefingClick && (
@@ -185,53 +171,3 @@ function HeaderFilesystemIndicator() {
   )
 }
 
-// --- MCP Indicator (header pill style) ---
-
-function HeaderMCPIndicator({
-  status,
-  sessionCount,
-  onConnect,
-  onDisconnect,
-}: {
-  status: 'connected' | 'disconnected' | 'error'
-  sessionCount: number
-  onConnect?: () => void
-  onDisconnect?: () => void
-}) {
-  const isConnected = status === 'connected'
-  const colors = isConnected
-    ? { text: 'text-success', bg: 'bg-success/10', border: 'border-success/30' }
-    : status === 'error'
-      ? { text: 'text-error', bg: 'bg-error/10', border: 'border-error/30' }
-      : { text: 'text-neutral-500', bg: 'bg-neutral-500/10', border: 'border-transparent' }
-
-  const handleClick = () => {
-    if (isConnected) {
-      onDisconnect?.()
-    } else {
-      onConnect?.()
-    }
-  }
-
-  return (
-    <button
-      onClick={handleClick}
-      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-semibold border cursor-pointer hover:brightness-125 transition-all ${colors.text} ${colors.bg} ${colors.border}`}
-      title={
-        isConnected
-          ? `MCP connected (${sessionCount} session${sessionCount !== 1 ? 's' : ''}) — click to disconnect`
-          : status === 'error'
-            ? 'MCP connection error — click to reconnect'
-            : 'MCP not connected — click to connect'
-      }
-    >
-      <Radio className="w-3 h-3" />
-      <span>MCP</span>
-      {isConnected && sessionCount > 1 && (
-        <span className="w-4 h-4 rounded-full bg-success text-white text-[9px] font-bold flex items-center justify-center">
-          {sessionCount}
-        </span>
-      )}
-    </button>
-  )
-}

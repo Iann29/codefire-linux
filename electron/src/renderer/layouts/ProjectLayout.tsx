@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import { Terminal } from 'lucide-react'
+import { Terminal, ArrowLeft } from 'lucide-react'
 import type { Project } from '@shared/models'
 import { api } from '@renderer/lib/api'
+import { useNavigation } from '@renderer/App'
 import TerminalPanel from '@renderer/components/Terminal/TerminalPanel'
 import TabBar from '@renderer/components/TabBar/TabBar'
 import CodeFireChat from '@renderer/components/Chat/CodeFireChat'
@@ -10,7 +11,6 @@ import BriefingDrawer from '@renderer/components/Dashboard/BriefingDrawer'
 import AgentStatusBar from '@renderer/components/StatusBar/AgentStatusBar'
 import { ProjectHeaderLeft, ProjectHeaderRight } from '@renderer/components/Header/ProjectHeaderBar'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
-import { useMCPStatus } from '@renderer/hooks/useMCPStatus'
 import { usePremium } from '@renderer/hooks/usePremium'
 import NotificationBell from '@renderer/components/NotificationBell'
 import PresenceAvatars from '@renderer/components/Presence/PresenceAvatars'
@@ -41,10 +41,10 @@ interface ProjectLayoutProps {
 }
 
 export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
+  const { navigateHome } = useNavigation()
   const [project, setProject] = useState<Project | null>(null)
   const [activeTab, setActiveTab] = useState('Tasks')
   const [error, setError] = useState<string | null>(null)
-  const { mcpStatus, mcpSessionCount, startMCP, stopMCP } = useMCPStatus()
   const { status: premiumStatus } = usePremium()
   const [indexStatus, setIndexStatus] = useState<'idle' | 'indexing' | 'ready' | 'error'>('idle')
   const [indexLastError, setIndexLastError] = useState<string | undefined>()
@@ -217,6 +217,13 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
       <div className="flex flex-col h-screen">
         {/* Top bar with project indicators */}
         <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 bg-neutral-950 shrink-0">
+          <button
+            onClick={navigateHome}
+            className="flex items-center gap-1 px-1.5 py-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.06] transition-colors"
+            title="Back to home"
+          >
+            <ArrowLeft size={14} />
+          </button>
           <img src={logoIcon} alt="CodeFire" className="w-4 h-4" />
           <span className="text-sm font-semibold text-neutral-200 tracking-tight">CodeFire</span>
           <ProjectDropdown />
@@ -241,12 +248,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           <NotificationBell />
           <div className="w-px h-4 bg-neutral-700" />
           <ProjectHeaderRight
-            mcpStatus={mcpStatus}
-            mcpSessionCount={mcpSessionCount}
             indexStatus={indexStatus}
             indexLastError={indexLastError}
-            onMCPConnect={startMCP}
-            onMCPDisconnect={stopMCP}
             onRequestIndex={handleRequestIndex}
             onBriefingClick={() => { setShowBriefing((v) => !v) }}
           />
@@ -357,12 +360,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         <AgentStatusBar
           projectId={projectId}
           projectPath={project.path}
-          mcpStatus={mcpStatus}
-          mcpSessionCount={mcpSessionCount}
           indexStatus={indexStatus}
           indexLastError={indexLastError}
-          onMCPConnect={startMCP}
-          onMCPDisconnect={stopMCP}
           onRequestIndex={handleRequestIndex}
         />
       </div>

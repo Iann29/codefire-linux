@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Home, Settings, FolderOpen, Plus, X, Check } from 'lucide-react'
 import type { Project, Client } from '@shared/models'
 import { api } from '@renderer/lib/api'
+import { useNavigation } from '@renderer/App'
 import SidebarItem from './SidebarItem'
 import ClientGroup from './ClientGroup'
 import ProjectItem from './ProjectItem'
@@ -16,6 +17,7 @@ interface SidebarProps {
 type NavView = 'planner' | 'sessions'
 
 export default function Sidebar({ selectedProjectId, onProjectSelect, onHomeClick }: SidebarProps = {}) {
+  const { navigateToProject } = useNavigation()
   const [activeNav, setActiveNav] = useState<NavView>('planner')
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<Client[]>([])
@@ -63,7 +65,7 @@ export default function Sidebar({ selectedProjectId, onProjectSelect, onHomeClic
   }
 
   const handleProjectClick = (projectId: string) => {
-    api.windows.openProject(projectId)
+    navigateToProject(projectId)
     onProjectSelect?.(projectId)
   }
 

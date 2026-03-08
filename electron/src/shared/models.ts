@@ -325,7 +325,6 @@ export interface AppConfig {
   agentContextCompaction: boolean
   autoSnapshotSessions: boolean
   autoUpdateCodebaseTree: boolean
-  mcpServerAutoStart: boolean
   instructionInjection: boolean
   snapshotDebounce: number
 

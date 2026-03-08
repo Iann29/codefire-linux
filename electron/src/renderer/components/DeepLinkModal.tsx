@@ -35,7 +35,7 @@ export default function DeepLinkModal() {
           {result.success ? (
             <>
               <CheckCircle size={48} className="text-green-500" />
-              <h2 className="text-lg font-semibold text-neutral-100">MCP Configured</h2>
+              <h2 className="text-lg font-semibold text-neutral-100">Configured</h2>
               <p className="text-sm text-neutral-300">
                 CodeFire is now connected to {result.displayName}.
               </p>

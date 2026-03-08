@@ -1,18 +1,13 @@
 import { Folder } from 'lucide-react'
-import MCPIndicator from './MCPIndicator'
 import IndexIndicator from './IndexIndicator'
 
 interface AgentStatusBarProps {
   projectId: string
   projectPath?: string
-  mcpStatus?: 'connected' | 'disconnected' | 'error'
-  mcpSessionCount?: number
   indexStatus?: 'idle' | 'indexing' | 'ready' | 'error'
   indexTotalChunks?: number
   indexProgress?: number
   indexLastError?: string
-  onMCPConnect?: () => void
-  onMCPDisconnect?: () => void
   onRequestIndex?: () => void
 }
 
@@ -25,14 +20,10 @@ function truncatePath(path: string, maxSegments = 3): string {
 
 export default function AgentStatusBar({
   projectPath,
-  mcpStatus = 'disconnected',
-  mcpSessionCount,
   indexStatus = 'idle',
   indexTotalChunks,
   indexProgress,
   indexLastError,
-  onMCPConnect,
-  onMCPDisconnect,
   onRequestIndex,
 }: AgentStatusBarProps) {
   return (
@@ -43,17 +34,7 @@ export default function AgentStatusBar({
         no-drag
       "
     >
-      {/* Left: MCP indicator */}
-      <div className="flex items-center">
-        <MCPIndicator
-          status={mcpStatus}
-          sessionCount={mcpSessionCount}
-          onConnect={onMCPConnect}
-          onDisconnect={onMCPDisconnect}
-        />
-      </div>
-
-      {/* Center: Index indicator */}
+      {/* Left: Index indicator */}
       <div className="flex items-center">
         <IndexIndicator
           status={indexStatus}

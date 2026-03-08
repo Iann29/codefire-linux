@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Folder, Tag, Users, FolderOpen, Trash2, X, Check } from 'lucide-react'
 import type { Project, Client } from '@shared/models'
 import { api } from '@renderer/lib/api'
+import { useNavigation } from '@renderer/App'
 
 interface ProjectItemProps {
   project: Project
@@ -52,6 +53,7 @@ interface ContextMenuState {
 }
 
 export default function ProjectItem({ project, onClick, indent, isSelected, clients, onRefresh }: ProjectItemProps) {
+  const { navigateToProject } = useNavigation()
   const tags = parseTags(project.tags)
   const name = displayName(project)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -64,7 +66,7 @@ export default function ProjectItem({ project, onClick, indent, isSelected, clie
   }
 
   const handleDoubleClick = () => {
-    api.windows.openProject(project.id)
+    navigateToProject(project.id)
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {

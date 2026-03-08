@@ -788,12 +788,6 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
           onChange={(v) => onChange({ autoUpdateCodebaseTree: v })}
         />
         <Toggle
-          label="Auto-start MCP server"
-          hint="Launch the MCP server when the app starts"
-          value={config.mcpServerAutoStart}
-          onChange={(v) => onChange({ mcpServerAutoStart: v })}
-        />
-        <Toggle
           label="Instruction injection"
           hint="Inject .claude/instructions.md into CLI sessions"
           value={config.instructionInjection}

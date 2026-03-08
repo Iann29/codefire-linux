@@ -11,7 +11,6 @@ import { GitService } from './services/GitService'
 import { GoogleOAuth } from './services/GoogleOAuth'
 import { GmailService } from './services/GmailService'
 import { readConfig } from './services/ConfigStore'
-import { MCPServerManager } from './services/MCPServerManager'
 import { DeepLinkService } from './services/DeepLinkService'
 import { SearchEngine } from './services/SearchEngine'
 import { ContextEngine } from './services/ContextEngine'
@@ -48,9 +47,6 @@ const gitService = new GitService()
 
 // Read config early (lightweight)
 const config = readConfig()
-
-// Initialize MCP server manager (polls for active MCP connections)
-const mcpManager = new MCPServerManager()
 
 // Deferred services — initialized after window shows for faster startup
 let gmailService: GmailService | undefined
@@ -187,8 +183,8 @@ if (!gotTheLock) {
   })
 }
 
-// Register essential IPC handlers immediately (db, window, terminal, git, MCP)
-registerAllHandlers(db, windowManager, terminalService, gitService, undefined, undefined, undefined, undefined, mcpManager, undefined)
+// Register essential IPC handlers immediately (db, window, terminal, git)
+registerAllHandlers(db, windowManager, terminalService, gitService, undefined, undefined, undefined, undefined, undefined)
 
 // Fallback stubs for premium and gmail — renderer calls these before deferred init.
 // Replaced by real handlers in initDeferredServices() if the services are configured.
@@ -228,16 +224,6 @@ ipcMain.handle('arena:open', () => {
 })
 
 let isQuitting = false
-
-// Start MCP connection polling and broadcast status to all renderer windows
-if (config.mcpServerAutoStart) {
-  mcpManager.setOnStatusChange((status, sessionCount) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('mcp:statusChanged', { status, sessionCount })
-    }
-  })
-  mcpManager.start()
-}
 
 app.whenReady().then(() => {
   // Create system tray

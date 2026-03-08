@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense, createContext, useContext, useCallback } from 'react'
 import DeepLinkModal from '@renderer/components/DeepLinkModal'
 import type { AppConfig } from '@shared/models'
 import { api } from '@renderer/lib/api'
@@ -10,13 +10,42 @@ const OnboardingWizard = lazy(
   () => import('@renderer/components/Onboarding/OnboardingWizard')
 )
 
+interface NavigationContextType {
+  navigateToProject: (projectId: string) => void
+  navigateHome: () => void
+}
+
+const NavigationContext = createContext<NavigationContextType>({
+  navigateToProject: () => {},
+  navigateHome: () => {},
+})
+
+export function useNavigation() {
+  return useContext(NavigationContext)
+}
+
 export default function App() {
+  // Initial projectId from URL (for existing multi-window support)
   const params = new URLSearchParams(window.location.search)
-  const projectId = params.get('projectId')
+  const urlProjectId = params.get('projectId')
+
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(urlProjectId)
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
+
+  const navigateToProject = useCallback((projectId: string) => {
+    setCurrentProjectId(projectId)
+    window.history.pushState({}, '', `?projectId=${projectId}`)
+    document.title = 'CodeFire'
+  }, [])
+
+  const navigateHome = useCallback(() => {
+    setCurrentProjectId(null)
+    window.history.pushState({}, '', '/')
+    document.title = 'CodeFire'
+  }, [])
 
   // Load config and check if onboarding is needed
   useEffect(() => {
@@ -78,9 +107,9 @@ export default function App() {
   const shouldShowOnboarding = showOnboarding && !onboardingDismissed && config !== null
 
   return (
-    <>
+    <NavigationContext.Provider value={{ navigateToProject, navigateHome }}>
       <Suspense fallback={<div className="h-screen w-screen bg-neutral-900" />}>
-        {projectId ? <ProjectLayout projectId={projectId} /> : <MainLayout />}
+        {currentProjectId ? <ProjectLayout projectId={currentProjectId} /> : <MainLayout />}
       </Suspense>
       <DeepLinkModal />
       {showSettings && (
@@ -97,6 +126,6 @@ export default function App() {
           />
         </Suspense>
       )}
-    </>
+    </NavigationContext.Provider>
   )
 }

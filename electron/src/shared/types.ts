@@ -101,8 +101,6 @@ export type RecordingChannel =
   | 'recordings:saveAudio'
   | 'recordings:transcribe'
 
-export type MCPChannel = 'mcp:status' | 'mcp:getServerPath' | 'mcp:start' | 'mcp:stop'
-
 export type BriefingChannel =
   | 'briefing:listDigests'
   | 'briefing:getDigest'
@@ -233,7 +231,6 @@ export type IpcChannel =
   | ServiceChannel
   | ImageChannel
   | RecordingChannel
-  | MCPChannel
   | BriefingChannel
   | ChatChannel
   | UpdateChannel

@@ -20,7 +20,6 @@ import { registerServiceHandlers } from './service-handlers'
 import { registerImageHandlers } from './image-handlers'
 import { registerRecordingHandlers } from './recording-handlers'
 import { registerSettingsHandlers } from './settings-handlers'
-import { registerMCPHandlers } from './mcp-handlers'
 import { registerBriefingHandlers } from './briefing-handlers'
 import { registerChatHandlers } from './chat-handlers'
 import { registerUpdateHandlers } from './update-handlers'
@@ -32,7 +31,6 @@ import type { GitHubService } from '../services/GitHubService'
 import type { GmailService } from '../services/GmailService'
 import type { SearchEngine } from '../services/SearchEngine'
 import type { ContextEngine } from '../services/ContextEngine'
-import type { MCPServerManager } from '../services/MCPServerManager'
 import type { FileWatcher } from '../services/FileWatcher'
 
 export function registerAllHandlers(
@@ -44,7 +42,6 @@ export function registerAllHandlers(
   gmailService?: GmailService,
   searchEngine?: SearchEngine,
   contextEngine?: ContextEngine,
-  mcpManager?: MCPServerManager,
   fileWatcher?: FileWatcher
 ) {
   registerProjectHandlers(db)
@@ -85,9 +82,6 @@ export function registerAllHandlers(
   registerBriefingHandlers(db)
   registerUpdateHandlers()
   registerBrowserHandlers()
-  if (mcpManager) {
-    registerMCPHandlers(mcpManager)
-  }
 
   // Run project discovery at startup to populate claudeProject links (deferred to not block startup)
   setImmediate(() => {

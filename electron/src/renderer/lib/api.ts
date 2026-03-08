@@ -414,17 +414,6 @@ export const api = {
       invoke('shell:showInExplorer', filePath) as Promise<void>,
   },
 
-  mcp: {
-    status: () =>
-      invoke('mcp:status') as Promise<{
-        status: 'connected' | 'disconnected' | 'error'
-        sessionCount: number
-      }>,
-    getServerPath: () => invoke('mcp:getServerPath') as Promise<string>,
-    start: () => invoke('mcp:start') as Promise<{ success: boolean }>,
-    stop: () => invoke('mcp:stop') as Promise<{ success: boolean }>,
-  },
-
   briefing: {
     listDigests: () =>
       invoke('briefing:listDigests') as Promise<BriefingDigest[]>,
