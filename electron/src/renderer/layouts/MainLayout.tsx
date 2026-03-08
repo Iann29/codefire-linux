@@ -4,7 +4,6 @@ import logoIcon from '../../../resources/icon.png'
 import { api } from '@renderer/lib/api'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
 import AllProjectsView from '@renderer/views/AllProjectsView'
-import NotificationBell from '@renderer/components/NotificationBell'
 
 const TerminalPanel = lazy(() => import('@renderer/components/Terminal/TerminalPanel'))
 const CodeFireChat = lazy(() => import('@renderer/components/Chat/CodeFireChat'))
@@ -32,8 +31,6 @@ export default function MainLayout() {
           <ProjectDropdown />
 
           <div className="flex-1" />
-
-          <NotificationBell />
         </div>
 
         {/* Main content area: dashboard left + terminal/chat right */}

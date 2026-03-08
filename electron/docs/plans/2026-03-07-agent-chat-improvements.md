@@ -1,7 +1,16 @@
 # Agent & Chat Improvements Plan
 
 > **Date:** 2026-03-07
-> **Status:** Planning (não implementar ainda — apenas referência para próximas sessões)
+> **Status:** CONCLUÍDO ✓
+>
+> **Implementado em:** 2026-03-08
+> - #1 Continue button: IPC `agent:continue`, limites 30/100, botão Continue funcional
+> - #2 Streaming: já existia para subscription providers (verificado)
+> - #3 Erros amigáveis: todos os catch blocks agora usam `formatChatError`
+> - #4 Premium UI removida: 19 arquivos deletados, 5 editados
+> - #5 Model fix: context mode agora usa modelo do dropdown, não do config
+> - #6 Token usage: já implementado e funcionando (verificado)
+> - Verificado: `tsc --noEmit` passa limpo
 
 ---
 
