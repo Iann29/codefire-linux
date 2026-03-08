@@ -1,31 +1,39 @@
 import { useState, useCallback } from 'react'
+import { DEFAULT_VIEWPORT } from '@renderer/components/Browser/viewportPresets'
 
 export interface BrowserTab {
   id: string
   url: string
   title: string
   isLoading: boolean
+  viewportPresetId: string
+  viewportWidth: number
+  viewportHeight: number
 }
 
 let tabCounter = 0
 
+function createTab(url: string): BrowserTab {
+  return {
+    id: `tab-${++tabCounter}`,
+    url,
+    title: 'New Tab',
+    isLoading: false,
+    viewportPresetId: DEFAULT_VIEWPORT.id,
+    viewportWidth: DEFAULT_VIEWPORT.width,
+    viewportHeight: DEFAULT_VIEWPORT.height,
+  }
+}
+
 export function useBrowserTabs(defaultUrl = 'https://www.google.com') {
-  const [tabs, setTabs] = useState<BrowserTab[]>([
-    {
-      id: `tab-${++tabCounter}`,
-      url: defaultUrl,
-      title: 'New Tab',
-      isLoading: false,
-    },
-  ])
+  const [tabs, setTabs] = useState<BrowserTab[]>([createTab(defaultUrl)])
   const [activeTabId, setActiveTabId] = useState(tabs[0].id)
 
   const addTab = useCallback((url = 'about:blank') => {
-    const id = `tab-${++tabCounter}`
-    const tab: BrowserTab = { id, url, title: 'New Tab', isLoading: false }
+    const tab = createTab(url)
     setTabs((prev) => [...prev, tab])
-    setActiveTabId(id)
-    return id
+    setActiveTabId(tab.id)
+    return tab.id
   }, [])
 
   const closeTab = useCallback(
@@ -33,12 +41,7 @@ export function useBrowserTabs(defaultUrl = 'https://www.google.com') {
       setTabs((prev) => {
         const filtered = prev.filter((t) => t.id !== id)
         if (filtered.length === 0) {
-          const newTab: BrowserTab = {
-            id: `tab-${++tabCounter}`,
-            url: 'about:blank',
-            title: 'New Tab',
-            isLoading: false,
-          }
+          const newTab = createTab('about:blank')
           setActiveTabId(newTab.id)
           return [newTab]
         }
@@ -67,12 +70,18 @@ export function useBrowserTabs(defaultUrl = 'https://www.google.com') {
     [updateTab]
   )
 
+  const setTabViewport = useCallback(
+    (id: string, presetId: string, width: number, height: number) => {
+      updateTab(id, { viewportPresetId: presetId, viewportWidth: width, viewportHeight: height })
+    },
+    [updateTab]
+  )
+
   const resetTabs = useCallback(() => {
-    const id = `tab-${++tabCounter}`
-    const tab: BrowserTab = { id, url: 'about:blank', title: 'New Tab', isLoading: false }
+    const tab = createTab('about:blank')
     setTabs([tab])
-    setActiveTabId(id)
-    return id
+    setActiveTabId(tab.id)
+    return tab.id
   }, [])
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
@@ -86,6 +95,7 @@ export function useBrowserTabs(defaultUrl = 'https://www.google.com') {
     closeTab,
     updateTab,
     navigateTab,
+    setTabViewport,
     resetTabs,
   }
 }

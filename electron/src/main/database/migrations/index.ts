@@ -536,4 +536,40 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 22: Visual regression baselines and comparisons
+  {
+    version: 22,
+    name: 'v21_createVisualBaselines',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE visualBaselines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          routeKey TEXT NOT NULL,
+          pageUrl TEXT NOT NULL,
+          viewportWidth INTEGER NOT NULL DEFAULT 1920,
+          viewportHeight INTEGER NOT NULL DEFAULT 1080,
+          label TEXT,
+          imagePath TEXT NOT NULL,
+          createdAt DATETIME NOT NULL
+        );
+
+        CREATE TABLE visualComparisons (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          baselineId INTEGER NOT NULL REFERENCES visualBaselines(id) ON DELETE CASCADE,
+          currentImagePath TEXT NOT NULL,
+          diffImagePath TEXT,
+          diffPercent REAL NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending',
+          createdAt DATETIME NOT NULL
+        );
+
+        CREATE INDEX visualBaselines_project ON visualBaselines(projectId);
+        CREATE INDEX visualBaselines_route ON visualBaselines(projectId, routeKey);
+        CREATE INDEX visualComparisons_baseline ON visualComparisons(baselineId);
+      `)
+    },
+  },
 ]

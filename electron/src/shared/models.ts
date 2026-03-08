@@ -357,6 +357,31 @@ export interface AppConfig {
   autoShareSessions: boolean
 }
 
+// ─── Visual Regression Models ────────────────────────────────────────────────
+
+export interface VisualBaseline {
+  id: number
+  projectId: string
+  routeKey: string
+  pageUrl: string
+  viewportWidth: number
+  viewportHeight: number
+  label: string | null
+  imagePath: string
+  createdAt: string
+}
+
+export interface VisualComparison {
+  id: number
+  projectId: string
+  baselineId: number
+  currentImagePath: string
+  diffImagePath: string | null
+  diffPercent: number
+  status: string // 'pending' | 'passed' | 'failed' | 'approved'
+  createdAt: string
+}
+
 // ─── Snapshot & Pattern Models ────────────────────────────────────────────────
 
 export interface CodebaseSnapshot {

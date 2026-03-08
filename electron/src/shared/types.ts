@@ -85,6 +85,20 @@ export type ServiceChannel =
   | 'services:readEnvFile'
   | 'services:scanTemplates'
 
+export type EnvDoctorChannel = 'env-doctor:analyze'
+
+export type RouteChannel = 'routes:discover'
+
+export type PreviewChannel = 'preview:discover'
+
+export type DesignSystemChannel = 'design-system:analyze'
+
+export type ComponentGraphChannel = 'component-graph:analyze'
+
+export type LaunchGuardChannel = 'launch-guard:run'
+
+export type ContentStudioChannel = 'content-studio:generatePack'
+
 export type ImageChannel =
   | 'images:list'
   | 'images:get'
@@ -130,6 +144,14 @@ export type SettingsChannel = 'settings:get' | 'settings:set'
 export type ArenaChannel = 'arena:open'
 
 export type BrowserCommandChannel = 'browser:executeCommand'
+
+export type VisualBaselineChannel =
+  | 'visual:saveBaseline'
+  | 'visual:listBaselines'
+  | 'visual:getBaseline'
+  | 'visual:compare'
+  | 'visual:approveBaseline'
+  | 'visual:deleteBaseline'
 
 export type BrowserChannel = 'browser:clearSession'
 
@@ -229,6 +251,13 @@ export type IpcChannel =
   | MemoryChannel
   | RulesChannel
   | ServiceChannel
+  | EnvDoctorChannel
+  | RouteChannel
+  | PreviewChannel
+  | DesignSystemChannel
+  | ComponentGraphChannel
+  | LaunchGuardChannel
+  | ContentStudioChannel
   | ImageChannel
   | RecordingChannel
   | BriefingChannel
@@ -239,6 +268,7 @@ export type IpcChannel =
   | ShellChannel
   | BrowserCommandChannel
   | BrowserChannel
+  | VisualBaselineChannel
   | AgentChannel
   | ProviderChannel
   | PremiumChannel

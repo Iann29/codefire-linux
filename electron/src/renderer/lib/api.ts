@@ -16,6 +16,8 @@ import type {
   BriefingItem,
   ChatConversation,
   ChatMessage,
+  VisualBaseline,
+  VisualComparison,
 } from '@shared/models'
 const invoke = window.api.invoke
 
@@ -256,6 +258,24 @@ export const api = {
           vars: Array<{ key: string; comment?: string; defaultValue?: string }>
         }>
       >,
+  },
+
+  envDoctor: {
+    analyze: (projectPath: string) =>
+      invoke('env-doctor:analyze', projectPath) as Promise<{
+        generatedAt: number
+        totalDefinitions: number
+        totalUsages: number
+        issues: Array<{
+          severity: 'error' | 'warning' | 'info'
+          code: 'missing' | 'unused' | 'undocumented' | 'suspicious_exposure'
+          key: string
+          title: string
+          evidence: string[]
+          remediation: string
+        }>
+        score: number
+      }>,
   },
 
   images: {
@@ -532,5 +552,163 @@ export const api = {
       repo: string,
       options?: { state?: string; limit?: number; labels?: string[] }
     ) => invoke('github:listIssues', owner, repo, options) as Promise<any[]>,
+  },
+
+  routes: {
+    discover: (projectPath: string) =>
+      invoke('routes:discover', projectPath) as Promise<{
+        framework: string | null
+        frameworkVersion?: string
+        routes: Array<{
+          path: string
+          filePath: string
+          type: 'static' | 'dynamic' | 'api' | 'catch-all' | 'unknown'
+          framework: string
+          source: string
+        }>
+        unsupported: boolean
+        generatedAt: number
+      }>,
+  },
+
+  preview: {
+    discover: (
+      projectPath: string,
+      gitInfo?: { branch: string; isClean: boolean },
+      githubInfo?: {
+        owner: string
+        repo: string
+        prs: Array<{
+          number: number
+          title: string
+          head_branch: string
+          state: string
+        }>
+      }
+    ) =>
+      invoke('preview:discover', projectPath, gitInfo, githubInfo) as Promise<{
+        provider: string | null
+        currentBranch: string | null
+        environments: Array<{
+          id: string
+          provider: string | null
+          branch: string | null
+          prNumber: number | null
+          prTitle: string | null
+          previewUrl: string | null
+          productionUrl: string | null
+          status: 'active' | 'unknown' | 'manual'
+          source: 'config' | 'github' | 'manual'
+          commitSha: string | null
+          updatedAt: number
+        }>
+        productionUrl: string | null
+      }>,
+  },
+
+  designSystem: {
+    analyze: (projectPath: string) =>
+      invoke('design-system:analyze', projectPath) as Promise<{
+        generatedAt: number
+        framework: string | null
+        tokenCount: number
+        tokens: Array<{
+          kind: string
+          name: string
+          value: string
+          normalizedValue: string
+          namespace: string
+          sourceFile: string
+          sourceLine: number
+          sourceType: string
+        }>
+        styleStack: string[]
+        inconsistencies: Array<{
+          kind: string
+          title: string
+          tokens: string[]
+          evidence: string
+        }>
+      }>,
+  },
+
+  componentGraph: {
+    analyze: (projectPath: string) =>
+      invoke('component-graph:analyze', projectPath) as Promise<{
+        generatedAt: number
+        totalComponents: number
+        totalEdges: number
+        nodes: Array<{
+          id: string
+          name: string
+          filePath: string
+          exportName: string
+          isDefaultExport: boolean
+          framework: string
+          importCount: number
+          renderCount: number
+        }>
+        edges: Array<{
+          fromFile: string
+          toFile: string
+          fromName: string
+          toName: string
+          relation: string
+        }>
+        entryPoints: string[]
+      }>,
+  },
+
+  launchGuard: {
+    run: (inputs: any) => invoke('launch-guard:run', inputs) as Promise<any>,
+  },
+
+  contentStudio: {
+    generatePack: (inputs: {
+      type: string
+      pageTitle: string
+      pageUrl: string
+      domSummary: string
+      projectName: string
+    }) => invoke('content-studio:generatePack', inputs) as Promise<{
+      id: string
+      type: string
+      title: string
+      content: string
+      routePath: string | null
+      generatedAt: number
+    }>,
+  },
+
+  visualBaselines: {
+    save: (data: {
+      projectId: string
+      routeKey: string
+      pageUrl: string
+      viewportWidth: number
+      viewportHeight: number
+      label?: string
+      imageDataUrl: string
+    }) => invoke('visual:saveBaseline', data) as Promise<VisualBaseline>,
+    list: (projectId: string, routeKey?: string) =>
+      invoke('visual:listBaselines', projectId, routeKey) as Promise<VisualBaseline[]>,
+    get: (id: number) =>
+      invoke('visual:getBaseline', id) as Promise<VisualBaseline | undefined>,
+    compare: (data: {
+      baselineId: number
+      projectId: string
+      currentImageDataUrl: string
+    }) =>
+      invoke('visual:compare', data) as Promise<{
+        comparison: VisualComparison
+        baselineDataUrl: string
+        currentDataUrl: string
+        diffDataUrl: string
+        error?: string
+      }>,
+    approve: (data: { comparisonId: number; baselineId: number }) =>
+      invoke('visual:approveBaseline', data) as Promise<{ success?: boolean; error?: string }>,
+    delete: (id: number) =>
+      invoke('visual:deleteBaseline', id) as Promise<boolean>,
   },
 }

@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Cloud, KeyRound, FileText, Loader2 } from 'lucide-react'
+import { Cloud, KeyRound, FileText, Loader2, Stethoscope, Globe, Shield } from 'lucide-react'
 import { api } from '@renderer/lib/api'
 import CollapsibleSection from '@renderer/components/Services/CollapsibleSection'
 import ServiceCard from '@renderer/components/Services/ServiceCard'
 import EnvFilePanel from '@renderer/components/Services/EnvFilePanel'
+import EnvDoctorPanel from '@renderer/components/Services/EnvDoctorPanel'
+import PreviewEnvironmentsPanel from '@renderer/components/Services/PreviewEnvironmentsPanel'
+import LaunchGuardPanel from '@renderer/components/Services/LaunchGuardPanel'
 
 interface ServicesViewProps {
   projectId: string
@@ -71,17 +74,6 @@ export default function ServicesView({ projectPath }: ServicesViewProps) {
     )
   }
 
-  const isEmpty = services.length === 0 && envFiles.length === 0 && templates.length === 0
-
-  if (isEmpty) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-2">
-        <Cloud size={32} className="text-neutral-700" />
-        <p className="text-sm text-neutral-500">No services detected</p>
-      </div>
-    )
-  }
-
   return (
     <div className="h-full overflow-y-auto">
       {/* Services */}
@@ -105,6 +97,24 @@ export default function ServicesView({ projectPath }: ServicesViewProps) {
         </CollapsibleSection>
       )}
 
+      {/* Preview Environments */}
+      <CollapsibleSection
+        title="Preview Environments"
+        icon={<Globe size={14} className="text-cyan-400" />}
+        defaultOpen={false}
+      >
+        <PreviewEnvironmentsPanel projectPath={projectPath} />
+      </CollapsibleSection>
+
+      {/* Launch Guard */}
+      <CollapsibleSection
+        title="Launch Guard"
+        icon={<Shield size={14} className="text-indigo-400" />}
+        defaultOpen={false}
+      >
+        <LaunchGuardPanel projectPath={projectPath} />
+      </CollapsibleSection>
+
       {/* Environment Variables */}
       {envFiles.length > 0 && (
         <CollapsibleSection
@@ -115,6 +125,15 @@ export default function ServicesView({ projectPath }: ServicesViewProps) {
           <EnvFilePanel files={envFiles} />
         </CollapsibleSection>
       )}
+
+      {/* Env Doctor */}
+      <CollapsibleSection
+        title="Env Doctor"
+        icon={<Stethoscope size={14} className="text-teal-400" />}
+        defaultOpen={false}
+      >
+        <EnvDoctorPanel projectPath={projectPath} />
+      </CollapsibleSection>
 
       {/* Environment Templates */}
       {templates.length > 0 && (

@@ -6,6 +6,13 @@ import BrowserToolbar from '@renderer/components/Browser/BrowserToolbar'
 import { normalizeAddress } from '@renderer/components/Browser/normalizeAddress'
 import CaptureIssueSheet from '@renderer/components/Browser/CaptureIssueSheet'
 import DevToolsPanel from '@renderer/components/Browser/DevToolsPanel'
+import AuditPanel from '@renderer/browser-audit/AuditPanel'
+import { runPageAudit } from '@renderer/browser-audit/runPageAudit'
+import type { AuditReport } from '@renderer/browser-audit/types'
+import VisualBaselinePanel from '@renderer/components/Browser/VisualBaselinePanel'
+import FormTesterPanel from '@renderer/form-tester/FormTesterPanel'
+import ContentStudioSheet from '@renderer/components/Browser/ContentStudioSheet'
+import ReviewModeBar from '@renderer/components/Browser/ReviewModeBar'
 import { api } from '@renderer/lib/api'
 
 interface BrowserViewProps {
@@ -28,6 +35,7 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     closeTab,
     updateTab,
     navigateTab,
+    setTabViewport,
     resetTabs,
   } = useBrowserTabs('about:blank')
 
@@ -39,25 +47,33 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
   const [showConsole, setShowConsole] = useState(false)
   const [showCaptureIssue, setShowCaptureIssue] = useState(false)
   const [captureScreenshot, setCaptureScreenshot] = useState<string | null>(null)
+  const [showAudit, setShowAudit] = useState(false)
+  const [auditReport, setAuditReport] = useState<AuditReport | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [showBaselines, setShowBaselines] = useState(false)
+  const [showFormTester, setShowFormTester] = useState(false)
+  const [showContentStudio, setShowContentStudio] = useState(false)
+  const [showReviewMode, setShowReviewMode] = useState(false)
 
-  // Fixed viewport: webview is always 1920x1080, scaled to fit container
-  const VIEWPORT_W = 1920
-  const VIEWPORT_H = 1080
+  // Dynamic viewport: uses active tab's viewport dimensions, scaled to fit container
+  const viewportRef = useRef({ w: activeTab.viewportWidth, h: activeTab.viewportHeight })
+  viewportRef.current = { w: activeTab.viewportWidth, h: activeTab.viewportHeight }
 
   useEffect(() => {
     const container = webviewContainerRef.current
     if (!container) return
 
     function syncSize() {
+      const { w: vpW, h: vpH } = viewportRef.current
       const cw = container!.clientWidth
       const ch = container!.clientHeight
-      const scale = Math.min(cw / VIEWPORT_W, ch / VIEWPORT_H)
+      const scale = Math.min(cw / vpW, ch / vpH)
 
       for (const [, wv] of webviewRefs.current.entries()) {
         const el = wv as HTMLElement
         if (el.style.display === 'none') continue
         el.setAttribute('style',
-          `display:inline-flex;width:${VIEWPORT_W}px;height:${VIEWPORT_H}px;border:none;` +
+          `display:inline-flex;width:${vpW}px;height:${vpH}px;border:none;` +
           `transform:scale(${scale});transform-origin:top left;`
         )
       }
@@ -67,6 +83,28 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     ro.observe(container)
     return () => ro.disconnect()
   }, [])
+
+  // Re-sync webview sizes when viewport dimensions change
+  useEffect(() => {
+    const container = webviewContainerRef.current
+    if (!container) return
+
+    const vpW = activeTab.viewportWidth
+    const vpH = activeTab.viewportHeight
+    const cw = container.clientWidth
+    const ch = container.clientHeight
+    const scale = Math.min(cw / vpW, ch / vpH)
+
+    for (const [id, wv] of webviewRefs.current.entries()) {
+      const el = wv as HTMLElement
+      if (id === activeTabId) {
+        el.setAttribute('style',
+          `display:inline-flex;width:${vpW}px;height:${vpH}px;border:none;` +
+          `transform:scale(${scale});transform-origin:top left;`
+        )
+      }
+    }
+  }, [activeTab.viewportWidth, activeTab.viewportHeight, activeTabId])
 
   // Create/remove webviews when tabs change
   useEffect(() => {
@@ -84,10 +122,12 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
       wv.setAttribute('partition', 'persist:browser')
       const cw = container.clientWidth
       const ch = container.clientHeight
-      const scale = Math.min(cw / VIEWPORT_W, ch / VIEWPORT_H)
+      const vpW = tab.viewportWidth
+      const vpH = tab.viewportHeight
+      const scale = Math.min(cw / vpW, ch / vpH)
       const vis = tab.id === activeTabId ? 'inline-flex' : 'none'
       wv.setAttribute('style',
-        `display:${vis};width:${VIEWPORT_W}px;height:${VIEWPORT_H}px;border:none;` +
+        `display:${vis};width:${vpW}px;height:${vpH}px;border:none;` +
         (vis !== 'none' ? `transform:scale(${scale});transform-origin:top left;` : '')
       )
 
@@ -146,15 +186,17 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
   // Show/hide webviews based on active tab
   useEffect(() => {
     const container = webviewContainerRef.current
-    const cw = container?.clientWidth ?? VIEWPORT_W
-    const ch = container?.clientHeight ?? VIEWPORT_H
-    const scale = Math.min(cw / VIEWPORT_W, ch / VIEWPORT_H)
+    const vpW = activeTab.viewportWidth
+    const vpH = activeTab.viewportHeight
+    const cw = container?.clientWidth ?? vpW
+    const ch = container?.clientHeight ?? vpH
+    const scale = Math.min(cw / vpW, ch / vpH)
 
     for (const [id, wv] of webviewRefs.current.entries()) {
       const el = wv as HTMLElement
       if (id === activeTabId) {
         el.setAttribute('style',
-          `display:inline-flex;width:${VIEWPORT_W}px;height:${VIEWPORT_H}px;border:none;` +
+          `display:inline-flex;width:${vpW}px;height:${vpH}px;border:none;` +
           `transform:scale(${scale});transform-origin:top left;`
         )
       } else {
@@ -166,7 +208,7 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
       setCanGoBack(activeWv.canGoBack())
       setCanGoForward(activeWv.canGoForward())
     }
-  }, [activeTabId])
+  }, [activeTabId, activeTab.viewportWidth, activeTab.viewportHeight])
 
   const getActiveWebview = useCallback(() => {
     return webviewRefs.current.get(activeTabId) as any
@@ -899,6 +941,34 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     setConsoleEntries([])
   }
 
+  async function handleAudit() {
+    const wv = getActiveWebview()
+    if (!wv) return
+
+    if (showAudit && auditReport) {
+      setShowAudit(false)
+      return
+    }
+
+    setAuditLoading(true)
+    try {
+      const report = await runPageAudit(wv, consoleEntries)
+      setAuditReport(report)
+      setShowAudit(true)
+    } catch (err: any) {
+      console.error('Audit failed:', err)
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
+  async function captureScreenshotDataUrl(): Promise<string | null> {
+    const wv = getActiveWebview()
+    if (!wv || !wv.capturePage) return null
+    const img = await wv.capturePage()
+    return img.toDataURL()
+  }
+
   const hasWebview = activeTab.url !== 'about:blank' && webviewRefs.current.has(activeTabId)
 
   return (
@@ -922,6 +992,10 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
         onClearSession={handleClearSession}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
+        viewportPresetId={activeTab.viewportPresetId}
+        viewportWidth={activeTab.viewportWidth}
+        viewportHeight={activeTab.viewportHeight}
+        onViewportChange={(presetId, w, h) => setTabViewport(activeTabId, presetId, w, h)}
       />
 
       {/* Webview container */}
@@ -938,6 +1012,55 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
         )}
       </div>
 
+      {/* Audit panel */}
+      {showAudit && auditReport && (
+        <AuditPanel
+          report={auditReport}
+          onClose={() => setShowAudit(false)}
+        />
+      )}
+
+      {/* Visual Baselines panel */}
+      {showBaselines && (
+        <VisualBaselinePanel
+          projectId={projectId}
+          currentUrl={activeTab.url}
+          viewportWidth={activeTab.viewportWidth}
+          viewportHeight={activeTab.viewportHeight}
+          getActiveWebview={getActiveWebview}
+          onClose={() => setShowBaselines(false)}
+        />
+      )}
+
+      {/* Form Tester panel */}
+      {showFormTester && (
+        <FormTesterPanel
+          getActiveWebview={getActiveWebview}
+          onClose={() => setShowFormTester(false)}
+        />
+      )}
+
+      {/* Content Studio sheet */}
+      {showContentStudio && (
+        <ContentStudioSheet
+          projectId={projectId}
+          pageUrl={activeTab.url}
+          pageTitle={activeTab.title || activeTab.url}
+          getActiveWebview={getActiveWebview}
+          onClose={() => setShowContentStudio(false)}
+        />
+      )}
+
+      {/* Review Mode bar */}
+      {showReviewMode && (
+        <ReviewModeBar
+          projectId={projectId}
+          pageUrl={activeTab.url}
+          onScreenshot={captureScreenshotDataUrl}
+          onClose={() => setShowReviewMode(false)}
+        />
+      )}
+
       {/* DevTools panel (Console, Network, Elements) */}
       {showConsole && (
         <DevToolsPanel
@@ -948,13 +1071,53 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
       )}
 
       {/* Console toggle footer */}
-      <div className="flex items-center px-3 py-1 border-t border-neutral-800 bg-neutral-900 shrink-0">
+      <div className="flex items-center gap-3 px-3 py-1 border-t border-neutral-800 bg-neutral-900 shrink-0">
         <button
           type="button"
           onClick={() => setShowConsole(!showConsole)}
           className="text-[10px] text-neutral-600 hover:text-codefire-orange transition-colors"
         >
           {showConsole ? 'Hide DevTools' : 'Show DevTools'}
+        </button>
+        <button
+          type="button"
+          onClick={handleAudit}
+          disabled={auditLoading || !hasWebview}
+          className="text-[10px] text-neutral-600 hover:text-codefire-orange transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {auditLoading ? 'Auditing...' : showAudit ? 'Hide Audit' : 'Run Audit'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowBaselines(!showBaselines)}
+          disabled={!hasWebview}
+          className="text-[10px] text-neutral-600 hover:text-codefire-orange transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {showBaselines ? 'Hide Baselines' : 'Baselines'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowFormTester(!showFormTester)}
+          disabled={!hasWebview}
+          className="text-[10px] text-neutral-600 hover:text-codefire-orange transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {showFormTester ? 'Hide Form Tester' : 'Test Forms'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowContentStudio(!showContentStudio)}
+          disabled={!hasWebview}
+          className="text-[10px] text-neutral-600 hover:text-codefire-orange transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {showContentStudio ? 'Hide Content' : 'Content Studio'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowReviewMode(!showReviewMode)}
+          disabled={!hasWebview}
+          className="text-[10px] text-neutral-600 hover:text-codefire-orange transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {showReviewMode ? 'End Review' : 'Review'}
         </button>
       </div>
 

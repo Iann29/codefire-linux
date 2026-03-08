@@ -24,6 +24,14 @@ import { registerBriefingHandlers } from './briefing-handlers'
 import { registerChatHandlers } from './chat-handlers'
 import { registerUpdateHandlers } from './update-handlers'
 import { registerBrowserHandlers } from './browser-handlers'
+import { registerEnvDoctorHandlers } from './env-doctor-handlers'
+import { registerRouteHandlers } from './route-handlers'
+import { registerPreviewHandlers } from './preview-handlers'
+import { registerVisualBaselineHandlers } from './visual-baseline-handlers'
+import { registerDesignSystemHandlers } from './design-system-handlers'
+import { registerComponentGraphHandlers } from './component-graph-handlers'
+import { registerLaunchGuardHandlers } from './launch-guard-handlers'
+import { registerContentStudioHandlers } from './content-studio-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
 import type { GitService } from '../services/GitService'
@@ -82,6 +90,14 @@ export function registerAllHandlers(
   registerBriefingHandlers(db)
   registerUpdateHandlers()
   registerBrowserHandlers()
+  registerEnvDoctorHandlers()
+  registerRouteHandlers()
+  registerPreviewHandlers()
+  registerVisualBaselineHandlers(db)
+  registerDesignSystemHandlers()
+  registerComponentGraphHandlers()
+  registerLaunchGuardHandlers()
+  registerContentStudioHandlers()
 
   // Run project discovery at startup to populate claudeProject links (deferred to not block startup)
   setImmediate(() => {

@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import { GitBranch, Flame, Network, Database } from 'lucide-react'
+import { GitBranch, Flame, Network, Database, Map, Palette, FileCode } from 'lucide-react'
+import RouteMapPanel from '@renderer/components/Visualizer/RouteMapPanel'
+import DesignSystemPanel from '@renderer/components/Visualizer/DesignSystemPanel'
+import ComponentGraphPanel from '@renderer/components/Visualizer/ComponentGraphPanel'
 
 interface VisualizerViewProps {
   projectId: string
@@ -7,16 +10,19 @@ interface VisualizerViewProps {
 }
 
 const subTabs = [
+  { id: 'routes', label: 'Route Map', icon: Map },
+  { id: 'design-system', label: 'Design System', icon: Palette },
+  { id: 'components', label: 'Components', icon: FileCode },
   { id: 'git-graph', label: 'Git Graph', icon: GitBranch },
   { id: 'file-heatmap', label: 'File Heatmap', icon: Flame },
-  { id: 'architecture', label: 'Architecture Map', icon: Network },
-  { id: 'schema', label: 'Schema View', icon: Database },
+  { id: 'architecture', label: 'Architecture', icon: Network },
+  { id: 'schema', label: 'Schema', icon: Database },
 ] as const
 
 type SubTab = (typeof subTabs)[number]['id']
 
-export default function VisualizerView({ projectId: _projectId, projectPath: _projectPath }: VisualizerViewProps) {
-  const [activeSubTab, setActiveSubTab] = useState<SubTab>('git-graph')
+export default function VisualizerView({ projectPath }: VisualizerViewProps) {
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('routes')
 
   const active = subTabs.find((t) => t.id === activeSubTab)!
 
@@ -40,18 +46,27 @@ export default function VisualizerView({ projectId: _projectId, projectPath: _pr
         ))}
       </div>
 
-      {/* Placeholder content */}
-      <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-        <active.icon size={40} className="text-neutral-700 mb-4" />
-        <h3 className="text-sm font-medium text-neutral-400 mb-1">{active.label}</h3>
-        <p className="text-xs text-neutral-600 max-w-xs">
-          {activeSubTab === 'git-graph' && 'Visualize commit history, branches, and merge patterns.'}
-          {activeSubTab === 'file-heatmap' && 'See which files change most frequently across commits.'}
-          {activeSubTab === 'architecture' && 'Explore dependency graphs and module relationships.'}
-          {activeSubTab === 'schema' && 'View database schema and table relationships.'}
-        </p>
-        <span className="mt-4 text-[10px] text-neutral-700 uppercase tracking-wider">Coming Soon</span>
-      </div>
+      {/* Active panel content */}
+      {activeSubTab === 'routes' ? (
+        <RouteMapPanel projectPath={projectPath} />
+      ) : activeSubTab === 'design-system' ? (
+        <DesignSystemPanel projectPath={projectPath} />
+      ) : activeSubTab === 'components' ? (
+        <ComponentGraphPanel projectPath={projectPath} />
+      ) : (
+        /* Placeholder for other sub-tabs */
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+          <active.icon size={40} className="text-neutral-700 mb-4" />
+          <h3 className="text-sm font-medium text-neutral-400 mb-1">{active.label}</h3>
+          <p className="text-xs text-neutral-600 max-w-xs">
+            {activeSubTab === 'git-graph' && 'Visualize commit history, branches, and merge patterns.'}
+            {activeSubTab === 'file-heatmap' && 'See which files change most frequently across commits.'}
+            {activeSubTab === 'architecture' && 'Explore dependency graphs and module relationships.'}
+            {activeSubTab === 'schema' && 'View database schema and table relationships.'}
+          </p>
+          <span className="mt-4 text-[10px] text-neutral-700 uppercase tracking-wider">Coming Soon</span>
+        </div>
+      )}
     </div>
   )
 }
