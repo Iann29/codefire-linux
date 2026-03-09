@@ -480,7 +480,7 @@ export const api = {
     deleteConversation: (id: number) =>
       invoke('chat:deleteConversation', id) as Promise<boolean>,
     providerCompletion: (payload: {
-      messages: Array<{ role: string; content: string }>
+      messages: Array<{ role: string; content: unknown }>
       model: string
       maxTokens?: number
       effortLevel?: ChatEffortLevel
@@ -492,7 +492,7 @@ export const api = {
         providerName?: string
       }>,
     streamProviderCompletion: (payload: {
-      messages: Array<{ role: string; content: string }>
+      messages: Array<{ role: string; content: unknown }>
       model: string
       maxTokens?: number
       effortLevel?: ChatEffortLevel

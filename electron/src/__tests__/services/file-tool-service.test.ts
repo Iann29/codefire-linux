@@ -187,6 +187,24 @@ describe('FileToolService', () => {
   })
 
   describe('safe editing', () => {
+    it('creates a new file by default when the target does not exist', async () => {
+      const result = await service.writeFile({
+        projectPath,
+        path: 'src/default-create.ts',
+        content: 'export const created = true\n',
+      })
+
+      expect(result.ok).toBe(true)
+      expect(result.data).toMatchObject({
+        path: 'src/default-create.ts',
+        operation: 'created',
+        applied: true,
+      })
+
+      const written = await fs.readFile(path.join(projectPath, 'src', 'default-create.ts'), 'utf-8')
+      expect(written).toBe('export const created = true\n')
+    })
+
     it('creates a new file when createIfMissing is enabled', async () => {
       const result = await service.writeFile({
         projectPath,
@@ -261,7 +279,7 @@ describe('FileToolService', () => {
       })
 
       expect(result.ok).toBe(false)
-      expect(result.error).toContain('Stale file state')
+      expect(result.error).toContain('Checksum mismatch')
     })
 
     it('moves a file within the project', async () => {

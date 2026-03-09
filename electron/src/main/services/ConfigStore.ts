@@ -29,7 +29,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   chatMode: 'context' as const,
   chatEffortLevel: 'default',
   agentRuntimeV2: true,
-  agentMaxToolCalls: 30,
+  agentMaxToolCalls: 18,
   agentTemperature: 0.7,
   agentPlanEnforcement: true,
   agentContextCompaction: false,

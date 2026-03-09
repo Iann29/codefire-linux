@@ -1,3 +1,4 @@
+import { existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -69,8 +70,10 @@ const SKIP_DIRS = new Set([
 ])
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs'])
+const STYLE_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less', '.styl'])
 
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs']
+const IMPORTABLE_EXTENSIONS = [...RESOLVE_EXTENSIONS, '.css', '.scss', '.sass', '.less', '.styl']
 
 const MAX_FILES = 5000
 const MAX_FILE_SIZE = 50 * 1024 // 50 KB
@@ -155,6 +158,14 @@ function parseReexportSymbolsFromBraces(braces: string): string[] {
 
 export class ReferenceGraphService {
   private cache = new Map<string, CachedGraph>()
+
+  invalidate(projectPath?: string): void {
+    if (projectPath) {
+      this.cache.delete(projectPath)
+      return
+    }
+    this.cache.clear()
+  }
 
   // -------------------------------------------------------------------------
   // Public API
@@ -771,8 +782,7 @@ export class ReferenceGraphService {
     if (rawSpecifier.startsWith('.')) {
       const fromDir = path.dirname(path.join(projectPath, fromFileRel))
       const candidateAbs = path.resolve(fromDir, rawSpecifier)
-      const candidateRel = toPosix(path.relative(projectPath, candidateAbs))
-      return this.resolveFileOnDiskSync(candidateRel)
+      return this.resolveFileOnDisk(candidateAbs, projectPath)
     }
 
     // Try as path alias
@@ -815,23 +825,47 @@ export class ReferenceGraphService {
     return null
   }
 
-  private resolveFileOnDisk(relPath: string, _projectPath: string): string | null {
-    return this.resolveFileOnDiskSync(relPath)
+  private resolveFileOnDisk(relPath: string, projectPath: string): string | null {
+    const absolutePath = path.isAbsolute(relPath) ? relPath : path.join(projectPath, relPath)
+    return this.resolveFileOnDiskSync(absolutePath, projectPath)
   }
 
-  private resolveFileOnDiskSync(relPath: string): string | null {
-    // Try the path as-is first (with extension)
-    const ext = path.extname(relPath)
-    if (ext && SOURCE_EXTENSIONS.has(ext)) {
-      return relPath
+  private resolveFileOnDiskSync(absolutePath: string, projectPath: string): string | null {
+    const ext = path.extname(absolutePath).toLowerCase()
+    const candidates = new Set<string>()
+
+    candidates.add(absolutePath)
+
+    if (!ext) {
+      for (const tryExt of IMPORTABLE_EXTENSIONS) {
+        candidates.add(`${absolutePath}${tryExt}`)
+      }
+      for (const tryExt of RESOLVE_EXTENSIONS) {
+        candidates.add(path.join(absolutePath, `index${tryExt}`))
+      }
     }
 
-    // Try adding extensions
-    for (const tryExt of RESOLVE_EXTENSIONS) {
-      const candidate = `${relPath}${tryExt}`
-      // We don't check disk here for performance — we trust the graph build
-      // will only register edges for files that exist. We just resolve paths.
-      return candidate // Return the first candidate (ts preferred)
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue
+
+      let stats
+      try {
+        stats = statSync(candidate)
+      } catch {
+        continue
+      }
+
+      if (!stats.isFile()) continue
+      const candidateExt = path.extname(candidate).toLowerCase()
+      if (!SOURCE_EXTENSIONS.has(candidateExt) && !STYLE_EXTENSIONS.has(candidateExt)) {
+        continue
+      }
+
+      const relative = path.relative(projectPath, candidate)
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+        continue
+      }
+      return toPosix(relative)
     }
 
     return null

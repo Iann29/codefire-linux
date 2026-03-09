@@ -47,6 +47,7 @@ const DEFAULT_GREP_LIMIT = 50
 const MAX_GREP_LIMIT = 300
 const DEFAULT_GREP_MAX_FILE_BYTES = 512_000
 const MAX_GREP_MAX_FILE_BYTES = 2_000_000
+const MAX_SEARCH_WALK_ENTRIES = 10_000
 
 interface SafeProjectTarget {
   projectRoot: string
@@ -821,7 +822,7 @@ export class FileToolService {
 
       const walk = await walkEntries(safe.projectRoot, safe.targetPath, {
         maxDepth: 20,
-        maxEntries: MAX_LIST_LIMIT,
+        maxEntries: MAX_SEARCH_WALK_ENTRIES,
         includeHidden,
         includeFiles: true,
         includeDirectories: false,
@@ -894,7 +895,7 @@ export class FileToolService {
 
       const walk = await walkEntries(safe.projectRoot, safe.targetPath, {
         maxDepth: 20,
-        maxEntries: MAX_LIST_LIMIT,
+        maxEntries: MAX_SEARCH_WALK_ENTRIES,
         includeHidden,
         extensions,
         includeFiles: true,
@@ -985,7 +986,7 @@ export class FileToolService {
       const resolved = resolveProjectScopedPath(args.path, args.projectPath)
       const writable = await resolveWritablePathWithinProject(resolved)
       const exists = await pathExists(resolved.resolvedPath)
-      const createIfMissing = args.createIfMissing === true
+      const createIfMissing = args.createIfMissing !== false
       const dryRun = args.dryRun === true
 
       let previousChecksum: string | null = null
@@ -1027,7 +1028,7 @@ export class FileToolService {
       } else if (!createIfMissing) {
         return {
           ok: false,
-          error: `File does not exist: ${resolved.relativePath}. Set createIfMissing=true to create it.`,
+          error: `File does not exist: ${resolved.relativePath}. File creation was blocked because createIfMissing=false.`,
         }
       }
 

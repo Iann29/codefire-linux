@@ -6,6 +6,7 @@ import {
   type ModelInfo,
   type ProviderHealth,
 } from './BaseProvider'
+import { toOpenRouterModelId } from '@shared/chatModelCapabilities'
 
 export class OpenRouterAdapter implements ProviderAdapter {
   readonly id = 'openrouter'
@@ -22,7 +23,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
         'X-Title': 'Pinyino',
       },
       body: JSON.stringify({
-        model: request.model,
+        model: toOpenRouterModelId(request.model),
         messages: request.messages,
         tools: request.tools,
         temperature: request.temperature,

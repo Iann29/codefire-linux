@@ -10,6 +10,7 @@ import type {
   Session,
   TokenUsage,
 } from '@shared/models'
+import { buildMessageContentWithAttachments } from '@shared/chatAttachments'
 import { createRunUsageSnapshot, createTokenUsage, getLatestResponseUsage, getLatestRunUsage } from '@shared/chatUsage'
 import { api } from '@renderer/lib/api'
 import { chatComposerStore } from '@renderer/stores/chatComposerStore'
@@ -464,17 +465,19 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
   useEffect(() => {
     if (activeConversationId) {
-      api.chat.listMessages(activeConversationId).then((loadedMessages) => {
+      const requestedConversationId = activeConversationId
+      api.chat.listMessages(requestedConversationId).then((loadedMessages) => {
+        if (activeConversationIdRef.current !== requestedConversationId) return
         setMessages(loadedMessages)
         setRunUsageByConversation((prev) => {
-          if (prev[activeConversationId] !== undefined) return prev
+          if (prev[requestedConversationId] !== undefined) return prev
           const derived = derivePersistedRunUsage(loadedMessages, {
             provider: aiProvider,
             model: chatModel,
             effortLevel: chatEffortLevel,
           })
           if (!derived) return prev
-          return { ...prev, [activeConversationId]: derived }
+          return { ...prev, [requestedConversationId]: derived }
         })
       })
     } else {
@@ -825,7 +828,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     if ((!rawContent && draftAttachments.length === 0) || sending) return
 
     // If only attachments but no text, provide a default prompt
-    const effectiveContent = rawContent || (draftAttachments.length > 0 ? 'Analyze the attached image(s).' : '')
+    const effectiveContent = rawContent || (draftAttachments.length > 0 ? 'Analyze the attached file(s).' : '')
     if (!effectiveContent) return
 
     // Check for slash commands before sending
@@ -1019,37 +1022,20 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     userMsg: ChatMessage,
     apiKey: string,
     model: string,
-    attachments: ChatAttachment[] = []
+    _attachments: ChatAttachment[] = []
   ) {
     const context = await buildContextWithRAG(projectId, projectName, _userContent, isGlobal)
     const allMessages = [...messages, userMsg]
     let historyChars = 0
     const history: { role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }[] = []
+    const allowImages = modelHasVision(model)
     for (let i = allMessages.length - 1; i >= 0; i--) {
       const m = allMessages[i]
-      if (historyChars + m.content.length > 25000) break
-      history.unshift({ role: m.role, content: m.content })
-      historyChars += m.content.length
-    }
-
-    // If there are image attachments and model supports vision, build multimodal content for last user message
-    const imageAttachments = attachments.filter(a => a.kind === 'image')
-    if (imageAttachments.length > 0 && modelHasVision(model) && history.length > 0) {
-      const lastMsg = history[history.length - 1]
-      if (lastMsg.role === 'user') {
-        const textContent = typeof lastMsg.content === 'string' ? lastMsg.content : _userContent
-        const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
-        for (const img of imageAttachments) {
-          contentParts.push({ type: 'image_url', image_url: { url: img.dataUrl } })
-        }
-        contentParts.push({ type: 'text', text: textContent })
-        lastMsg.content = contentParts
-      }
-    } else if (imageAttachments.length > 0 && !modelHasVision(model) && history.length > 0) {
-      const lastMsg = history[history.length - 1]
-      if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
-        lastMsg.content += `\n\n[${imageAttachments.length} image(s) attached but the current model does not support vision]`
-      }
+      const content = buildMessageContentWithAttachments(m.content, m.attachments, { allowImages })
+      const contentLength = estimateContentTokens(content)
+      if (historyChars + contentLength > 25000) break
+      history.unshift({ role: m.role, content })
+      historyChars += contentLength
     }
 
     setStreaming(true)
@@ -1077,10 +1063,10 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         capturedAt: usageCapturedAt,
         source: 'estimated',
       })
-      const assistantMsg = await api.chat.sendMessage({
-        conversationId: convId,
-        role: 'assistant',
-        content: fullContent,
+        const assistantMsg = await api.chat.sendMessage({
+          conversationId: convId,
+          role: 'assistant',
+          content: fullContent,
         responseUsage,
         runUsage,
         provider: aiProvider,
@@ -1104,37 +1090,20 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     userMsg: ChatMessage,
     model: string,
     effortLevel?: ChatEffortLevel,
-    attachments: ChatAttachment[] = []
+    _attachments: ChatAttachment[] = []
   ) {
     const context = await buildContextWithRAG(projectId, projectName, _userContent, isGlobal)
     const allMessages = [...messages, userMsg]
     let historyChars = 0
     const history: { role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }[] = []
+    const allowImages = modelHasVision(model)
     for (let i = allMessages.length - 1; i >= 0; i--) {
       const m = allMessages[i]
-      if (historyChars + m.content.length > 25000) break
-      history.unshift({ role: m.role, content: m.content })
-      historyChars += m.content.length
-    }
-
-    // If there are image attachments and model supports vision, build multimodal content for last user message
-    const imageAttachments = attachments.filter(a => a.kind === 'image')
-    if (imageAttachments.length > 0 && modelHasVision(model) && history.length > 0) {
-      const lastMsg = history[history.length - 1]
-      if (lastMsg.role === 'user') {
-        const textContent = typeof lastMsg.content === 'string' ? lastMsg.content : _userContent
-        const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
-        for (const img of imageAttachments) {
-          contentParts.push({ type: 'image_url', image_url: { url: img.dataUrl } })
-        }
-        contentParts.push({ type: 'text', text: textContent })
-        lastMsg.content = contentParts
-      }
-    } else if (imageAttachments.length > 0 && !modelHasVision(model) && history.length > 0) {
-      const lastMsg = history[history.length - 1]
-      if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
-        lastMsg.content += `\n\n[${imageAttachments.length} image(s) attached but the current model does not support vision]`
-      }
+      const content = buildMessageContentWithAttachments(m.content, m.attachments, { allowImages })
+      const contentLength = estimateContentTokens(content)
+      if (historyChars + contentLength > 25000) break
+      history.unshift({ role: m.role, content })
+      historyChars += contentLength
     }
 
     setStreaming(true)
@@ -1176,7 +1145,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           content: result.content,
           responseUsage,
           runUsage,
-          provider: aiProvider,
+          provider: result.providerId ?? aiProvider,
           model,
           effortLevel: effortLevel ?? null,
           usageCapturedAt,
@@ -1476,17 +1445,29 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
             {showingActiveRequest && toolExecutions.length > 0 && (
               <div className="space-y-1">
                 {toolExecutions.map((te, i) => (
-                  <div key={i} className="flex items-center gap-2 px-2 py-1 rounded bg-neutral-800/50 border border-neutral-700/50">
-                    {te.status === 'running' ? (
-                      <Loader2 size={10} className="animate-spin text-codefire-orange shrink-0" />
-                    ) : (
-                      <Wrench size={10} className="text-neutral-500 shrink-0" />
-                    )}
-                    <span className="text-[10px] text-neutral-400 font-mono truncate">
-                      {te.name}({Object.keys(te.args).length > 0 ? Object.entries(te.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ').slice(0, 60) : ''})
-                    </span>
-                    {te.status === 'done' && (
-                      <span className="text-[9px] text-green-600 shrink-0">done</span>
+                  <div key={i} className="px-2 py-1 rounded bg-neutral-800/50 border border-neutral-700/50">
+                    <div className="flex items-center gap-2">
+                      {te.status === 'running' ? (
+                        <Loader2 size={10} className="animate-spin text-codefire-orange shrink-0" />
+                      ) : te.status === 'error' ? (
+                        <Wrench size={10} className="text-red-500 shrink-0" />
+                      ) : (
+                        <Wrench size={10} className="text-neutral-500 shrink-0" />
+                      )}
+                      <span className="text-[10px] text-neutral-400 font-mono truncate">
+                        {te.name}({Object.keys(te.args).length > 0 ? Object.entries(te.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ').slice(0, 60) : ''})
+                      </span>
+                      {te.status === 'done' && (
+                        <span className="text-[9px] text-green-600 shrink-0">done</span>
+                      )}
+                      {te.status === 'error' && (
+                        <span className="text-[9px] text-red-500 shrink-0">error</span>
+                      )}
+                    </div>
+                    {te.status === 'error' && te.result && (
+                      <div className="mt-1 text-[9px] text-red-400/80 font-mono break-words line-clamp-2">
+                        {te.result}
+                      </div>
                     )}
                   </div>
                 ))}

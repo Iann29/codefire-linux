@@ -369,6 +369,17 @@ describe('GitService', () => {
             _opts: unknown,
             callback: (err: Error | null, result: { stdout: string; stderr: string }) => void
           ) => {
+            expect(args).toContain('rev-list')
+            callback(null, { stdout: '2\n', stderr: '' })
+          }
+        )
+        .mockImplementationOnce(
+          (
+            _cmd: string,
+            args: string[],
+            _opts: unknown,
+            callback: (err: Error | null, result: { stdout: string; stderr: string }) => void
+          ) => {
             expect(args).toContain('HEAD~1..HEAD')
             callback(null, { stdout: 'A\tsrc/new.ts\n', stderr: '' })
           }

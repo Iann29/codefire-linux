@@ -324,13 +324,13 @@ export function createFileTools(fileToolService: FileToolService): ToolDefinitio
     // ----- write_file -----
     {
       name: 'write_file',
-      description: 'Create a new text file or rewrite a small existing text file. Overwriting an existing file requires its expected checksum. Supports dryRun mode.',
+      description: 'Create a new text file or rewrite a small existing text file. New files are created by default. Overwriting an existing file requires its expected checksum. Supports dryRun mode.',
       schema: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Project-relative file path.' },
           content: { type: 'string', description: 'Full UTF-8 file content to write.' },
-          createIfMissing: { type: 'boolean', description: 'Allow creating the file if it does not already exist.' },
+          createIfMissing: { type: 'boolean', description: 'Whether a missing file may be created. Defaults to true; set false to refuse creating a new file.' },
           expectedChecksum: { type: 'string', description: 'Required when overwriting an existing file. Obtain from read_file or get_file_info.' },
           dryRun: { type: 'boolean', description: 'If true, preview the changes without writing to disk.' },
         },

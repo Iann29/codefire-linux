@@ -1,4 +1,5 @@
-import { Send, Loader2, Square, Paperclip, X, Image as ImageIcon } from 'lucide-react'
+import { useLayoutEffect } from 'react'
+import { Send, Loader2, Square, Paperclip, X, FileText } from 'lucide-react'
 import type { ChatAttachment } from '@shared/models'
 import { modelHasVision } from './ChatHeader'
 
@@ -38,52 +39,72 @@ export default function ChatInput({
   inputRef,
   projectName,
 }: ChatInputProps) {
+  useLayoutEffect(() => {
+    const textarea = inputRef.current
+    if (!textarea) return
+
+    textarea.style.height = '40px'
+    const nextHeight = Math.min(textarea.scrollHeight, 220)
+    textarea.style.height = `${Math.max(40, nextHeight)}px`
+    textarea.style.overflowY = textarea.scrollHeight > 220 ? 'auto' : 'hidden'
+  }, [input, inputRef])
+
+  const hasAttachments = draftAttachments.length > 0
+  const hasMultipleLines = input.includes('\n') || input.length > 72
+
   return (
-    <div className="px-3 py-2.5 border-t border-neutral-800 shrink-0">
+    <div className="px-3 py-2.5 border-t border-neutral-800 shrink-0 bg-neutral-950/40 backdrop-blur-sm">
       {/* Attachment previews */}
-      {draftAttachments.length > 0 && (
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
+      <div
+        className={`rounded-2xl border px-2.5 py-2 transition-all duration-200 ${
+          hasAttachments || hasMultipleLines
+            ? 'border-neutral-700 bg-neutral-900/85 shadow-[0_10px_30px_rgba(0,0,0,0.25)]'
+            : 'border-neutral-800 bg-neutral-900/65'
+        } focus-within:border-codefire-orange/40 focus-within:bg-neutral-900/95 focus-within:shadow-[0_16px_40px_rgba(0,0,0,0.32)]`}
+      >
+      {hasAttachments && (
+        <div className="mb-2 flex items-center gap-2 overflow-x-auto pb-1">
           {draftAttachments.map((att) => (
             <div
               key={att.id}
-              className="relative group rounded-lg border border-neutral-700 bg-neutral-800 overflow-hidden"
-              style={{ width: 48, height: 48 }}
+              className="relative group flex h-14 min-w-[168px] items-center gap-2 overflow-hidden rounded-xl border border-neutral-700/80 bg-neutral-900/80 px-2 py-2"
             >
               {att.kind === 'image' ? (
                 <img
                   src={att.dataUrl}
                   alt={att.name}
-                  className="w-full h-full object-cover"
+                  className="h-10 w-10 rounded-lg object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <ImageIcon size={16} className="text-neutral-500" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-800">
+                  <FileText size={16} className="text-neutral-500" />
                 </div>
               )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[11px] font-medium text-neutral-200">{att.name}</div>
+                <div className="truncate text-[10px] text-neutral-500">
+                  {att.source === 'screenshot' ? 'screenshot' : att.mimeType || 'attachment'}
+                </div>
+              </div>
               <button
                 onClick={() => onRemoveAttachment(att.id)}
-                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-neutral-900 border border-neutral-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-neutral-600 bg-neutral-950/90 opacity-0 transition-opacity group-hover:opacity-100"
                 title="Remove attachment"
               >
                 <X size={8} className="text-neutral-300" />
               </button>
-              {att.source === 'screenshot' && (
-                <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-[7px] text-center text-neutral-300 py-0.5">
-                  screenshot
-                </span>
-              )}
             </div>
           ))}
-          <span className="text-[10px] text-neutral-500">
+          <span className="shrink-0 rounded-full border border-neutral-700 bg-neutral-950/80 px-2.5 py-1 text-[10px] text-neutral-400">
             {draftAttachments.length} attachment{draftAttachments.length > 1 ? 's' : ''}
-            {!modelHasVision(chatModel) && (
+            {draftAttachments.some((att) => att.kind === 'image') && !modelHasVision(chatModel) && (
               <span className="text-yellow-500 ml-1">(model lacks vision)</span>
             )}
           </span>
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex items-end gap-2">
         <textarea
           ref={inputRef}
           value={input}
@@ -122,7 +143,7 @@ export default function ChatInput({
             }
           }}
           rows={1}
-          className="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-codefire-orange/50 resize-none max-h-24"
+          className="flex-1 min-h-[40px] max-h-[220px] resize-none rounded-xl bg-transparent px-2.5 py-2 text-xs leading-5 text-neutral-100 placeholder-neutral-500 outline-none transition-[height] duration-150"
           placeholder={chatMode === 'agent' ? `Ask or command the agent...` : `Ask about ${projectName}...`}
           disabled={sending}
         />
@@ -130,7 +151,6 @@ export default function ChatInput({
           type="file"
           id="chat-file-input"
           className="hidden"
-          accept="image/*"
           onChange={(e) => {
             const file = e.target.files?.[0]
             if (!file) return
@@ -139,7 +159,7 @@ export default function ChatInput({
               const dataUrl = reader.result as string
               const attachment: ChatAttachment = {
                 id: crypto.randomUUID(),
-                kind: 'image',
+                kind: file.type.startsWith('image/') ? 'image' : 'file',
                 name: file.name,
                 mimeType: file.type,
                 dataUrl,
@@ -153,8 +173,8 @@ export default function ChatInput({
         />
         <button
           onClick={() => document.getElementById('chat-file-input')?.click()}
-          className="px-2 py-2 text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors self-end"
-          title="Attach image"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950/80 text-neutral-500 transition-colors hover:border-neutral-700 hover:text-neutral-300"
+          title="Attach file"
           disabled={sending}
         >
           <Paperclip size={14} />
@@ -162,7 +182,7 @@ export default function ChatInput({
         {sending && chatMode === 'agent' && activeRunId ? (
           <button
             onClick={onCancel}
-            className="px-3 py-2 bg-red-500/15 text-red-300 rounded-lg hover:bg-red-500/25 transition-colors self-end"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-red-500/25 bg-red-500/15 text-red-300 transition-colors hover:bg-red-500/25"
             title="Cancel active run"
           >
             <Square size={14} />
@@ -171,11 +191,12 @@ export default function ChatInput({
           <button
             onClick={() => onSend()}
             disabled={(!input.trim() && draftAttachments.length === 0) || sending}
-            className="px-3 py-2 bg-codefire-orange/20 text-codefire-orange rounded-lg hover:bg-codefire-orange/30 transition-colors disabled:opacity-40 self-end"
+            className="flex h-10 min-w-10 items-center justify-center rounded-xl border border-codefire-orange/20 bg-codefire-orange/20 px-3 text-codefire-orange transition-colors hover:bg-codefire-orange/30 disabled:opacity-40"
           >
             {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
           </button>
         )}
+      </div>
       </div>
     </div>
   )

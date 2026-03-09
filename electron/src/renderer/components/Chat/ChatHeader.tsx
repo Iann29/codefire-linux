@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { Flame, Zap, BookOpen, Cpu, ChevronDown, Plus, Trash2, Terminal } from 'lucide-react'
 import type { ChatConversation, ChatEffortLevel, Session } from '@shared/models'
+import {
+  modelSupportsClaudeEffortById,
+  modelSupportsVisionById,
+  normalizeProviderModelId,
+} from '@shared/chatModelCapabilities'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -44,12 +49,6 @@ const CLAUDE_EFFORT_OPTIONS: Array<{ value: ChatEffortLevel; label: string; shor
   { value: 'high', label: 'High', shortLabel: 'H' },
 ]
 
-const CLAUDE_EFFORT_SUPPORTED_MODELS = new Set([
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5-20251001',
-])
-
 // ─── Model Aliases ────────────────────────────────────────────────────────────
 
 interface ModelAlias {
@@ -75,12 +74,14 @@ export function resolveModelAlias(modelValue: string): string {
 /** Check if a model supports vision (images) */
 export function modelHasVision(modelValue: string): boolean {
   const resolved = resolveModelAlias(modelValue)
-  const found = CHAT_MODELS.find(m => m.value === resolved)
+  const normalized = normalizeProviderModelId(resolved)
+  const found = CHAT_MODELS.find((m) => normalizeProviderModelId(m.value) === normalized)
+  if (!found) return modelSupportsVisionById(resolved)
   return found?.capabilities?.includes('vision') ?? false
 }
 
 export function modelSupportsClaudeEffort(modelValue: string): boolean {
-  return CLAUDE_EFFORT_SUPPORTED_MODELS.has(resolveModelAlias(modelValue))
+  return modelSupportsClaudeEffortById(resolveModelAlias(modelValue))
 }
 
 /** Get capability badge chars for a model */
@@ -137,11 +138,13 @@ function getModelsForProvider(provider: string): { group: string; models: (ChatM
 }
 
 export function getModelShortName(modelValue: string): string {
-  const found = CHAT_MODELS.find((m) => m.value === modelValue)
+  const normalized = normalizeProviderModelId(modelValue)
+  const found = CHAT_MODELS.find((m) => normalizeProviderModelId(m.value) === normalized)
   if (found) return found.label
   const resolvedModel = resolveModelAlias(modelValue)
   if (resolvedModel !== modelValue) {
-    const resolvedFound = CHAT_MODELS.find((m) => m.value === resolvedModel)
+    const resolvedNormalized = normalizeProviderModelId(resolvedModel)
+    const resolvedFound = CHAT_MODELS.find((m) => normalizeProviderModelId(m.value) === resolvedNormalized)
     if (resolvedFound) return resolvedFound.label
   }
   const parts = modelValue.split('/')

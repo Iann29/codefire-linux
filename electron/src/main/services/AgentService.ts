@@ -8,6 +8,9 @@ import type {
   RunUsageSnapshot,
   TokenUsage,
 } from '@shared/models'
+import type { ChatContentPart } from '@shared/chatAttachments'
+import { buildMessageContentWithAttachments } from '@shared/chatAttachments'
+import { modelSupportsVisionById } from '@shared/chatModelCapabilities'
 import { TaskDAO } from '../database/dao/TaskDAO'
 import { NoteDAO } from '../database/dao/NoteDAO'
 import { SessionDAO } from '../database/dao/SessionDAO'
@@ -63,6 +66,11 @@ interface AgentUsageState {
   capturedAt: string | null
 }
 
+interface RecentToolCall {
+  name: string
+  argsFingerprint: string
+}
+
 interface ActiveRun {
   id: string
   conversationId: number
@@ -82,6 +90,7 @@ interface ActiveRun {
   effortLevel: ChatEffortLevel
   usage: AgentUsageState
   attachments?: ChatAttachment[]
+  recentToolCalls: RecentToolCall[]
 }
 
 export interface AgentRunStatus {
@@ -110,11 +119,18 @@ export interface AgentStartInput {
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6'
 const MAX_HISTORY_CHARS = 25_000
-const DEFAULT_MAX_ITERATIONS = 30
+const DEFAULT_MAX_ITERATIONS = 18
 const MAX_MAX_ITERATIONS = 100
 const RETRY_MAX_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
+const DISCOVERY_TOOLS = new Set([
+  'grep_files',
+  'glob_files',
+  'list_files',
+  'get_directory_tree',
+  'search_code',
+])
 
 /* Tool schemas and execution are now managed by ToolRegistry.
  * See tools/definitions/ for schema + execute modules.
@@ -283,6 +299,7 @@ export class AgentService {
         capturedAt: null,
       },
       attachments: input.attachments,
+      recentToolCalls: [],
     }
 
     this.activeRun = run
@@ -313,6 +330,7 @@ export class AgentService {
       userMessage: 'Continue from where you left off. Complete the remaining steps.',
       senderWebContentsId: input.senderWebContentsId,
       projectId: input.projectId ?? null,
+      ...this.resolveConversationContinuationConfig(input.conversationId),
     })
   }
 
@@ -347,35 +365,10 @@ export class AgentService {
       run.model = model
       run.effortLevel = input.effortLevel ?? config.chatEffortLevel ?? 'default'
 
-      const history: Array<{ role: string; content: string | Array<Record<string, unknown>> }> =
-        this.buildConversationHistory(run.conversationId)
-
-      // Inject attachments as multimodal content into the last user message
-      if (run.attachments && run.attachments.length > 0) {
-        const imageAttachments = run.attachments.filter(a => a.kind === 'image')
-        if (imageAttachments.length > 0 && history.length > 0) {
-          const lastMsg = history[history.length - 1]
-          if (lastMsg.role === 'user') {
-            const parts: Array<Record<string, unknown>> = []
-            for (const img of imageAttachments) {
-              const base64Match = img.dataUrl.match(/^data:([^;]+);base64,(.+)$/)
-              if (base64Match) {
-                parts.push({
-                  type: 'image_url',
-                  image_url: {
-                    url: img.dataUrl,
-                  },
-                })
-              }
-            }
-            parts.push({
-              type: 'text',
-              text: typeof lastMsg.content === 'string' ? lastMsg.content : '',
-            })
-            lastMsg.content = parts
-          }
-        }
-      }
+      const history = this.buildConversationHistory(
+        run.conversationId,
+        modelSupportsVisionById(model),
+      )
 
       let loopMessages: Array<Record<string, unknown>> = [
         { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath, run.browserIntentDetected) },
@@ -402,6 +395,7 @@ export class AgentService {
           effortLevel: run.effortLevel,
           signal: run.abortController.signal,
         }, providerOverrides)
+        run.provider = response.providerId ?? run.provider
         this.recordRunUsage(run, response.usage ?? null)
 
         const message = response.choices?.[0]?.message
@@ -481,6 +475,9 @@ export class AgentService {
               projectId: run.projectId,
               projectPath,
             })
+            if (toolResultIndicatesFailure(result)) {
+              status = 'error'
+            }
           } catch (error) {
             status = 'error'
             const message = error instanceof Error ? error.message : String(error)
@@ -534,6 +531,7 @@ export class AgentService {
               effortLevel: run.effortLevel,
               signal: run.abortController.signal,
             }, providerOverrides)
+            run.provider = summaryResponse.providerId ?? run.provider
             this.recordRunUsage(run, summaryResponse.usage ?? null)
 
             const summary = normalizeAssistantContent(summaryResponse.choices?.[0]?.message?.content) || 'Summary unavailable.'
@@ -703,21 +701,76 @@ export class AgentService {
     return null
   }
 
-  private buildConversationHistory(conversationId: number): Array<{ role: string; content: string }> {
+  private buildConversationHistory(
+    conversationId: number,
+    allowImages: boolean,
+  ): Array<{ role: string; content: string | ChatContentPart[] }> {
     const rows = this.db
-      .prepare('SELECT role, content FROM chatMessages WHERE conversationId = ? ORDER BY createdAt ASC')
-      .all(conversationId) as Array<{ role: string; content: string }>
+      .prepare('SELECT id, role, content FROM chatMessages WHERE conversationId = ? ORDER BY createdAt ASC')
+      .all(conversationId) as Array<{ id: number; role: string; content: string }>
+
+    const attachments = this.db
+      .prepare(`
+        SELECT messageId, kind, name, mimeType, dataUrl
+        FROM chatMessageAttachments
+        WHERE messageId IN (SELECT id FROM chatMessages WHERE conversationId = ?)
+        ORDER BY id ASC
+      `)
+      .all(conversationId) as Array<{
+        messageId: number
+        kind: 'image' | 'file'
+        name: string
+        mimeType: string
+        dataUrl: string
+      }>
+
+    const attachmentsByMessageId = new Map<number, typeof attachments>()
+    for (const attachment of attachments) {
+      const group = attachmentsByMessageId.get(attachment.messageId) ?? []
+      group.push(attachment)
+      attachmentsByMessageId.set(attachment.messageId, group)
+    }
 
     let charCount = 0
-    const history: Array<{ role: string; content: string }> = []
+    const history: Array<{ role: string; content: string | ChatContentPart[] }> = []
     for (let i = rows.length - 1; i >= 0; i--) {
       const row = rows[i]
       if (!isChatRole(row.role)) continue
-      if (charCount + row.content.length > MAX_HISTORY_CHARS) break
-      history.unshift({ role: row.role, content: row.content })
-      charCount += row.content.length
+      const content = buildMessageContentWithAttachments(
+        row.content,
+        attachmentsByMessageId.get(row.id),
+        { allowImages },
+      )
+      const contentChars = typeof content === 'string'
+        ? content.length
+        : content.reduce((sum, part) => sum + (part.type === 'text' ? part.text.length : 48), 0)
+      if (charCount + contentChars > MAX_HISTORY_CHARS) break
+      history.unshift({ role: row.role, content })
+      charCount += contentChars
     }
     return history
+  }
+
+  private resolveConversationContinuationConfig(conversationId: number): {
+    model?: string
+    effortLevel?: ChatEffortLevel
+  } {
+    const row = this.db
+      .prepare(`
+        SELECT model, effortLevel
+        FROM chatMessages
+        WHERE conversationId = ?
+          AND role = 'assistant'
+          AND model IS NOT NULL
+        ORDER BY createdAt DESC
+        LIMIT 1
+      `)
+      .get(conversationId) as { model?: string | null; effortLevel?: ChatEffortLevel | null } | undefined
+
+    return {
+      model: row?.model ?? undefined,
+      effortLevel: row?.effortLevel ?? undefined,
+    }
   }
 
   private saveAssistantMessage(
@@ -801,6 +854,8 @@ export class AgentService {
 
     // Tool routing preferences
     base.push('Tool selection guidance: prefer find_symbol over grep_files for definition lookup. Prefer find_references/find_importers over brute-force text search for usage questions. Prefer find_related_files over list_files for companion discovery. Use list_changed_files before broad exploration for review/refactor tasks. For route/design/env/component/deploy questions, prefer bridge tools (discover_routes, inspect_design_system, env_doctor, component_usage, launch_guard_summary, discover_previews) over raw file reads. For existing-file edits, prefer apply_file_patch over write_file. Use write_file mainly for new files or intentional full rewrites.')
+    base.push('Avoid search loops. Do not chain multiple grep_files/glob_files/list_files/get_directory_tree calls with tiny variations. Do one discovery pass, then read the most likely files with read_file/read_file_range/read_many_files.')
+    base.push('Keep tool usage tight. If you already have enough evidence, stop using tools and answer or edit directly.')
 
     if (planEnforcement) {
       base.push('Do not call set_plan unless you are about to use browser tools.')
@@ -927,8 +982,19 @@ export class AgentService {
     }
 
     // Registry-managed tools (data, git, file, codebase)
-    if (this.toolRegistry.has(name)) {
-      return this.toolRegistry.execute(name, context, args)
+    const toolDef = this.toolRegistry.get(name)
+    if (toolDef) {
+      const redundantSearchError = this.detectRedundantDiscoveryLoop(run, name, args)
+      if (redundantSearchError) {
+        return JSON.stringify({ error: redundantSearchError })
+      }
+
+      const result = await this.toolRegistry.execute(name, context, args)
+      this.recordRecentToolCall(run, name, args)
+      if (toolDef.category === 'file-write' && context.projectPath) {
+        this.referenceGraphService.invalidate(context.projectPath)
+      }
+      return result
     }
 
     // Browser tools: route through BrowserBridge
@@ -1101,6 +1167,45 @@ export class AgentService {
     return BROWSER_TOOL_NAMES.has(name)
   }
 
+  private detectRedundantDiscoveryLoop(
+    run: ActiveRun,
+    name: string,
+    args: Record<string, unknown>,
+  ): string | null {
+    if (!DISCOVERY_TOOLS.has(name)) return null
+
+    const fingerprint = stableToolArgsFingerprint(args)
+    const recent = run.recentToolCalls.slice(-5)
+
+    if (recent.some((entry) => entry.name === name && entry.argsFingerprint === fingerprint)) {
+      return 'REDUNDANT_TOOL_LOOP. You already ran this discovery call. Read the best candidate files or answer with the evidence you have.'
+    }
+
+    const recentDiscovery = recent.filter((entry) => DISCOVERY_TOOLS.has(entry.name))
+    const sameToolCount = recentDiscovery.filter((entry) => entry.name === name).length
+    const grepCount = recentDiscovery.filter((entry) => entry.name === 'grep_files').length
+
+    if (sameToolCount >= 2 || grepCount >= 3 || recentDiscovery.length >= 4) {
+      return 'REDUNDANT_TOOL_LOOP. Stop chaining discovery tools. Use read_file/read_file_range/read_many_files/find_symbol/find_related_files on the strongest candidates, or answer directly.'
+    }
+
+    return null
+  }
+
+  private recordRecentToolCall(
+    run: ActiveRun,
+    name: string,
+    args: Record<string, unknown>,
+  ): void {
+    run.recentToolCalls = [
+      ...run.recentToolCalls,
+      {
+        name,
+        argsFingerprint: stableToolArgsFingerprint(args),
+      },
+    ].slice(-8)
+  }
+
   /**
    * Validate a URL against domain allowlist/blocklist.
    * Delegates to the standalone validateBrowserUrl function.
@@ -1194,6 +1299,18 @@ function parseUsageJson<T>(value: unknown): T | null {
   }
 }
 
+function toolResultIndicatesFailure(result: string): boolean {
+  if (!result.trim().startsWith('{')) return false
+
+  try {
+    const parsed = JSON.parse(result) as { ok?: unknown; error?: unknown }
+    if (parsed.ok === false) return true
+    return typeof parsed.error === 'string' && parsed.error.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
 function hydrateChatMessageRow(row: Record<string, unknown>): ChatMessage {
   const hydrated = { ...row } as ChatMessage & Record<string, unknown>
   hydrated.responseUsage = parseUsageJson<TokenUsage>(row.responseUsageJson)
@@ -1249,4 +1366,25 @@ function isChatRole(role: string): role is 'system' | 'user' | 'assistant' {
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function stableToolArgsFingerprint(args: Record<string, unknown>): string {
+  const entries = Object.entries(args)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [key, normalizeFingerprintValue(value)])
+  return JSON.stringify(entries)
+}
+
+function normalizeFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeFingerprintValue(item))
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, normalizeFingerprintValue(nested)])
+    )
+  }
+  return value
 }

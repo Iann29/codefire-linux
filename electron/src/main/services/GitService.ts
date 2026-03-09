@@ -202,6 +202,21 @@ export class GitService {
         '@{upstream}',
       ]).then((result) => result.stdout.trim()).catch(() => '')
 
+      if (!upstream) {
+        const commitCount = await this.exec(projectPath, ['rev-list', '--count', 'HEAD'])
+          .then((result) => Number.parseInt(result.stdout.trim(), 10))
+          .catch(() => 0)
+
+        if (commitCount <= 0) {
+          return []
+        }
+
+        if (commitCount === 1) {
+          const { stdout } = await this.exec(projectPath, ['diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD'])
+          return this.parseChangedFilesFromDiff(stdout).slice(0, limit)
+        }
+      }
+
       const range = upstream ? `${upstream}...HEAD` : 'HEAD~1..HEAD'
       const { stdout } = await this.exec(projectPath, ['diff', '--name-status', range])
       return this.parseChangedFilesFromDiff(stdout).slice(0, limit)

@@ -12,6 +12,7 @@ import type {
   ChatCompletionResponse,
   ChatCompletionToolCall,
 } from './BaseProvider'
+import { decodeDataUrl } from '@shared/chatAttachments'
 
 // ─── Anthropic Messages API ─────────────────────────────────────────────────
 
@@ -21,13 +22,18 @@ interface AnthropicMessage {
 }
 
 interface AnthropicContentBlock {
-  type: 'text' | 'tool_use' | 'tool_result'
+  type: 'text' | 'tool_use' | 'tool_result' | 'image'
   text?: string
   id?: string
   name?: string
   input?: unknown
   tool_use_id?: string
   content?: string | AnthropicContentBlock[]
+  source?: {
+    type: 'base64'
+    media_type: string
+    data: string
+  }
 }
 
 interface AnthropicTool {
@@ -74,9 +80,9 @@ export function openaiToAnthropic(request: ChatCompletionRequest): AnthropicRequ
 
     if (role === 'assistant') {
       const blocks: AnthropicContentBlock[] = []
-      const content = msg.content
+      const content = extractOpenAITextContent(msg.content)
       if (content) {
-        blocks.push({ type: 'text', text: String(content) })
+        blocks.push({ type: 'text', text: content })
       }
 
       const toolCalls = msg.tool_calls as ChatCompletionToolCall[] | undefined
@@ -116,7 +122,7 @@ export function openaiToAnthropic(request: ChatCompletionRequest): AnthropicRequ
     }
 
     // 'user' role
-    messages.push({ role: 'user', content: String(msg.content ?? '') })
+    messages.push({ role: 'user', content: toAnthropicUserContent(msg.content) })
   }
 
   // Anthropic requires alternating user/assistant. Merge consecutive same-role messages.
@@ -198,6 +204,7 @@ interface GeminiPart {
   text?: string
   functionCall?: { name: string; args: Record<string, unknown> }
   functionResponse?: { name: string; response: Record<string, unknown> }
+  inlineData?: { mimeType: string; data: string }
 }
 
 interface GeminiContent {
@@ -251,7 +258,8 @@ export function openaiToGemini(request: ChatCompletionRequest): GeminiRequest {
 
     if (role === 'assistant') {
       const parts: GeminiPart[] = []
-      if (msg.content) parts.push({ text: String(msg.content) })
+      const textContent = extractOpenAITextContent(msg.content)
+      if (textContent) parts.push({ text: textContent })
 
       const toolCalls = msg.tool_calls as ChatCompletionToolCall[] | undefined
       if (toolCalls?.length) {
@@ -291,7 +299,7 @@ export function openaiToGemini(request: ChatCompletionRequest): GeminiRequest {
     }
 
     // 'user' role
-    contents.push({ role: 'user', parts: [{ text: String(msg.content ?? '') }] })
+    contents.push({ role: 'user', parts: toGeminiUserParts(msg.content) })
   }
 
   const result: GeminiRequest = {
@@ -366,6 +374,119 @@ export function geminiToOpenai(response: GeminiResponse): ChatCompletionResponse
 export function stripProviderPrefix(model: string): string {
   const slash = model.indexOf('/')
   return slash >= 0 ? model.slice(slash + 1) : model
+}
+
+type OpenAIContentPart = {
+  type?: string
+  text?: string
+  image_url?: {
+    url?: string
+  }
+}
+
+function extractOpenAITextContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return String(content ?? '')
+
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (typeof part !== 'object' || part === null) return ''
+      const typedPart = part as OpenAIContentPart
+      if (typedPart.type === 'text' && typeof typedPart.text === 'string') {
+        return typedPart.text
+      }
+      if (typedPart.type === 'image_url') {
+        return '[Image attachment]'
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function toAnthropicUserContent(content: unknown): string | AnthropicContentBlock[] {
+  if (!Array.isArray(content)) return String(content ?? '')
+
+  const blocks: AnthropicContentBlock[] = []
+  for (const part of content) {
+    if (typeof part === 'string') {
+      if (part) blocks.push({ type: 'text', text: part })
+      continue
+    }
+    if (typeof part !== 'object' || part === null) continue
+
+    const typedPart = part as OpenAIContentPart
+    if (typedPart.type === 'text' && typeof typedPart.text === 'string') {
+      blocks.push({ type: 'text', text: typedPart.text })
+      continue
+    }
+
+    if (typedPart.type === 'image_url') {
+      const url = typedPart.image_url?.url
+      if (!url) continue
+
+      const decoded = decodeDataUrl(url)
+      if (!decoded?.isBase64) {
+        blocks.push({ type: 'text', text: '[Image attachment omitted: unsupported URL source]' })
+        continue
+      }
+
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: decoded.mimeType ?? 'image/png',
+          data: decoded.data,
+        },
+      })
+    }
+  }
+
+  if (blocks.length === 0) return ''
+  if (blocks.length === 1 && blocks[0].type === 'text') return blocks[0].text ?? ''
+  return blocks
+}
+
+function toGeminiUserParts(content: unknown): GeminiPart[] {
+  if (!Array.isArray(content)) {
+    return [{ text: String(content ?? '') }]
+  }
+
+  const parts: GeminiPart[] = []
+  for (const part of content) {
+    if (typeof part === 'string') {
+      if (part) parts.push({ text: part })
+      continue
+    }
+    if (typeof part !== 'object' || part === null) continue
+
+    const typedPart = part as OpenAIContentPart
+    if (typedPart.type === 'text' && typeof typedPart.text === 'string') {
+      parts.push({ text: typedPart.text })
+      continue
+    }
+
+    if (typedPart.type === 'image_url') {
+      const url = typedPart.image_url?.url
+      if (!url) continue
+
+      const decoded = decodeDataUrl(url)
+      if (!decoded?.isBase64) {
+        parts.push({ text: '[Image attachment omitted: unsupported URL source]' })
+        continue
+      }
+
+      parts.push({
+        inlineData: {
+          mimeType: decoded.mimeType ?? 'image/png',
+          data: decoded.data,
+        },
+      })
+    }
+  }
+
+  return parts.length > 0 ? parts : [{ text: '' }]
 }
 
 function mergeConsecutiveMessages(messages: AnthropicMessage[]): AnthropicMessage[] {

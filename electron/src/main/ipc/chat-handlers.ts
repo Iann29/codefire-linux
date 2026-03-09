@@ -39,7 +39,7 @@ export function registerChatHandlers(db: Database.Database) {
 
   // Chat completion via ProviderRouter (for subscription providers in context mode)
   ipcMain.handle('chat:providerCompletion', async (_event, payload: {
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: unknown }>
     model: string
     maxTokens?: number
     effortLevel?: ChatEffortLevel
@@ -62,7 +62,7 @@ export function registerChatHandlers(db: Database.Database) {
 
   // Streaming chat completion for subscription providers (sends chunks via IPC events)
   ipcMain.handle('chat:streamProviderCompletion', async (event, payload: {
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: unknown }>
     model: string
     maxTokens?: number
     effortLevel?: ChatEffortLevel
