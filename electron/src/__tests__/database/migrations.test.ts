@@ -9,6 +9,7 @@ import os from 'os'
 describe('all migrations', () => {
   let db: Database.Database
   let dbPath: string
+  const latestVersion = migrations[migrations.length - 1]?.version ?? 0
 
   beforeEach(() => {
     dbPath = path.join(os.tmpdir(), `test-migrations-${Date.now()}-${Math.random().toString(36).slice(2)}.db`)
@@ -24,10 +25,10 @@ describe('all migrations', () => {
     try { fs.unlinkSync(dbPath + '-shm') } catch {}
   })
 
-  it('runs all 20 migrations without error', () => {
+  it('runs all migrations without error', () => {
     const migrator = new Migrator(db, migrations)
     expect(() => migrator.migrate()).not.toThrow()
-    expect(migrator.getCurrentVersion()).toBe(20)
+    expect(migrator.getCurrentVersion()).toBe(latestVersion)
   })
 
   it('creates all base tables', () => {
@@ -77,7 +78,7 @@ describe('all migrations', () => {
     const migrator = new Migrator(db, migrations)
     migrator.migrate()
     migrator.migrate() // should not throw or duplicate data
-    expect(migrator.getCurrentVersion()).toBe(20)
+    expect(migrator.getCurrentVersion()).toBe(latestVersion)
 
     // __global__ project should still be exactly 1
     const count = db.prepare("SELECT COUNT(*) as c FROM projects WHERE id = '__global__'").get() as { c: number }
@@ -94,5 +95,20 @@ describe('all migrations', () => {
     expect(names).toContain('indexedFiles_path')
     expect(names).toContain('codeChunks_projectId')
     expect(names).toContain('codeChunks_fileId')
+  })
+
+  it('adds usage metadata columns to chatMessages', () => {
+    const migrator = new Migrator(db, migrations)
+    migrator.migrate()
+
+    const columns = db.prepare("PRAGMA table_info(chatMessages)").all() as Array<{ name: string }>
+    const columnNames = columns.map((column) => column.name)
+
+    expect(columnNames).toContain('responseUsageJson')
+    expect(columnNames).toContain('runUsageJson')
+    expect(columnNames).toContain('provider')
+    expect(columnNames).toContain('model')
+    expect(columnNames).toContain('effortLevel')
+    expect(columnNames).toContain('usageCapturedAt')
   })
 })

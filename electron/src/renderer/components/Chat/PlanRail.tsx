@@ -21,7 +21,7 @@ export default function PlanRail({
   return (
     <div className="rounded-lg border border-neutral-700/70 bg-neutral-900/80 px-2.5 py-2">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] font-semibold tracking-wide text-neutral-400 uppercase">Plan</span>
+        <span className="text-[10px] font-semibold tracking-wide text-neutral-400 uppercase">Browser Plan</span>
         <span className="text-[10px] text-neutral-500">{doneCount}/{steps.length} done</span>
       </div>
 
@@ -53,7 +53,7 @@ export default function PlanRail({
       {awaitingVerification && (
         <div className="mt-2 rounded border border-amber-800/60 bg-amber-900/20 px-2 py-1">
           <p className="text-[10px] text-amber-300 leading-snug">
-            Verifique a última ação ({lastBrowserAction || 'browser action'}) com `browser_dom_map` ou `browser_get_element_info`, depois marque o passo com `update_plan`.
+            Verifique a última ação ({lastBrowserAction || 'browser action'}) com `browser_dom_map`, `browser_get_element_info`, `browser_snapshot` ou `browser_console_logs`, depois marque o passo com `update_plan`.
           </p>
         </div>
       )}

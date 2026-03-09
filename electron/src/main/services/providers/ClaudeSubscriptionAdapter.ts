@@ -62,7 +62,17 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
   async streamChatCompletion(
     request: ChatCompletionRequest,
     onChunk: (text: string) => void,
-  ): Promise<{ content: string; usage?: { prompt_tokens: number; completion_tokens: number } }> {
+  ): Promise<{
+    content: string
+    usage?: {
+      prompt_tokens: number
+      completion_tokens: number
+      total_tokens?: number
+      cache_read_tokens?: number
+      cache_write_tokens?: number
+      source?: 'provider'
+    }
+  }> {
     const token = await this.oauthEngine.getValidToken(PROVIDER_ID, this.accountIndex)
     if (!token) throw new Error('Claude subscription not connected. Run "claude setup-token" and paste the token in Settings > Engine.')
 
@@ -96,6 +106,8 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
     let fullContent = ''
     let inputTokens = 0
     let outputTokens = 0
+    let cacheReadTokens = 0
+    let cacheWriteTokens = 0
     let buffer = ''
 
     try {
@@ -123,6 +135,8 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
               outputTokens = parsed.usage.output_tokens ?? outputTokens
             } else if (parsed.type === 'message_start' && parsed.message?.usage) {
               inputTokens = parsed.message.usage.input_tokens ?? inputTokens
+              cacheReadTokens = parsed.message.usage.cache_read_input_tokens ?? cacheReadTokens
+              cacheWriteTokens = parsed.message.usage.cache_creation_input_tokens ?? cacheWriteTokens
             }
           } catch { /* ignore malformed SSE */ }
         }
@@ -132,7 +146,14 @@ export class ClaudeSubscriptionAdapter implements ProviderAdapter {
     }
 
     const usage = (inputTokens || outputTokens)
-      ? { prompt_tokens: inputTokens, completion_tokens: outputTokens }
+      ? {
+        prompt_tokens: inputTokens,
+        completion_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+        cache_read_tokens: cacheReadTokens,
+        cache_write_tokens: cacheWriteTokens,
+        source: 'provider' as const,
+      }
       : undefined
 
     return { content: fullContent, usage }

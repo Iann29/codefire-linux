@@ -228,6 +228,31 @@ export interface ChatMessageAttachment {
 
 // ─── Chat Models ──────────────────────────────────────────────────────────────
 
+export type ChatEffortLevel = 'default' | 'low' | 'medium' | 'high'
+
+export type UsageSource = 'provider' | 'estimated' | 'session'
+
+export interface TokenUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  reasoning_tokens?: number
+  source?: UsageSource
+}
+
+export interface RunUsageSnapshot {
+  callCount: number
+  lastCall: TokenUsage | null
+  total: TokenUsage | null
+  provider?: string | null
+  model?: string | null
+  effortLevel?: ChatEffortLevel | null
+  capturedAt?: string | null
+  source?: UsageSource
+}
+
 export interface ChatConversation {
   id: number
   projectId: string | null
@@ -242,6 +267,12 @@ export interface ChatMessage {
   role: string // 'user' | 'assistant' | 'system'
   content: string
   createdAt: string
+  responseUsage?: TokenUsage | null
+  runUsage?: RunUsageSnapshot | null
+  provider?: string | null
+  model?: string | null
+  effortLevel?: ChatEffortLevel | null
+  usageCapturedAt?: string | null
   attachments?: ChatMessageAttachment[]
 }
 
@@ -344,6 +375,7 @@ export interface AppConfig {
   embeddingModel: string
   chatModel: string
   chatMode: 'context' | 'agent'
+  chatEffortLevel: ChatEffortLevel
   agentRuntimeV2: boolean
   agentMaxToolCalls: number
   agentTemperature: number

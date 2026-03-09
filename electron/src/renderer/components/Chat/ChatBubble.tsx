@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Copy, ListTodo, StickyNote, Terminal, Wrench, ChevronDown, X } from 'lucide-react'
-import type { ChatMessageAttachment } from '@shared/models'
+import type { ChatMessageAttachment, TokenUsage } from '@shared/models'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ export interface ToolExecution {
 export interface ChatBubbleProps {
   role: string
   content: string
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
+  usage?: TokenUsage | null
   tools?: ToolExecution[]
   attachments?: ChatMessageAttachment[]
   onCopy: (content: string) => void
@@ -115,7 +115,11 @@ export default function ChatBubble({
               <ActionButton icon={<Terminal size={10} />} title="Copy to Clipboard" onClick={() => onSendToTerminal(content)} />
             </div>
             {usage && (usage.prompt_tokens || usage.completion_tokens) && (
-              <span className="text-[9px] text-neutral-600 tabular-nums" title={`Input: ${usage.prompt_tokens ?? 0} | Output: ${usage.completion_tokens ?? 0}`}>
+              <span
+                className="text-[9px] text-neutral-600 tabular-nums"
+                title={`${usage.source === 'estimated' ? 'Estimated' : 'Exact'} usage. Input: ${usage.prompt_tokens ?? 0} | Output: ${usage.completion_tokens ?? 0}`}
+              >
+                {usage.source === 'estimated' ? '~' : ''}
                 {usage.prompt_tokens ?? 0}↓ {usage.completion_tokens ?? 0}↑
               </span>
             )}

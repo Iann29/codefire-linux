@@ -1,6 +1,6 @@
 {
   "name": "pinyino",
-  "version": "1.13.0",
+  "version": "1.16.0",
   "description": "Pinyino — Linux companion for AI coding CLIs",
   "main": "dist-electron/main/index.js",
   "author": {
@@ -14,8 +14,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "bash scripts/test-electron-db.sh",
+    "rebuild:native": "electron-rebuild --only=better-sqlite3 && electron-rebuild --only=node-pty",
     "dist": "npm run build && electron-builder --linux",
-    "postinstall": "electron-rebuild --only=better-sqlite3 && node scripts/patch-vite-plugin-electron.js"
+    "postinstall": "npm run rebuild:native && node scripts/patch-vite-plugin-electron.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",

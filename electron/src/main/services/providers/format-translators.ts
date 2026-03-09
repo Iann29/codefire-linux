@@ -43,6 +43,9 @@ interface AnthropicRequest {
   messages: AnthropicMessage[]
   tools?: AnthropicTool[]
   temperature?: number
+  output_config?: {
+    effort: 'low' | 'medium' | 'high'
+  }
 }
 
 interface AnthropicResponse {
@@ -52,6 +55,8 @@ interface AnthropicResponse {
   usage: {
     input_tokens: number
     output_tokens: number
+    cache_creation_input_tokens?: number
+    cache_read_input_tokens?: number
   }
 }
 
@@ -137,6 +142,16 @@ export function openaiToAnthropic(request: ChatCompletionRequest): AnthropicRequ
     })
   }
 
+  if (
+    request.effortLevel &&
+    request.effortLevel !== 'default' &&
+    (request.effortLevel === 'low' || request.effortLevel === 'medium' || request.effortLevel === 'high')
+  ) {
+    result.output_config = {
+      effort: request.effortLevel,
+    }
+  }
+
   return result
 }
 
@@ -170,6 +185,9 @@ export function anthropicToOpenai(response: AnthropicResponse): ChatCompletionRe
       prompt_tokens: response.usage?.input_tokens ?? 0,
       completion_tokens: response.usage?.output_tokens ?? 0,
       total_tokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
+      cache_read_tokens: response.usage?.cache_read_input_tokens ?? 0,
+      cache_write_tokens: response.usage?.cache_creation_input_tokens ?? 0,
+      source: 'provider',
     },
   }
 }

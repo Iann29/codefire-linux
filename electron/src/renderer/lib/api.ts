@@ -17,6 +17,9 @@ import type {
   ChatConversation,
   ChatMessage,
   ChatAttachment,
+  RunUsageSnapshot,
+  TokenUsage,
+  ChatEffortLevel,
   VisualBaseline,
   VisualComparison,
 } from '@shared/models'
@@ -461,7 +464,18 @@ export const api = {
       invoke('chat:createConversation', data) as Promise<ChatConversation>,
     listMessages: (conversationId: number) =>
       invoke('chat:listMessages', conversationId) as Promise<ChatMessage[]>,
-    sendMessage: (data: { conversationId: number; role: string; content: string; attachments?: ChatAttachment[] }) =>
+    sendMessage: (data: {
+      conversationId: number
+      role: string
+      content: string
+      attachments?: ChatAttachment[]
+      responseUsage?: TokenUsage | null
+      runUsage?: RunUsageSnapshot | null
+      provider?: string | null
+      model?: string | null
+      effortLevel?: ChatEffortLevel | null
+      usageCapturedAt?: string | null
+    }) =>
       invoke('chat:sendMessage', data) as Promise<ChatMessage>,
     deleteConversation: (id: number) =>
       invoke('chat:deleteConversation', id) as Promise<boolean>,
@@ -469,14 +483,26 @@ export const api = {
       messages: Array<{ role: string; content: string }>
       model: string
       maxTokens?: number
+      effortLevel?: ChatEffortLevel
     }) =>
-      invoke('chat:providerCompletion', payload) as Promise<{ content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>,
+      invoke('chat:providerCompletion', payload) as Promise<{
+        content: string
+        usage?: TokenUsage
+        providerId?: string
+        providerName?: string
+      }>,
     streamProviderCompletion: (payload: {
       messages: Array<{ role: string; content: string }>
       model: string
       maxTokens?: number
+      effortLevel?: ChatEffortLevel
     }) =>
-      invoke('chat:streamProviderCompletion', payload) as Promise<{ content: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>,
+      invoke('chat:streamProviderCompletion', payload) as Promise<{
+        content: string
+        usage?: TokenUsage
+        providerId?: string
+        providerName?: string
+      }>,
   },
 
   agent: {
@@ -490,6 +516,7 @@ export const api = {
       maxIterations?: number
       maxToolCalls?: number
       temperature?: number
+      effortLevel?: ChatEffortLevel
       planEnforcement?: boolean
       contextCompaction?: boolean
       attachments?: ChatAttachment[]

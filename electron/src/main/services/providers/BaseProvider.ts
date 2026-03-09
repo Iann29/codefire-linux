@@ -1,9 +1,12 @@
+import type { ChatEffortLevel } from '@shared/models'
+
 export interface ChatCompletionRequest {
   model: string
   messages: Array<Record<string, unknown>>
   tools?: ReadonlyArray<Record<string, unknown>>
   temperature?: number
   maxTokens?: number
+  effortLevel?: ChatEffortLevel
   signal?: AbortSignal
 }
 
@@ -29,7 +32,13 @@ export interface ChatCompletionResponse {
     prompt_tokens?: number
     completion_tokens?: number
     total_tokens?: number
+    cache_read_tokens?: number
+    cache_write_tokens?: number
+    reasoning_tokens?: number
+    source?: 'provider' | 'estimated' | 'session'
   }
+  providerId?: string
+  providerName?: string
 }
 
 export interface ModelInfo {

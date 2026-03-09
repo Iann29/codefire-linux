@@ -27,6 +27,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   embeddingModel: 'openai/text-embedding-3-small',
   chatModel: 'google/gemini-3.1-pro-preview',
   chatMode: 'context' as const,
+  chatEffortLevel: 'default',
   agentRuntimeV2: true,
   agentMaxToolCalls: 30,
   agentTemperature: 0.7,

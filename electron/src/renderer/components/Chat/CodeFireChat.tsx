@@ -1,12 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Loader2, Flame, Zap, BookOpen, Wrench, Square } from 'lucide-react'
-import type { ChatConversation, ChatMessage, ChatAttachment, Session, RateLimitInfo } from '@shared/models'
+import type {
+  ChatAttachment,
+  ChatConversation,
+  ChatEffortLevel,
+  ChatMessage,
+  RateLimitInfo,
+  RunUsageSnapshot,
+  Session,
+  TokenUsage,
+} from '@shared/models'
+import { createRunUsageSnapshot, createTokenUsage, getLatestResponseUsage, getLatestRunUsage } from '@shared/chatUsage'
 import { api } from '@renderer/lib/api'
 import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 import PlanRail from './PlanRail'
 import AgentRunStatus from './AgentRunStatus'
 import { parseSlashCommand, formatContextCommand, getContextWindowSize, estimateTokens } from './chatCommands'
-import ChatHeader, { resolveModelAlias, modelHasVision } from './ChatHeader'
+import ChatHeader, { resolveModelAlias, modelHasVision, modelSupportsClaudeEffort } from './ChatHeader'
 import ChatBubble from './ChatBubble'
 import type { ToolExecution } from './ChatBubble'
 import ChatInput from './ChatInput'
@@ -27,11 +37,85 @@ interface PlanStep {
   status: 'pending' | 'done' | 'blocked'
 }
 
+type PlanScope = 'browser' | 'general'
+
+interface VerificationState {
+  awaitingVerification: boolean
+  lastBrowserAction: string | null
+}
+
+interface CompactionInfo {
+  trimmedCount: number
+  before: number
+  after: number
+}
+
 interface AgentRuntimeOptions {
   maxToolCalls: number
   temperature: number
+  effortLevel: ChatEffortLevel
   planEnforcement: boolean
   contextCompaction: boolean
+}
+
+function estimateContentTokens(content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> | unknown): number {
+  if (typeof content === 'string') return estimateTokens(content)
+  if (!Array.isArray(content)) return 0
+  return content.reduce((sum, part) => sum + estimateTokens(part?.text ?? ''), 0)
+}
+
+function createSingleCallUsageSnapshot({
+  usage,
+  provider,
+  model,
+  effortLevel,
+  capturedAt,
+  source,
+}: {
+  usage?: TokenUsage | null
+  provider?: string | null
+  model?: string | null
+  effortLevel?: ChatEffortLevel | null
+  capturedAt?: string | null
+  source: TokenUsage['source']
+}): { responseUsage: TokenUsage | null; runUsage: RunUsageSnapshot | null } {
+  const responseUsage = createTokenUsage(usage, { source })
+  return {
+    responseUsage,
+    runUsage: createRunUsageSnapshot(responseUsage, {
+      callCount: responseUsage ? 1 : 0,
+      provider,
+      model,
+      effortLevel,
+      capturedAt,
+      source,
+    }),
+  }
+}
+
+function derivePersistedRunUsage(
+  chatMessages: ChatMessage[],
+  fallback: {
+    provider: string
+    model: string
+    effortLevel: ChatEffortLevel
+  },
+): RunUsageSnapshot | null {
+  const savedRunUsage = getLatestRunUsage(chatMessages)
+  if (savedRunUsage) return savedRunUsage
+
+  const latestResponseUsage = getLatestResponseUsage(chatMessages)
+  const latestAssistantMessage = [...chatMessages].reverse().find((message) => message.role === 'assistant')
+  if (!latestResponseUsage || !latestAssistantMessage) return null
+
+  return createRunUsageSnapshot(latestResponseUsage, {
+    callCount: 1,
+    provider: latestAssistantMessage.provider ?? fallback.provider,
+    model: latestAssistantMessage.model ?? fallback.model,
+    effortLevel: latestAssistantMessage.effortLevel ?? fallback.effortLevel,
+    capturedAt: latestAssistantMessage.usageCapturedAt ?? latestAssistantMessage.createdAt,
+    source: latestResponseUsage.source ?? 'provider',
+  })
 }
 
 // ─── Error Formatting ────────────────────────────────────────────────────────
@@ -254,16 +338,18 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [chatMode, setChatMode] = useState<ChatMode>('context')
   const [chatModel, setChatModel] = useState('google/gemini-3.1-pro-preview')
+  const [chatEffortLevel, setChatEffortLevel] = useState<ChatEffortLevel>('default')
   const [aiProvider, setAiProvider] = useState<string>('openrouter')
   const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
-  const [planSteps, setPlanSteps] = useState<PlanStep[]>([])
-  const [awaitingVerification, setAwaitingVerification] = useState(false)
-  const [lastBrowserAction, setLastBrowserAction] = useState<string | null>(null)
-  const [compactionInfo, setCompactionInfo] = useState<{ trimmedCount: number; before: number; after: number } | null>(null)
+  const [activeRequestConversationId, setActiveRequestConversationId] = useState<number | null>(null)
+  const [planStepsByConversation, setPlanStepsByConversation] = useState<Record<number, PlanStep[]>>({})
+  const [planScopeByConversation, setPlanScopeByConversation] = useState<Record<number, PlanScope | null>>({})
+  const [verificationByConversation, setVerificationByConversation] = useState<Record<number, VerificationState>>({})
+  const [compactionByConversation, setCompactionByConversation] = useState<Record<number, CompactionInfo | null>>({})
+  const [runUsageByConversation, setRunUsageByConversation] = useState<Record<number, RunUsageSnapshot | null>>({})
   const [confirmAction, setConfirmAction] = useState<{ runId: string; action: string; details: Record<string, unknown> } | null>(null)
-  const [showContinue, setShowContinue] = useState(false)
-  const [messageUsage, setMessageUsage] = useState<Record<number, { prompt_tokens?: number; completion_tokens?: number }>>({})
+  const [continueConversationId, setContinueConversationId] = useState<number | null>(null)
   const [messageTools, setMessageTools] = useState<Record<number, ToolExecution[]>>({})
   const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null)
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false)
@@ -273,7 +359,9 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [chatSubTab, setChatSubTab] = useState<'chat' | 'context'>('chat')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const activeConversationIdRef = useRef<number | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
+  const runIdToConversationIdRef = useRef(new Map<string, number>())
   const pendingRunsRef = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void }>())
 
   // Load config for chat defaults
@@ -281,6 +369,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     window.api.invoke('settings:get').then((config: any) => {
       if (config?.chatMode) setChatMode(config.chatMode)
       if (config?.chatModel) setChatModel(config.chatModel)
+      if (config?.chatEffortLevel) setChatEffortLevel(config.chatEffortLevel)
       if (config?.aiProvider) setAiProvider(config.aiProvider)
     })
   }, [])
@@ -375,10 +464,26 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
   useEffect(() => {
     if (activeConversationId) {
-      api.chat.listMessages(activeConversationId).then(setMessages)
+      api.chat.listMessages(activeConversationId).then((loadedMessages) => {
+        setMessages(loadedMessages)
+        setRunUsageByConversation((prev) => {
+          if (prev[activeConversationId] !== undefined) return prev
+          const derived = derivePersistedRunUsage(loadedMessages, {
+            provider: aiProvider,
+            model: chatModel,
+            effortLevel: chatEffortLevel,
+          })
+          if (!derived) return prev
+          return { ...prev, [activeConversationId]: derived }
+        })
+      })
     } else {
       setMessages([])
     }
+  }, [activeConversationId, aiProvider, chatEffortLevel, chatModel])
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId
   }, [activeConversationId])
 
   useEffect(() => {
@@ -388,6 +493,54 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   useEffect(() => {
     inputRef.current?.focus()
   }, [activeConversationId])
+
+  const activePlanSteps = activeConversationId ? (planStepsByConversation[activeConversationId] ?? []) : []
+  const activePlanScope = activeConversationId ? (planScopeByConversation[activeConversationId] ?? null) : null
+  const activeVerification = activeConversationId
+    ? (verificationByConversation[activeConversationId] ?? { awaitingVerification: false, lastBrowserAction: null })
+    : { awaitingVerification: false, lastBrowserAction: null }
+  const activeCompactionInfo = activeConversationId ? (compactionByConversation[activeConversationId] ?? null) : null
+  const activeRunUsage = activeConversationId ? (runUsageByConversation[activeConversationId] ?? null) : null
+  const showingActiveRequest = activeConversationId !== null && activeConversationId === activeRequestConversationId
+
+  function resetConversationRuntimeState(conversationId: number) {
+    setPlanStepsByConversation((prev) => ({ ...prev, [conversationId]: [] }))
+    setPlanScopeByConversation((prev) => ({ ...prev, [conversationId]: null }))
+    setVerificationByConversation((prev) => ({
+      ...prev,
+      [conversationId]: { awaitingVerification: false, lastBrowserAction: null },
+    }))
+    setCompactionByConversation((prev) => ({ ...prev, [conversationId]: null }))
+    setRunUsageByConversation((prev) => ({ ...prev, [conversationId]: null }))
+  }
+
+  function clearConversationCaches(conversationId: number) {
+    setPlanStepsByConversation((prev) => {
+      const next = { ...prev }
+      delete next[conversationId]
+      return next
+    })
+    setPlanScopeByConversation((prev) => {
+      const next = { ...prev }
+      delete next[conversationId]
+      return next
+    })
+    setVerificationByConversation((prev) => {
+      const next = { ...prev }
+      delete next[conversationId]
+      return next
+    })
+    setCompactionByConversation((prev) => {
+      const next = { ...prev }
+      delete next[conversationId]
+      return next
+    })
+    setRunUsageByConversation((prev) => {
+      const next = { ...prev }
+      delete next[conversationId]
+      return next
+    })
+  }
 
   // Agent event listeners
   useEffect(() => {
@@ -433,6 +586,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const cleanupPlanUpdate = window.api.on('agent:planUpdate', (payload: any) => {
       const runId = String(payload?.runId ?? '')
       if (!runId || runId !== activeRunIdRef.current) return
+      const conversationId = runIdToConversationIdRef.current.get(runId) ?? null
+      if (!conversationId) return
 
       const steps = Array.isArray(payload?.plan)
         ? payload.plan
@@ -443,19 +598,56 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           }))
         : []
 
-      setPlanSteps(steps)
-      setAwaitingVerification(payload?.awaitingVerification === true)
-      setLastBrowserAction(typeof payload?.lastBrowserAction === 'string' ? payload.lastBrowserAction : null)
+      setPlanStepsByConversation((prev) => ({ ...prev, [conversationId]: steps }))
+      setPlanScopeByConversation((prev) => ({
+        ...prev,
+        [conversationId]: payload?.planScope === 'browser' || payload?.planScope === 'general'
+          ? payload.planScope
+          : prev[conversationId] ?? null,
+      }))
+      setVerificationByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {
+          awaitingVerification: payload?.awaitingVerification === true,
+          lastBrowserAction: typeof payload?.lastBrowserAction === 'string' ? payload.lastBrowserAction : null,
+        },
+      }))
+    })
+
+    const cleanupUsage = window.api.on('agent:usage', (payload: any) => {
+      const runId = String(payload?.runId ?? '')
+      if (!runId || runId !== activeRunIdRef.current) return
+      const conversationId = runIdToConversationIdRef.current.get(runId) ?? null
+      if (!conversationId) return
+
+      setRunUsageByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {
+          callCount: typeof payload?.callCount === 'number' ? payload.callCount : 0,
+          lastCall: (payload?.lastCall ?? null) as TokenUsage | null,
+          total: (payload?.total ?? null) as TokenUsage | null,
+          provider: typeof payload?.provider === 'string' ? payload.provider : null,
+          model: typeof payload?.model === 'string' ? payload.model : null,
+          effortLevel: typeof payload?.effortLevel === 'string' ? payload.effortLevel as ChatEffortLevel : null,
+          capturedAt: typeof payload?.capturedAt === 'string' ? payload.capturedAt : null,
+          source: typeof payload?.source === 'string' ? payload.source : 'provider',
+        },
+      }))
     })
 
     const cleanupCompacted = window.api.on('agent:compacted', (payload: any) => {
       const runId = String(payload?.runId ?? '')
       if (!runId || runId !== activeRunIdRef.current) return
+      const conversationId = runIdToConversationIdRef.current.get(runId) ?? null
+      if (!conversationId) return
 
       const trimmedCount = typeof payload?.trimmedCount === 'number' ? payload.trimmedCount : 0
       const before = typeof payload?.contextUsage?.before === 'number' ? payload.contextUsage.before : 0
       const after = typeof payload?.contextUsage?.after === 'number' ? payload.contextUsage.after : 0
-      setCompactionInfo({ trimmedCount, before, after })
+      setCompactionByConversation((prev) => ({
+        ...prev,
+        [conversationId]: { trimmedCount, before, after },
+      }))
     })
 
     const cleanupConfirmAction = window.api.on('agent:confirmAction', (payload: any) => {
@@ -472,12 +664,12 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const cleanupDone = window.api.on('agent:done', (payload: any) => {
       const runId = String(payload?.runId ?? '')
       if (!runId || runId !== activeRunIdRef.current) return
+      const conversationId = runIdToConversationIdRef.current.get(runId) ?? null
 
       if (payload?.message) {
         const msg = payload.message as ChatMessage
-        setMessages((prev) => [...prev, msg])
-        if (payload?.usage) {
-          setMessageUsage((prev) => ({ ...prev, [msg.id]: payload.usage }))
+        if (msg.conversationId === activeConversationIdRef.current) {
+          setMessages((prev) => [...prev, msg])
         }
         // Persist tool executions for this message
         setToolExecutions((currentTools) => {
@@ -492,15 +684,32 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
       setStreaming(false)
       setStreamedContent('')
-      setAwaitingVerification(false)
-      setCompactionInfo(null)
+      setActiveRequestConversationId(null)
       setConfirmAction(null)
+      if (conversationId) {
+        setVerificationByConversation((prev) => ({
+          ...prev,
+          [conversationId]: {
+            awaitingVerification: false,
+            lastBrowserAction: prev[conversationId]?.lastBrowserAction ?? null,
+          },
+        }))
+      }
+      if (payload?.runUsage && conversationId) {
+        setRunUsageByConversation((prev) => ({
+          ...prev,
+          [conversationId]: payload.runUsage as RunUsageSnapshot,
+        }))
+      }
 
-      if (payload?.hitLimit) {
-        setShowContinue(true)
+      if (payload?.hitLimit && conversationId) {
+        setContinueConversationId(conversationId)
+      } else if (conversationId) {
+        setContinueConversationId((prev) => (prev === conversationId ? null : prev))
       }
 
       activeRunIdRef.current = null
+      runIdToConversationIdRef.current.delete(runId)
       setActiveRunId(null)
       const pending = pendingRunsRef.current.get(runId)
       pendingRunsRef.current.delete(runId)
@@ -510,18 +719,28 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     const cleanupError = window.api.on('agent:error', (payload: any) => {
       const runId = String(payload?.runId ?? '')
       if (!runId || runId !== activeRunIdRef.current) return
+      const conversationId = runIdToConversationIdRef.current.get(runId) ?? null
 
       const pending = pendingRunsRef.current.get(runId)
       pendingRunsRef.current.delete(runId)
       activeRunIdRef.current = null
+      runIdToConversationIdRef.current.delete(runId)
       setActiveRunId(null)
 
       setStreaming(false)
       setStreamedContent('')
+      setActiveRequestConversationId(null)
       setToolExecutions([])
-      setAwaitingVerification(false)
-      setCompactionInfo(null)
       setConfirmAction(null)
+      if (conversationId) {
+        setVerificationByConversation((prev) => ({
+          ...prev,
+          [conversationId]: {
+            awaitingVerification: false,
+            lastBrowserAction: prev[conversationId]?.lastBrowserAction ?? null,
+          },
+        }))
+      }
 
       const message = String(payload?.error ?? 'Unknown agent error')
       pending?.reject(new Error(message))
@@ -532,15 +751,17 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       cleanupToolStart()
       cleanupToolResult()
       cleanupPlanUpdate()
+      cleanupUsage()
       cleanupCompacted()
       cleanupConfirmAction()
       cleanupDone()
       cleanupError()
       pendingRunsRef.current.forEach(({ reject }) => reject(new Error('Agent run interrupted')))
       pendingRunsRef.current.clear()
+      runIdToConversationIdRef.current.clear()
       activeRunIdRef.current = null
       setActiveRunId(null)
-      setAwaitingVerification(false)
+      setActiveRequestConversationId(null)
       setConfirmAction(null)
     }
   }, [])
@@ -553,6 +774,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       title: 'New Chat',
     })
     setConversations((prev) => [conv, ...prev])
+    resetConversationRuntimeState(conv.id)
     setActiveConversationId(conv.id)
     setMessages([])
   }
@@ -561,6 +783,9 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     e.stopPropagation()
     await api.chat.deleteConversation(id)
     setConversations((prev) => prev.filter((c) => c.id !== id))
+    clearConversationCaches(id)
+    setContinueConversationId((prev) => (prev === id ? null : prev))
+    setActiveRequestConversationId((prev) => (prev === id ? null : prev))
     if (activeConversationId === id) {
       setActiveConversationId(null)
       setMessages([])
@@ -576,6 +801,21 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   function handleModelChange(model: string) {
     setChatModel(model)
     api.settings.set({ chatModel: model })
+  }
+
+  const handleEffortLevelChange = (level: ChatEffortLevel) => {
+    setChatEffortLevel(level)
+    api.settings.set({ chatEffortLevel: level })
+  }
+
+  const resolveEffortLevel = (
+    provider: string,
+    model: string,
+    effortLevel: ChatEffortLevel,
+  ): ChatEffortLevel | undefined => {
+    if (provider !== 'claude-subscription') return undefined
+    if (!modelSupportsClaudeEffort(model)) return undefined
+    return effortLevel === 'default' ? undefined : effortLevel
   }
 
   // ─── Send (dispatches to mode) ─────────────────────────────────────────────
@@ -615,8 +855,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         estimatedTokens: tokens,
         contextWindow: ctxWindow,
         percentUsed: percent,
-        hasCompaction: !!compactionInfo,
-        compactionCount: compactionInfo?.trimmedCount,
+        hasCompaction: !!activeCompactionInfo,
+        compactionCount: activeCompactionInfo?.trimmedCount,
       })
 
       setMessages(prev => [...prev, {
@@ -637,12 +877,9 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     setSending(true)
     setRunStartedAt(Date.now())
     setErrorMessage(null)
+    setActiveRequestConversationId(activeConversationId)
     setToolExecutions([])
-    setPlanSteps([])
-    setAwaitingVerification(false)
-    setLastBrowserAction(null)
-    setCompactionInfo(null)
-    setShowContinue(false)
+    setContinueConversationId((prev) => (prev === activeConversationId ? null : prev))
 
     // Ensure conversation
     let convId = activeConversationId
@@ -651,15 +888,20 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         const title = content.slice(0, 60)
         const conv = await api.chat.createConversation({ projectId: projectId || '__global__', title })
         setConversations((prev) => [conv, ...prev])
+        resetConversationRuntimeState(conv.id)
         setActiveConversationId(conv.id)
         convId = conv.id
       } catch (err) {
         setErrorMessage(`Falha ao criar conversa: ${formatChatError(err)}`)
         setSending(false)
+        setActiveRequestConversationId(null)
         setInput(content)
         return
       }
     }
+
+    resetConversationRuntimeState(convId)
+    setActiveRequestConversationId(convId)
 
     // Save user message
     let userMsg: ChatMessage
@@ -674,6 +916,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     } catch (err) {
       setErrorMessage(`Falha ao salvar mensagem: ${formatChatError(err)}`)
       setSending(false)
+      setActiveRequestConversationId(null)
       setInput(content)
       return
     }
@@ -685,12 +928,14 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     let runtimeOptions: AgentRuntimeOptions = {
       maxToolCalls: 30,
       temperature: 0.7,
+      effortLevel: chatEffortLevel,
       planEnforcement: true,
       contextCompaction: false,
     }
     try {
       const config = (await window.api.invoke('settings:get')) as {
         openRouterKey?: string
+        chatEffortLevel?: ChatEffortLevel
         agentMaxToolCalls?: number
         agentTemperature?: number
         agentPlanEnforcement?: boolean
@@ -704,6 +949,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         temperature: typeof config?.agentTemperature === 'number'
           ? Math.max(0, Math.min(1, config.agentTemperature))
           : 0.7,
+        effortLevel: config?.chatEffortLevel ?? chatEffortLevel,
         planEnforcement: typeof config?.agentPlanEnforcement === 'boolean'
           ? config.agentPlanEnforcement
           : true,
@@ -716,6 +962,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
 
     const isSubscription = provider.endsWith('-subscription')
+    const effortLevel = resolveEffortLevel(provider, model, runtimeOptions.effortLevel)
 
     // Only require OpenRouter key when using OpenRouter
     if (!isSubscription && !apiKey) {
@@ -727,14 +974,23 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         setMessages((prev) => [...prev, { id: -1, conversationId: convId, role: 'assistant', content: noKeyMessage, createdAt: new Date().toISOString() }])
       }
       setSending(false)
+      setActiveRequestConversationId(null)
       return
     }
 
     try {
       if (chatMode === 'agent') {
-        await handleAgentModeMain(convId, content, userMsg, apiKey ?? '', model, runtimeOptions, attachments)
+        await handleAgentModeMain(
+          convId,
+          content,
+          userMsg,
+          apiKey ?? '',
+          model,
+          { ...runtimeOptions, effortLevel: effortLevel ?? 'default' },
+          attachments,
+        )
       } else if (isSubscription) {
-        await handleContextModeProvider(convId, content, userMsg, model, attachments)
+        await handleContextModeProvider(convId, content, userMsg, model, effortLevel, attachments)
       } else {
         await handleContextMode(convId, content, userMsg, apiKey!, model, attachments)
       }
@@ -750,6 +1006,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     } finally {
       setSending(false)
       setRunStartedAt(null)
+      setActiveRequestConversationId(null)
       setToolExecutions([])
     }
   }
@@ -807,8 +1064,34 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     setStreamedContent('')
 
     if (fullContent) {
-      const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: fullContent })
-      setMessages((prev) => [...prev, assistantMsg])
+      const usageCapturedAt = new Date().toISOString()
+      const estimatedUsage = createTokenUsage({
+        prompt_tokens: estimateContentTokens(context) + history.reduce((sum, message) => sum + estimateContentTokens(message.content), 0),
+        completion_tokens: estimateTokens(fullContent),
+      }, { source: 'estimated' })
+      const { responseUsage, runUsage } = createSingleCallUsageSnapshot({
+        usage: estimatedUsage,
+        provider: aiProvider,
+        model,
+        effortLevel: null,
+        capturedAt: usageCapturedAt,
+        source: 'estimated',
+      })
+      const assistantMsg = await api.chat.sendMessage({
+        conversationId: convId,
+        role: 'assistant',
+        content: fullContent,
+        responseUsage,
+        runUsage,
+        provider: aiProvider,
+        model,
+        effortLevel: null,
+        usageCapturedAt,
+      })
+      if (convId === activeConversationIdRef.current) {
+        setMessages((prev) => [...prev, assistantMsg])
+      }
+      setRunUsageByConversation((prev) => ({ ...prev, [convId]: runUsage }))
       updateConversationTitle(convId, _userContent)
     }
   }
@@ -820,6 +1103,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     _userContent: string,
     userMsg: ChatMessage,
     model: string,
+    effortLevel?: ChatEffortLevel,
     attachments: ChatAttachment[] = []
   ) {
     const context = await buildContextWithRAG(projectId, projectName, _userContent, isGlobal)
@@ -869,6 +1153,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
           { role: 'system', content: context },
           ...history.slice(-20),
         ],
+        effortLevel,
       } as any)
 
       cleanupChunk()
@@ -876,11 +1161,30 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       setStreamedContent('')
 
       if (result.content) {
-        const assistantMsg = await api.chat.sendMessage({ conversationId: convId, role: 'assistant', content: result.content })
-        setMessages((prev) => [...prev, assistantMsg])
-        if (result.usage) {
-          setMessageUsage((prev) => ({ ...prev, [assistantMsg.id]: result.usage! }))
+        const usageCapturedAt = new Date().toISOString()
+        const { responseUsage, runUsage } = createSingleCallUsageSnapshot({
+          usage: result.usage ?? null,
+          provider: aiProvider,
+          model,
+          effortLevel: effortLevel ?? null,
+          capturedAt: usageCapturedAt,
+          source: result.usage?.source ?? 'provider',
+        })
+        const assistantMsg = await api.chat.sendMessage({
+          conversationId: convId,
+          role: 'assistant',
+          content: result.content,
+          responseUsage,
+          runUsage,
+          provider: aiProvider,
+          model,
+          effortLevel: effortLevel ?? null,
+          usageCapturedAt,
+        })
+        if (convId === activeConversationIdRef.current) {
+          setMessages((prev) => [...prev, assistantMsg])
         }
+        setRunUsageByConversation((prev) => ({ ...prev, [convId]: runUsage }))
         updateConversationTitle(convId, _userContent)
       }
     } catch (err) {
@@ -915,6 +1219,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         maxIterations: runtimeOptions.maxToolCalls,
         maxToolCalls: runtimeOptions.maxToolCalls,
         temperature: runtimeOptions.temperature,
+        effortLevel: runtimeOptions.effortLevel,
         planEnforcement: runtimeOptions.planEnforcement,
         contextCompaction: runtimeOptions.contextCompaction,
         attachments: attachments.length > 0 ? attachments : undefined,
@@ -928,6 +1233,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     }
 
     activeRunIdRef.current = started.runId
+    runIdToConversationIdRef.current.set(started.runId, convId)
     setActiveRunId(started.runId)
 
     await new Promise<void>((resolve, reject) => {
@@ -1031,21 +1337,20 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
 
   async function handleContinue() {
     if (!activeConversationId || sending) return
-    setShowContinue(false)
+    setContinueConversationId(null)
     setSending(true)
     setRunStartedAt(Date.now())
     setStreaming(true)
     setStreamedContent('')
     setErrorMessage(null)
+    setActiveRequestConversationId(activeConversationId)
     setToolExecutions([])
-    setPlanSteps([])
-    setAwaitingVerification(false)
-    setLastBrowserAction(null)
-    setCompactionInfo(null)
+    resetConversationRuntimeState(activeConversationId)
 
     try {
       const started = await api.agent.continue(activeConversationId, projectId || null)
       activeRunIdRef.current = started.runId
+      runIdToConversationIdRef.current.set(started.runId, activeConversationId)
       setActiveRunId(started.runId)
 
       await new Promise<void>((resolve, reject) => {
@@ -1056,6 +1361,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       setActiveRunId(null)
       setStreaming(false)
       setStreamedContent('')
+      setActiveRequestConversationId(null)
       const friendlyError = err instanceof Error ? err.message : String(err)
       setMessages((prev) => [...prev, {
         id: -Date.now(), conversationId: activeConversationId, role: 'assistant',
@@ -1064,6 +1370,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
     } finally {
       setSending(false)
       setRunStartedAt(null)
+      setActiveRequestConversationId(null)
     }
   }
 
@@ -1076,6 +1383,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         onToggleMode={toggleMode}
         chatModel={chatModel}
         onModelChange={handleModelChange}
+        chatEffortLevel={chatEffortLevel}
+        onEffortLevelChange={handleEffortLevelChange}
         aiProvider={aiProvider}
         conversations={conversations}
         sessions={sessions}
@@ -1108,10 +1417,11 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
       {chatSubTab === 'context' ? (
         <ChatContextTab
           messages={messages}
-          messageUsage={messageUsage}
-          compactionInfo={compactionInfo}
+          compactionInfo={activeCompactionInfo}
           chatModel={chatModel}
           aiProvider={aiProvider}
+          effortLevel={chatEffortLevel}
+          runUsage={activeRunUsage}
         />
       ) : (
       <>
@@ -1144,7 +1454,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 key={msg.id}
                 role={msg.role}
                 content={msg.content}
-                usage={messageUsage[msg.id]}
+                usage={msg.responseUsage ?? undefined}
                 tools={messageTools[msg.id]}
                 attachments={msg.attachments}
                 onCopy={handleCopyMessage}
@@ -1153,7 +1463,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 onSendToTerminal={handleSendToTerminal}
               />
             ))}
-            {streaming && streamedContent && (
+            {showingActiveRequest && streaming && streamedContent && (
               <ChatBubble
                 role="assistant"
                 content={streamedContent}
@@ -1163,7 +1473,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 onSendToTerminal={handleSendToTerminal}
               />
             )}
-            {toolExecutions.length > 0 && (
+            {showingActiveRequest && toolExecutions.length > 0 && (
               <div className="space-y-1">
                 {toolExecutions.map((te, i) => (
                   <div key={i} className="flex items-center gap-2 px-2 py-1 rounded bg-neutral-800/50 border border-neutral-700/50">
@@ -1182,7 +1492,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 ))}
               </div>
             )}
-            {confirmAction && (
+            {showingActiveRequest && confirmAction && (
               <div className="flex items-center gap-2 px-3 py-2 rounded bg-yellow-900/20 border border-yellow-800/40">
                 <span className="text-[10px] text-yellow-300 flex-1">
                   Confirm: {confirmAction.action}?
@@ -1207,21 +1517,21 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 </button>
               </div>
             )}
-            {chatMode === 'agent' && planSteps.length > 0 && (
+            {chatMode === 'agent' && activePlanScope === 'browser' && activePlanSteps.length > 0 && (
               <PlanRail
-                steps={planSteps}
-                awaitingVerification={awaitingVerification}
-                lastBrowserAction={lastBrowserAction}
+                steps={activePlanSteps}
+                awaitingVerification={activeVerification.awaitingVerification}
+                lastBrowserAction={activeVerification.lastBrowserAction}
               />
             )}
-            {compactionInfo && (
+            {activeCompactionInfo && (
               <div className="flex items-center gap-2 px-2 py-1 rounded bg-blue-900/20 border border-blue-800/30">
                 <span className="text-[10px] text-blue-400">
-                  Context compacted: {compactionInfo.trimmedCount} messages summarized ({Math.round(compactionInfo.before / 1000)}k → {Math.round(compactionInfo.after / 1000)}k tokens)
+                  Context compacted: {activeCompactionInfo.trimmedCount} messages summarized ({Math.round(activeCompactionInfo.before / 1000)}k → {Math.round(activeCompactionInfo.after / 1000)}k tokens)
                 </span>
               </div>
             )}
-            {showContinue && !sending && chatMode === 'agent' && (
+            {continueConversationId === activeConversationId && !sending && chatMode === 'agent' && (
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <button
                   onClick={handleContinue}
@@ -1233,7 +1543,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 <span className="text-[10px] text-neutral-500">Tool call limit reached — continue from where it left off</span>
               </div>
             )}
-            {sending && chatMode === 'agent' && (
+            {showingActiveRequest && sending && chatMode === 'agent' && (
               <AgentRunStatus
                 sending={sending}
                 streaming={streaming}
@@ -1242,7 +1552,7 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
                 startedAt={runStartedAt}
               />
             )}
-            {sending && !streaming && toolExecutions.length === 0 && chatMode !== 'agent' && (
+            {showingActiveRequest && sending && !streaming && toolExecutions.length === 0 && chatMode !== 'agent' && (
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <Loader2 size={12} className="animate-spin text-neutral-500" />
                 <span className="text-[10px] text-neutral-500">Thinking...</span>

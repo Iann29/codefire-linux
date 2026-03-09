@@ -25,6 +25,14 @@ export interface GitLogEntry {
   body: string
 }
 
+export type GitChangedScope = 'working_tree' | 'staged' | 'branch_diff'
+
+export interface GitChangedFile {
+  status: string
+  path: string
+  previousPath?: string
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const GIT_TIMEOUT_MS = 30_000
@@ -179,6 +187,30 @@ export class GitService {
     return this.parseLogOutput(stdout)
   }
 
+  async listChangedFiles(
+    projectPath: string,
+    options?: { scope?: GitChangedScope; limit?: number }
+  ): Promise<GitChangedFile[]> {
+    const scope = options?.scope ?? 'working_tree'
+    const limit = options?.limit && options.limit > 0 ? options.limit : 100
+
+    if (scope === 'branch_diff') {
+      const upstream = await this.exec(projectPath, [
+        'rev-parse',
+        '--abbrev-ref',
+        '--symbolic-full-name',
+        '@{upstream}',
+      ]).then((result) => result.stdout.trim()).catch(() => '')
+
+      const range = upstream ? `${upstream}...HEAD` : 'HEAD~1..HEAD'
+      const { stdout } = await this.exec(projectPath, ['diff', '--name-status', range])
+      return this.parseChangedFilesFromDiff(stdout).slice(0, limit)
+    }
+
+    const { stdout } = await this.exec(projectPath, ['status', '--porcelain=v1'])
+    return this.parseChangedFilesFromStatus(stdout, scope).slice(0, limit)
+  }
+
   /**
    * Parse the formatted git log output into structured entries.
    */
@@ -210,6 +242,72 @@ export class GitService {
     }
 
     return entries
+  }
+
+  private parseChangedFilesFromStatus(
+    output: string,
+    scope: Exclude<GitChangedScope, 'branch_diff'>
+  ): GitChangedFile[] {
+    const lines = output.split('\n').filter((line) => line.trim().length > 0)
+    const files: GitChangedFile[] = []
+
+    for (const line of lines) {
+      if (line.startsWith('?? ')) {
+        if (scope === 'working_tree') {
+          files.push({
+            status: '??',
+            path: line.slice(3),
+          })
+        }
+        continue
+      }
+
+      const indexStatus = line[0] ?? ' '
+      const worktreeStatus = line[1] ?? ' '
+      const payload = line.slice(3)
+      const renameParts = payload.split(' -> ')
+      const previousPath = renameParts.length > 1 ? renameParts[0] : undefined
+      const path = renameParts.length > 1 ? renameParts[renameParts.length - 1] : payload
+
+      if (scope === 'staged' && indexStatus.trim()) {
+        files.push({
+          status: indexStatus.trim(),
+          path,
+          previousPath,
+        })
+      } else if (scope === 'working_tree' && worktreeStatus.trim()) {
+        files.push({
+          status: worktreeStatus.trim(),
+          path,
+          previousPath,
+        })
+      }
+    }
+
+    return files
+  }
+
+  private parseChangedFilesFromDiff(output: string): GitChangedFile[] {
+    return output
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => {
+        const parts = line.split('\t')
+        const status = parts[0] ?? ''
+
+        if (status.startsWith('R') && parts.length >= 3) {
+          return {
+            status: 'R',
+            previousPath: parts[1],
+            path: parts[2],
+          }
+        }
+
+        return {
+          status: status || 'M',
+          path: parts[1] ?? parts[0],
+        }
+      })
   }
 
   // ─── stage ───────────────────────────────────────────────────────────────

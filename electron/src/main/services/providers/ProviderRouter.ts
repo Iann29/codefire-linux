@@ -641,7 +641,11 @@ export class ProviderRouter {
             : '')
       )
 
-      return response
+      return {
+        ...response,
+        providerId: provider.id,
+        providerName: provider.name,
+      }
     } catch (err) {
       const latencyMs = Date.now() - start
 

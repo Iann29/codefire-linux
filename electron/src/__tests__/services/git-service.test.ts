@@ -290,6 +290,100 @@ describe('GitService', () => {
     })
   })
 
+  describe('listChangedFiles', () => {
+    it('returns working tree changes including untracked files', async () => {
+      mockGitOutput(' M src/app.ts\n?? src/new.ts\nA  src/staged-only.ts\n')
+
+      const result = await git.listChangedFiles('/tmp/project', {
+        scope: 'working_tree',
+      })
+
+      expect(result).toEqual([
+        { status: 'M', path: 'src/app.ts', previousPath: undefined },
+        { status: '??', path: 'src/new.ts' },
+      ])
+    })
+
+    it('returns staged changes from porcelain index state', async () => {
+      mockGitOutput('M  src/app.ts\nA  src/new.ts\n M src/unstaged.ts\n')
+
+      const result = await git.listChangedFiles('/tmp/project', {
+        scope: 'staged',
+      })
+
+      expect(result).toEqual([
+        { status: 'M', path: 'src/app.ts', previousPath: undefined },
+        { status: 'A', path: 'src/new.ts', previousPath: undefined },
+      ])
+    })
+
+    it('returns branch diff changes using upstream when available', async () => {
+      mockExecFile
+        .mockImplementationOnce(
+          (
+            _cmd: string,
+            _args: string[],
+            _opts: unknown,
+            callback: (err: Error | null, result: { stdout: string; stderr: string }) => void
+          ) => {
+            callback(null, { stdout: 'origin/main\n', stderr: '' })
+          }
+        )
+        .mockImplementationOnce(
+          (
+            _cmd: string,
+            _args: string[],
+            _opts: unknown,
+            callback: (err: Error | null, result: { stdout: string; stderr: string }) => void
+          ) => {
+            callback(null, { stdout: 'M\tsrc/app.ts\nR100\tsrc/old.ts\tsrc/new.ts\n', stderr: '' })
+          }
+        )
+
+      const result = await git.listChangedFiles('/tmp/project', {
+        scope: 'branch_diff',
+      })
+
+      expect(result).toEqual([
+        { status: 'M', path: 'src/app.ts' },
+        { status: 'R', path: 'src/new.ts', previousPath: 'src/old.ts' },
+      ])
+    })
+
+    it('falls back to HEAD~1..HEAD when upstream is missing', async () => {
+      mockExecFile
+        .mockImplementationOnce(
+          (
+            _cmd: string,
+            _args: string[],
+            _opts: unknown,
+            callback: (err: unknown) => void
+          ) => {
+            callback(new Error('no upstream'))
+          }
+        )
+        .mockImplementationOnce(
+          (
+            _cmd: string,
+            args: string[],
+            _opts: unknown,
+            callback: (err: Error | null, result: { stdout: string; stderr: string }) => void
+          ) => {
+            expect(args).toContain('HEAD~1..HEAD')
+            callback(null, { stdout: 'A\tsrc/new.ts\n', stderr: '' })
+          }
+        )
+
+      const result = await git.listChangedFiles('/tmp/project', {
+        scope: 'branch_diff',
+      })
+
+      expect(result).toEqual([
+        { status: 'A', path: 'src/new.ts' },
+      ])
+    })
+  })
+
   // ─── stage ───────────────────────────────────────────────────────────────
 
   describe('stage', () => {

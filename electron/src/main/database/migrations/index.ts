@@ -594,4 +594,20 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 24: Persist chat usage metadata for context diagnostics
+  {
+    version: 24,
+    name: 'v23_addChatUsageMetadata',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE chatMessages ADD COLUMN responseUsageJson TEXT;
+        ALTER TABLE chatMessages ADD COLUMN runUsageJson TEXT;
+        ALTER TABLE chatMessages ADD COLUMN provider TEXT;
+        ALTER TABLE chatMessages ADD COLUMN model TEXT;
+        ALTER TABLE chatMessages ADD COLUMN effortLevel TEXT;
+        ALTER TABLE chatMessages ADD COLUMN usageCapturedAt DATETIME;
+      `)
+    },
+  },
 ]

@@ -651,6 +651,21 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
             ]}
           />
         )}
+
+        {config.aiProvider === 'claude-subscription' && (
+          <Select
+            label="Claude effort"
+            hint="Controls Claude subscription reasoning intensity on supported Claude models (currently Opus 4.6 and Sonnet 4.6). Low is faster, medium is balanced, high spends more time thinking. Default lets Claude choose."
+            value={config.chatEffortLevel || 'default'}
+            onChange={(v) => onChange({ chatEffortLevel: v as AppConfig['chatEffortLevel'] })}
+            options={[
+              { value: 'default', label: 'Default' },
+              { value: 'low', label: 'Low' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'high', label: 'High' },
+            ]}
+          />
+        )}
       </Section>
 
       <Section title="Models">

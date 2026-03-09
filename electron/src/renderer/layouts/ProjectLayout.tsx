@@ -38,6 +38,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const { navigateHome } = useNavigation()
   const [project, setProject] = useState<Project | null>(null)
   const [activeTab, setActiveTab] = useState('Tasks')
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [indexStatus, setIndexStatus] = useState<'idle' | 'indexing' | 'ready' | 'error'>('idle')
   const [indexLastError, setIndexLastError] = useState<string | undefined>()
@@ -65,6 +66,14 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         setShowChat(true)
       }
     })
+  }, [])
+
+  const handleTabChange = useCallback((nextTab: string) => {
+    setActiveTab(nextTab)
+
+    if (nextTab === 'Terminal') {
+      setHasOpenedTerminal(true)
+    }
   }, [])
 
   useEffect(() => {
@@ -139,7 +148,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     }
 
     // Browser is always mounted but hidden — see persistent render below
-    if (tab === 'Browser') return null
+    if (tab === 'Browser' || tab === 'Terminal') return null
 
     // Lazy-loaded views (heavy dependencies)
     return (
@@ -152,9 +161,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {tab === 'Git' && <GitView projectId={pid} projectPath={project!.path} />}
         {tab === 'Images' && <ImagesView projectId={pid} />}
         {tab === 'Recordings' && <RecordingsView projectId={pid} />}
-        {tab === 'Terminal' && <TerminalView projectId={pid} projectPath={project!.path} />}
         {tab === 'Visualizer' && <VisualizerView projectId={pid} projectPath={project!.path} />}
-        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Terminal','Visualizer'].includes(tab) && (
+        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Visualizer'].includes(tab) && (
           <div className="flex-1 p-4 overflow-y-auto">
             <h2 className="text-title text-neutral-300">{tab}</h2>
             <p className="text-sm text-neutral-600 mt-1">Coming soon</p>
@@ -164,15 +172,22 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     )
   }
 
-  function renderContentWithPersistentBrowser(tab: string) {
+  function renderContentWithPersistentViews(tab: string) {
     return (
       <>
-        {renderActiveView(tab, projectId, setActiveTab)}
+        {renderActiveView(tab, projectId, handleTabChange)}
         <Suspense fallback={lazyFallback}>
           <div style={{ display: tab === 'Browser' ? 'flex' : 'none' }} className="flex-1 flex-col h-full">
             <BrowserView projectId={projectId} />
           </div>
         </Suspense>
+        {hasOpenedTerminal && (
+          <Suspense fallback={lazyFallback}>
+            <div style={{ display: tab === 'Terminal' ? 'flex' : 'none' }} className="flex-1 flex-col h-full">
+              <TerminalView projectId={projectId} projectPath={project!.path} />
+            </div>
+          </Suspense>
+        )}
       </>
     )
   }
@@ -217,17 +232,20 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         </div>
 
         {/* Tab bar */}
-        <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        <TabBar activeTab={activeTab} onTabChange={handleTabChange} />
 
         {/* Content area */}
         <div className="flex-1 overflow-hidden relative">
-          <div className="h-full overflow-hidden flex flex-col">
-            {renderContentWithPersistentBrowser(activeTab)}
+          <div
+            className="h-full overflow-hidden flex flex-col min-w-0 transition-[padding-right] duration-200"
+            style={{ paddingRight: showChat ? 400 : 0 }}
+          >
+            {renderContentWithPersistentViews(activeTab)}
           </div>
 
           {/* Chat drawer overlay */}
           {showChat && (
-            <div className="absolute right-0 top-0 bottom-0 w-[400px] z-30 border-l border-neutral-800 bg-neutral-900 flex flex-col">
+            <div className="absolute right-0 top-0 bottom-0 z-30 border-l border-neutral-800 bg-neutral-900 flex flex-col" style={{ width: 400 }}>
               <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
                 <span className="text-xs text-neutral-400 font-medium">Chat</span>
                 <button onClick={() => setShowChat(false)} className="text-neutral-600 hover:text-neutral-300">

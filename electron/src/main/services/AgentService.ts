@@ -1,9 +1,13 @@
-import fs from 'fs/promises'
-import path from 'path'
 import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
 import { ipcMain, session, webContents } from 'electron'
-import type { ChatMessage, ChatAttachment } from '@shared/models'
+import type {
+  ChatAttachment,
+  ChatEffortLevel,
+  ChatMessage,
+  RunUsageSnapshot,
+  TokenUsage,
+} from '@shared/models'
 import { TaskDAO } from '../database/dao/TaskDAO'
 import { NoteDAO } from '../database/dao/NoteDAO'
 import { SessionDAO } from '../database/dao/SessionDAO'
@@ -16,12 +20,31 @@ import { ProviderRouter } from './providers/ProviderRouter'
 import type { ChatCompletionToolCall as ToolCall } from './providers/BaseProvider'
 import { ContextCompactor } from './ContextCompactor'
 import { AgentMetrics } from './AgentMetrics'
+import { FileToolService } from './tools/files/FileToolService'
+import { CodebaseToolService } from './tools/codebase/CodebaseToolService'
+import { ReferenceGraphService } from './tools/codebase/ReferenceGraphService'
+import { WebProjectToolService } from './tools/codebase/WebProjectToolService'
+import { ToolRegistry } from './tools/ToolRegistry'
+import { createDataTools } from './tools/definitions/data-tools'
+import { createGitTools } from './tools/definitions/git-tools'
+import { createFileTools } from './tools/definitions/file-tools'
+import { createCodebaseTools } from './tools/definitions/codebase-tools'
+import { createWebProjectTools } from './tools/definitions/web-project-tools'
+import {
+  createBrowserToolSchemas,
+  createPlanToolSchemas,
+  BROWSER_TOOL_NAMES,
+  VERIFICATION_BROWSER_TOOLS,
+  URL_BEARING_TOOLS,
+  DESTRUCTIVE_BROWSER_TOOLS,
+} from './tools/definitions/browser-tools'
 
 type AgentEventChannel =
   | 'agent:stream'
   | 'agent:toolStart'
   | 'agent:toolResult'
   | 'agent:planUpdate'
+  | 'agent:usage'
   | 'agent:compacted'
   | 'agent:done'
   | 'agent:error'
@@ -29,6 +52,15 @@ type AgentEventChannel =
 interface AgentPlanStep {
   title: string
   status: 'pending' | 'done' | 'blocked'
+}
+
+type AgentPlanScope = 'browser' | 'general'
+
+interface AgentUsageState {
+  callCount: number
+  lastCall: TokenUsage | null
+  total: TokenUsage | null
+  capturedAt: string | null
 }
 
 interface ActiveRun {
@@ -39,10 +71,16 @@ interface ActiveRun {
   abortController: AbortController
   projectId: string | null
   plan: AgentPlanStep[] | null
+  planScope: AgentPlanScope | null
   awaitingVerification: boolean
   lastBrowserAction: string | null
+  browserIntentDetected: boolean
   planEnforcement: boolean
   contextCompaction: boolean
+  provider: string | null
+  model: string
+  effortLevel: ChatEffortLevel
+  usage: AgentUsageState
   attachments?: ChatAttachment[]
 }
 
@@ -64,6 +102,7 @@ export interface AgentStartInput {
   apiKey?: string
   maxIterations?: number
   temperature?: number
+  effortLevel?: ChatEffortLevel
   planEnforcement?: boolean
   contextCompaction?: boolean
   attachments?: ChatAttachment[]
@@ -77,617 +116,13 @@ const RETRY_MAX_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
 
-const AGENT_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'set_plan',
-      description: 'Define a concrete plan before browser actions. Use 3-8 actionable steps.',
-      parameters: {
-        type: 'object',
-        properties: {
-          steps: {
-            type: 'array',
-            items: {
-              oneOf: [
-                { type: 'string' },
-                {
-                  type: 'object',
-                  properties: {
-                    title: { type: 'string' },
-                  },
-                  required: ['title'],
-                },
-              ],
-            },
-          },
-        },
-        required: ['steps'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_plan',
-      description: 'Update a plan step status after verifying the action result.',
-      parameters: {
-        type: 'object',
-        properties: {
-          step_index: { type: 'number' },
-          status: { type: 'string', enum: ['pending', 'done', 'blocked'] },
-        },
-        required: ['step_index', 'status'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_tasks',
-      description: 'List tasks for the current project or globally.',
-      parameters: {
-        type: 'object',
-        properties: {
-          status: { type: 'string' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_task',
-      description: 'Create a new task in the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          description: { type: 'string' },
-          priority: { type: 'number' },
-          labels: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['title'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_task',
-      description: 'Update an existing task by ID.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'number' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          status: { type: 'string' },
-          priority: { type: 'number' },
-          labels: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_code',
-      description: 'Search code in the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-          limit: { type: 'number' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_notes',
-      description: 'List notes for the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          pinned_only: { type: 'boolean' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_note',
-      description: 'Create a new note in the current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          content: { type: 'string' },
-          pinned: { type: 'boolean' },
-        },
-        required: ['title', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_notes',
-      description: 'Search notes by keyword.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_sessions',
-      description: 'List recent sessions for the project.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_sessions',
-      description: 'Search sessions by keyword.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_status',
-      description: 'Get git status for the current project.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_log',
-      description: 'Get recent git commits.',
-      parameters: {
-        type: 'object',
-        properties: {
-          limit: { type: 'number' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'git_diff',
-      description: 'Get git diff for current project.',
-      parameters: {
-        type: 'object',
-        properties: {
-          staged: { type: 'boolean' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_projects',
-      description: 'List all Pinyino tracked projects.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_navigate',
-      description: 'Navigate the browser to a URL.',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: { type: 'string' },
-        },
-        required: ['url'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_dom_map',
-      description: 'Map interactive DOM elements and assign stable indices for browser automation.',
-      parameters: {
-        type: 'object',
-        properties: {
-          max_elements: { type: 'number' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_click_element',
-      description: 'Click an element by DOM map index.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number' },
-        },
-        required: ['index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_type_element',
-      description: 'Type text into an element by DOM map index.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number' },
-          text: { type: 'string' },
-          clearFirst: { type: 'boolean' },
-          pressEnter: { type: 'boolean' },
-        },
-        required: ['index', 'text'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_select_element',
-      description: 'Select an option in a <select> element by DOM map index.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number' },
-          value: { type: 'string' },
-        },
-        required: ['index', 'value'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_hover_element',
-      description: 'Move pointer over an element by DOM map index.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number' },
-        },
-        required: ['index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_scroll_to_element',
-      description: 'Scroll an element into view by DOM map index.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number' },
-          block: { type: 'string' },
-        },
-        required: ['index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_get_element_info',
-      description: 'Get details for an indexed DOM element.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number' },
-        },
-        required: ['index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_wait_element',
-      description: 'Wait for an element to reach a state: attached, detached, visible, or hidden.',
-      parameters: {
-        type: 'object',
-        properties: {
-          selector: { type: 'string', description: 'CSS selector' },
-          state: { type: 'string', enum: ['attached', 'detached', 'visible', 'hidden'] },
-          timeout: { type: 'number', description: 'Timeout in ms (default 5000)' },
-        },
-        required: ['selector'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_wait_navigation',
-      description: 'Wait for page navigation to complete.',
-      parameters: {
-        type: 'object',
-        properties: {
-          strategy: { type: 'string', enum: ['load', 'networkidle', 'urlchange'] },
-          timeout: { type: 'number', description: 'Timeout in ms (default 10000)' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_get_content',
-      description: 'Get page content in different modes: text, html, url, title, links, or meta.',
-      parameters: {
-        type: 'object',
-        properties: {
-          mode: { type: 'string', enum: ['text', 'html', 'url', 'title', 'links', 'meta'] },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_press_key',
-      description: 'Press a keyboard key with optional modifiers.',
-      parameters: {
-        type: 'object',
-        properties: {
-          key: { type: 'string', description: 'Key name: Enter, Tab, Escape, ArrowDown, a, etc.' },
-          modifiers: { type: 'array', items: { type: 'string' }, description: 'Array of modifiers: Control, Shift, Alt, Meta' },
-        },
-        required: ['key'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_extract_table',
-      description: 'Extract a table from the page as JSON with headers and rows.',
-      parameters: {
-        type: 'object',
-        properties: {
-          selector: { type: 'string', description: 'CSS selector for the table (default: "table")' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_nuclear_type',
-      description: 'Type text into an element using nuclear interaction engine (robust for rich text editors like Draft.js, Lexical, ProseMirror, Slate, Quill, CKEditor, CodeMirror, Monaco). Tries multiple strategies with auto-detection and verification. Use when browser_type_element fails on complex editors.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number', description: 'DOM map element index' },
-          text: { type: 'string', description: 'Text to type' },
-          clearFirst: { type: 'boolean', description: 'Clear existing content before typing (default true)' },
-          pressEnter: { type: 'boolean', description: 'Press Enter after typing (default false)' },
-          charDelay: { type: 'number', description: 'Delay between chars in ms for keyboard strategy (default 20)' },
-          strategy: { type: 'string', enum: ['auto', 'keyboard', 'execCommand', 'inputEvent', 'clipboard', 'nativeSetter', 'direct'], description: 'Typing strategy (default auto)' },
-        },
-        required: ['index', 'text'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_nuclear_click',
-      description: 'Click an element using nuclear interaction engine (robust for overlays, React portals, synthetic event listeners). Tries 4 strategies: pointer chain, native click, elementFromPoint, interactive ancestor. Use when browser_click_element fails on complex UIs.',
-      parameters: {
-        type: 'object',
-        properties: {
-          index: { type: 'number', description: 'DOM map element index' },
-        },
-        required: ['index'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_fill_form',
-      description: 'Fill multiple form fields at once. Each field is identified by DOM map index.',
-      parameters: {
-        type: 'object',
-        properties: {
-          fields: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                index: { type: 'number', description: 'DOM map element index' },
-                value: { type: 'string', description: 'Value to set' },
-              },
-              required: ['index', 'value'],
-            },
-            description: 'Array of { index, value } pairs',
-          },
-        },
-        required: ['fields'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_drag_and_drop',
-      description: 'Drag an element to another element by DOM map indices.',
-      parameters: {
-        type: 'object',
-        properties: {
-          sourceIndex: { type: 'number', description: 'DOM map index of source element' },
-          targetIndex: { type: 'number', description: 'DOM map index of target element' },
-        },
-        required: ['sourceIndex', 'targetIndex'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_list_tabs',
-      description: 'List all open browser tabs with their URL, title, and active status.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_open_tab',
-      description: 'Open a new browser tab with a URL. Limited to 5 tabs per session.',
-      parameters: {
-        type: 'object',
-        properties: {
-          url: { type: 'string', description: 'URL to open in the new tab' },
-        },
-        required: ['url'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_close_tab',
-      description: 'Close a browser tab by its tab ID.',
-      parameters: {
-        type: 'object',
-        properties: {
-          tabId: { type: 'string', description: 'Tab ID to close (from browser_list_tabs)' },
-        },
-        required: ['tabId'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_switch_tab',
-      description: 'Switch to a browser tab by its tab ID.',
-      parameters: {
-        type: 'object',
-        properties: {
-          tabId: { type: 'string', description: 'Tab ID to activate (from browser_list_tabs)' },
-        },
-        required: ['tabId'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'browser_reset_session',
-      description: 'Clear all browser cookies, cache, localStorage, and session data. Use before testing login, onboarding, or stateful flows.',
-      parameters: { type: 'object', properties: {}, required: [] },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: 'Read a file from disk.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string' },
-        },
-        required: ['path'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_files',
-      description: 'List files and directories in a path.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string' },
-        },
-        required: ['path'],
-      },
-    },
-  },
-] as const
+/* Tool schemas and execution are now managed by ToolRegistry.
+ * See tools/definitions/ for schema + execute modules.
+ * Plan and browser tools keep special routing here.
+ */
 
-const BROWSER_TOOL_NAMES = new Set<string>([
-  'browser_navigate',
-  'browser_snapshot',
-  'browser_screenshot',
-  'browser_click',
-  'browser_type',
-  'browser_eval',
-  'browser_console_logs',
-  'browser_dom_map',
-  'browser_click_element',
-  'browser_type_element',
-  'browser_select_element',
-  'browser_hover_element',
-  'browser_scroll_to_element',
-  'browser_get_element_info',
-  'browser_wait_element',
-  'browser_wait_navigation',
-  'browser_get_content',
-  'browser_press_key',
-  'browser_extract_table',
-  'browser_nuclear_type',
-  'browser_nuclear_click',
-  'browser_list_tabs',
-  'browser_open_tab',
-  'browser_close_tab',
-  'browser_switch_tab',
-  'browser_fill_form',
-  'browser_drag_and_drop',
-  'browser_reset_session',
-])
-
-const VERIFICATION_BROWSER_TOOLS = new Set<string>([
-  'browser_dom_map',
-  'browser_get_element_info',
-  'browser_snapshot',
-  'browser_console_logs',
-])
-
-/** Tools that accept a URL argument and should be validated against domain rules. */
-export const URL_BEARING_TOOLS = new Set<string>(['browser_navigate', 'browser_open_tab'])
-
-/** Browser tools that can modify page state and may require user confirmation. */
-export const DESTRUCTIVE_BROWSER_TOOLS = new Set<string>([
-  'browser_nuclear_click',
-  'browser_nuclear_type',
-  'browser_fill_form',
-  'browser_drag_and_drop',
-])
+// Re-export for backwards compatibility (these are now defined in browser-tools.ts)
+export { URL_BEARING_TOOLS, DESTRUCTIVE_BROWSER_TOOLS }
 
 /** Timeout for user confirmation prompt (30 seconds). */
 const CONFIRMATION_TIMEOUT_MS = 30_000
@@ -759,10 +194,18 @@ export class AgentService {
   private readonly noteDAO: NoteDAO
   private readonly sessionDAO: SessionDAO
   private readonly projectDAO: ProjectDAO
+  private readonly fileToolService = new FileToolService()
+  private readonly codebaseToolService: CodebaseToolService
+  private readonly referenceGraphService = new ReferenceGraphService()
+  private readonly webProjectToolService = new WebProjectToolService()
+  private readonly toolRegistry: ToolRegistry
   private providerRouter: ProviderRouter
   private readonly contextCompactor = new ContextCompactor()
   private readonly metrics = new AgentMetrics()
   private activeRun: ActiveRun | null = null
+
+  /** Cached provider-compatible tool schema array */
+  private cachedProviderSchemas: Record<string, unknown>[] | null = null
 
   constructor(
     private readonly db: Database.Database,
@@ -775,10 +218,40 @@ export class AgentService {
     this.noteDAO = new NoteDAO(db)
     this.sessionDAO = new SessionDAO(db)
     this.projectDAO = new ProjectDAO(db)
+    this.codebaseToolService = new CodebaseToolService(db)
+
+    // Build the tool registry
+    this.toolRegistry = new ToolRegistry()
+    this.toolRegistry.registerAll(createDataTools({
+      taskDAO: this.taskDAO,
+      noteDAO: this.noteDAO,
+      sessionDAO: this.sessionDAO,
+      projectDAO: this.projectDAO,
+    }))
+    this.toolRegistry.registerAll(createGitTools(this.gitService))
+    this.toolRegistry.registerAll(createFileTools(this.fileToolService))
+    this.toolRegistry.registerAll(createCodebaseTools({
+      codebaseToolService: this.codebaseToolService,
+      searchEngine: this.searchEngine,
+      referenceGraph: this.referenceGraphService,
+    }))
+    this.toolRegistry.registerAll(createWebProjectTools(this.webProjectToolService))
   }
 
   setProviderRouter(router: ProviderRouter): void {
     this.providerRouter = router
+  }
+
+  /** Get the complete list of tool schemas for provider API calls */
+  private getProviderSchemas(): ReadonlyArray<Record<string, unknown>> {
+    if (!this.cachedProviderSchemas) {
+      this.cachedProviderSchemas = [
+        ...createPlanToolSchemas(),
+        ...this.toolRegistry.toProviderSchemas(),
+        ...createBrowserToolSchemas(),
+      ] as unknown as Record<string, unknown>[]
+    }
+    return this.cachedProviderSchemas
   }
 
   startRun(input: AgentStartInput): { runId: string } {
@@ -794,10 +267,21 @@ export class AgentService {
       abortController: new AbortController(),
       projectId: input.projectId ?? null,
       plan: null,
+      planScope: null,
       awaitingVerification: false,
       lastBrowserAction: null,
+      browserIntentDetected: this.detectBrowserIntent(input.userMessage),
       planEnforcement: true,
       contextCompaction: false,
+      provider: null,
+      model: input.model || DEFAULT_MODEL,
+      effortLevel: input.effortLevel ?? 'default',
+      usage: {
+        callCount: 0,
+        lastCall: null,
+        total: null,
+        capturedAt: null,
+      },
       attachments: input.attachments,
     }
 
@@ -859,6 +343,9 @@ export class AgentService {
       const temperature = clampNumber(input.temperature ?? config.agentTemperature ?? 0.7, 0, 1)
       run.planEnforcement = input.planEnforcement ?? config.agentPlanEnforcement ?? true
       run.contextCompaction = input.contextCompaction ?? config.agentContextCompaction ?? false
+      run.provider = config.aiProvider || 'openrouter'
+      run.model = model
+      run.effortLevel = input.effortLevel ?? config.chatEffortLevel ?? 'default'
 
       const history: Array<{ role: string; content: string | Array<Record<string, unknown>> }> =
         this.buildConversationHistory(run.conversationId)
@@ -891,7 +378,7 @@ export class AgentService {
       }
 
       let loopMessages: Array<Record<string, unknown>> = [
-        { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath) },
+        { role: 'system', content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath, run.browserIntentDetected) },
         ...history,
       ]
 
@@ -903,7 +390,7 @@ export class AgentService {
         if (browserContext) {
           loopMessages[0] = {
             role: 'system',
-            content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath) + '\n\n' + browserContext,
+            content: this.buildSystemPrompt(projectName, run.planEnforcement, projectPath, run.browserIntentDetected) + '\n\n' + browserContext,
           }
         }
 
@@ -911,9 +398,11 @@ export class AgentService {
           model,
           temperature,
           messages: loopMessages,
-          tools: AGENT_TOOLS,
+          tools: this.getProviderSchemas(),
+          effortLevel: run.effortLevel,
           signal: run.abortController.signal,
         }, providerOverrides)
+        this.recordRunUsage(run, response.usage ?? null)
 
         const message = response.choices?.[0]?.message
         if (!message) throw new Error('No response from model')
@@ -932,18 +421,30 @@ export class AgentService {
 
         if (toolCalls.length === 0) {
           const finalContent = assistantContent || 'Done.'
+          const responseUsage = normalizeUsage(response.usage ?? null)
+          const runUsage = this.buildRunUsageSnapshot(run)
+          const usageCapturedAt = runUsage?.capturedAt ?? new Date().toISOString()
           this.sendEvent(run, 'agent:stream', {
             runId: run.id,
             channel: 'text',
             delta: finalContent,
           })
 
-          const savedMessage = this.saveAssistantMessage(run.conversationId, finalContent)
+          const savedMessage = this.saveAssistantMessage(run.conversationId, finalContent, {
+            responseUsage,
+            runUsage,
+            provider: run.provider,
+            model: run.model,
+            effortLevel: run.effortLevel,
+            usageCapturedAt,
+          })
           this.sendEvent(run, 'agent:done', {
             runId: run.id,
             cancelled: false,
             message: savedMessage,
-            usage: response.usage ?? null,
+            usage: responseUsage,
+            runUsage,
+            planScope: run.planScope,
           })
           return
         }
@@ -987,7 +488,18 @@ export class AgentService {
           }
           const durationMs = Date.now() - startedAt
           console.log(`[AgentService] tool ${fnName} (${status}) ${durationMs}ms`)
-          this.metrics.recordToolCall(fnName, durationMs, status === 'error' ? 'error' : 'done')
+
+          const toolDef = this.toolRegistry.get(fnName)
+          const argsStr = toolCall.function.arguments ?? ''
+          this.metrics.recordToolCallDetailed(
+            fnName,
+            durationMs,
+            status === 'error' ? 'error' : 'done',
+            toolDef?.category ?? null,
+            Buffer.byteLength(argsStr, 'utf8'),
+            Buffer.byteLength(result, 'utf8'),
+            status === 'error' ? result : undefined,
+          )
 
           this.sendEvent(run, 'agent:toolResult', {
             runId: run.id,
@@ -1019,8 +531,10 @@ export class AgentService {
                 { role: 'system', content: 'You are a conversation summarizer. Be concise and structured.' },
                 { role: 'user', content: summaryPrompt },
               ],
+              effortLevel: run.effortLevel,
               signal: run.abortController.signal,
             }, providerOverrides)
+            this.recordRunUsage(run, summaryResponse.usage ?? null)
 
             const summary = normalizeAssistantContent(summaryResponse.choices?.[0]?.message?.content) || 'Summary unavailable.'
             const result = this.contextCompactor.applyCompaction(loopMessages, summary, cutPoint)
@@ -1041,17 +555,27 @@ export class AgentService {
       }
 
       const fallback = 'I reached the maximum number of tool calls. You can continue from where I left off.'
+      const runUsage = this.buildRunUsageSnapshot(run)
       this.sendEvent(run, 'agent:stream', {
         runId: run.id,
         channel: 'text',
         delta: fallback,
       })
-      const savedMessage = this.saveAssistantMessage(run.conversationId, fallback)
+      const savedMessage = this.saveAssistantMessage(run.conversationId, fallback, {
+        responseUsage: null,
+        runUsage,
+        provider: run.provider,
+        model: run.model,
+        effortLevel: run.effortLevel,
+        usageCapturedAt: runUsage?.capturedAt ?? new Date().toISOString(),
+      })
       this.sendEvent(run, 'agent:done', {
         runId: run.id,
         cancelled: false,
         message: savedMessage,
         usage: null,
+        runUsage,
+        planScope: run.planScope,
         hitLimit: true,
       })
     } catch (error) {
@@ -1196,19 +720,55 @@ export class AgentService {
     return history
   }
 
-  private saveAssistantMessage(conversationId: number, content: string): ChatMessage {
+  private saveAssistantMessage(
+    conversationId: number,
+    content: string,
+    metadata?: {
+      responseUsage?: TokenUsage | null
+      runUsage?: RunUsageSnapshot | null
+      provider?: string | null
+      model?: string | null
+      effortLevel?: ChatEffortLevel | null
+      usageCapturedAt?: string | null
+    }
+  ): ChatMessage {
     const now = new Date().toISOString()
     const result = this.db
-      .prepare('INSERT INTO chatMessages (conversationId, role, content, createdAt) VALUES (?, ?, ?, ?)')
-      .run(conversationId, 'assistant', content, now)
+      .prepare(`
+        INSERT INTO chatMessages (
+          conversationId,
+          role,
+          content,
+          createdAt,
+          responseUsageJson,
+          runUsageJson,
+          provider,
+          model,
+          effortLevel,
+          usageCapturedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        conversationId,
+        'assistant',
+        content,
+        now,
+        metadata?.responseUsage ? JSON.stringify(metadata.responseUsage) : null,
+        metadata?.runUsage ? JSON.stringify(metadata.runUsage) : null,
+        metadata?.provider ?? null,
+        metadata?.model ?? null,
+        metadata?.effortLevel ?? null,
+        metadata?.usageCapturedAt ?? null,
+      )
 
     this.db
       .prepare('UPDATE chatConversations SET updatedAt = ? WHERE id = ?')
       .run(now, conversationId)
 
-    return this.db
+    const row = this.db
       .prepare('SELECT * FROM chatMessages WHERE id = ?')
-      .get(result.lastInsertRowid) as ChatMessage
+      .get(result.lastInsertRowid) as Record<string, unknown>
+    return hydrateChatMessageRow(row)
   }
 
   private resolveProjectName(projectId: string | null): string {
@@ -1221,24 +781,38 @@ export class AgentService {
     return this.projectDAO.getById(projectId)?.path || null
   }
 
-  private buildSystemPrompt(projectName: string, planEnforcement: boolean, projectPath?: string | null): string {
+  private buildSystemPrompt(
+    projectName: string,
+    planEnforcement: boolean,
+    projectPath?: string | null,
+    browserIntentDetected: boolean = false,
+  ): string {
     const base = [
       `You are the Pinyino agent for "${projectName}".`,
     ]
 
     if (projectPath) {
       base.push(`The project directory is: ${projectPath}`)
-      base.push('IMPORTANT: Always use this project path as the base for file operations (read_file, list_files, git_status, etc). Never assume or use a different directory.')
+      base.push('IMPORTANT: Always use this project path as the base for file operations (read_file, read_file_range, read_many_files, list_files, get_directory_tree, glob_files, grep_files, get_file_info, write_file, apply_file_patch, move_path, git_status, etc). Never assume or use a different directory.')
     }
 
-    base.push('You can use tools to manage tasks, notes, sessions, git, files, search, and browser actions.')
+    base.push('You can use tools to manage tasks, notes, sessions, git, files, semantic code discovery, web-project analysis, search, and browser actions.')
     base.push('Be concise and action-oriented.')
 
+    // Tool routing preferences
+    base.push('Tool selection guidance: prefer find_symbol over grep_files for definition lookup. Prefer find_references/find_importers over brute-force text search for usage questions. Prefer find_related_files over list_files for companion discovery. Use list_changed_files before broad exploration for review/refactor tasks. For route/design/env/component/deploy questions, prefer bridge tools (discover_routes, inspect_design_system, env_doctor, component_usage, launch_guard_summary, discover_previews) over raw file reads. For existing-file edits, prefer apply_file_patch over write_file. Use write_file mainly for new files or intentional full rewrites.')
+
     if (planEnforcement) {
-      base.push('Before using browser tools, call set_plan with 3-8 concrete steps.')
-      base.push('After each meaningful browser action, verify and then call update_plan.')
+      base.push('Do not call set_plan unless you are about to use browser tools.')
+      base.push('For code reading, search, git, notes, tasks, and file work, skip set_plan and update_plan.')
+      if (browserIntentDetected) {
+        base.push('This request likely needs browser work. Call set_plan immediately before the first browser action, not earlier.')
+      } else {
+        base.push('If browser work becomes necessary later, call set_plan immediately before the first browser action.')
+      }
+      base.push('After each meaningful browser action, verify it with browser_dom_map, browser_get_element_info, browser_snapshot, or browser_console_logs, then call update_plan.')
     } else {
-      base.push('Plan tools are optional in this run; use them when useful.')
+      base.push('Plan tools are browser-specific. Ignore them unless you are about to use browser tools.')
     }
 
     return base.join(' ')
@@ -1247,7 +821,10 @@ export class AgentService {
   private sendEvent(run: ActiveRun, channel: AgentEventChannel, payload: Record<string, unknown>): void {
     const wc = webContents.fromId(run.senderWebContentsId)
     if (!wc || wc.isDestroyed()) return
-    wc.send(channel, payload)
+    wc.send(channel, {
+      conversationId: run.conversationId,
+      ...payload,
+    })
   }
 
   /**
@@ -1298,11 +875,16 @@ export class AgentService {
       projectPath: string | null
     }
   ): Promise<string> {
+    // Plan tools: mutate run state directly
     if (name === 'set_plan') {
       return this.executeSetPlan(run, args)
     }
     if (name === 'update_plan') {
       return this.executeUpdatePlan(run, args)
+    }
+
+    if (this.isBrowserTool(name)) {
+      run.browserIntentDetected = true
     }
 
     if (run.planEnforcement && this.isBrowserTool(name) && !run.plan?.length) {
@@ -1318,7 +900,7 @@ export class AgentService {
       !VERIFICATION_BROWSER_TOOLS.has(name)
     ) {
       return JSON.stringify({
-        error: 'VERIFY_LAST_ACTION_FIRST. Call browser_dom_map or browser_get_element_info, then update_plan before the next browser action.',
+        error: 'VERIFY_LAST_ACTION_FIRST. Call browser_dom_map, browser_get_element_info, browser_snapshot, or browser_console_logs, then update_plan before the next browser action.',
         lastBrowserAction: run.lastBrowserAction,
       })
     }
@@ -1334,272 +916,61 @@ export class AgentService {
       }
     }
 
-    switch (name) {
-      case 'list_tasks': {
-        const tasks = context.projectId
-          ? this.taskDAO.list(context.projectId, stringOrUndefined(args.status))
-          : this.taskDAO.listGlobal(stringOrUndefined(args.status))
-
-        return JSON.stringify(
-          tasks.slice(0, 30).map((task) => ({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-            priority: task.priority,
-            labels: task.labels,
-            description: task.description?.slice(0, 200),
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'create_task': {
-        const title = asString(args.title)
-        if (!title) return JSON.stringify({ error: 'title is required' })
-
-        const task = this.taskDAO.create({
-          projectId: context.projectId || '__global__',
-          title,
-          description: stringOrUndefined(args.description),
-          priority: numberOrUndefined(args.priority),
-          labels: stringArrayOrUndefined(args.labels),
-          isGlobal: !context.projectId,
-        })
-        return JSON.stringify({ success: true, id: task.id, title: task.title })
-      }
-
-      case 'update_task': {
-        const id = numberOrUndefined(args.id)
-        if (id === undefined) return JSON.stringify({ error: 'id is required' })
-
-        const updates = {
-          title: stringOrUndefined(args.title),
-          description: stringOrUndefined(args.description),
-          status: stringOrUndefined(args.status),
-          priority: numberOrUndefined(args.priority),
-          labels: stringArrayOrUndefined(args.labels),
-        }
-        const task = this.taskDAO.update(id, updates)
-        return task
-          ? JSON.stringify({ success: true, id: task.id, title: task.title, status: task.status })
-          : JSON.stringify({ error: 'Task not found' })
-      }
-
-      case 'search_code': {
-        if (!context.projectId) return JSON.stringify({ error: 'No project selected' })
-        if (!this.searchEngine) return JSON.stringify({ error: 'Search engine not ready yet' })
-        const query = asString(args.query)
-        if (!query) return JSON.stringify({ error: 'query is required' })
-
-        const results = await this.searchEngine.search(context.projectId, query, {
-          limit: numberOrUndefined(args.limit) ?? 5,
-        })
-        return JSON.stringify(
-          results.map((result) => ({
-            file: result.filePath,
-            symbol: result.symbolName,
-            type: result.chunkType,
-            lines: result.startLine && result.endLine ? `${result.startLine}-${result.endLine}` : null,
-            content: result.content.slice(0, 500),
-            score: result.score.toFixed(3),
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'list_notes': {
-        if (!context.projectId) return JSON.stringify({ error: 'No project selected' })
-        const notes = this.noteDAO.list(context.projectId, boolOrUndefined(args.pinned_only))
-        return JSON.stringify(
-          notes.slice(0, 20).map((note) => ({
-            id: note.id,
-            title: note.title,
-            pinned: note.pinned,
-            content: note.content.slice(0, 300),
-            updatedAt: note.updatedAt,
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'create_note': {
-        const title = asString(args.title)
-        const content = asString(args.content)
-        if (!title || !content) return JSON.stringify({ error: 'title and content are required' })
-
-        const note = this.noteDAO.create({
-          projectId: context.projectId || '__global__',
-          title,
-          content,
-          pinned: boolOrUndefined(args.pinned),
-          isGlobal: !context.projectId,
-        })
-        return JSON.stringify({ success: true, id: note.id, title: note.title })
-      }
-
-      case 'search_notes': {
-        if (!context.projectId) return JSON.stringify({ error: 'No project selected' })
-        const query = asString(args.query)
-        if (!query) return JSON.stringify({ error: 'query is required' })
-        const notes = this.noteDAO.searchFTS(context.projectId, query)
-        return JSON.stringify(
-          notes.slice(0, 10).map((note) => ({
-            id: note.id,
-            title: note.title,
-            content: note.content.slice(0, 300),
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'list_sessions': {
-        if (!context.projectId) return JSON.stringify({ error: 'No project selected' })
-        const sessions = this.sessionDAO.list(context.projectId)
-        return JSON.stringify(
-          sessions.slice(0, 15).map((session) => ({
-            id: session.id,
-            summary: session.summary?.slice(0, 200),
-            startedAt: session.startedAt,
-            model: session.model,
-            messageCount: session.messageCount,
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'search_sessions': {
-        const query = asString(args.query)
-        if (!query) return JSON.stringify({ error: 'query is required' })
-        const sessions = this.sessionDAO.searchFTS(query)
-        return JSON.stringify(
-          sessions.slice(0, 10).map((session) => ({
-            id: session.id,
-            summary: session.summary?.slice(0, 200),
-            startedAt: session.startedAt,
-            model: session.model,
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'git_status': {
-        if (!context.projectPath) return JSON.stringify({ error: 'No project path' })
-        return JSON.stringify(await this.gitService.status(context.projectPath))
-      }
-
-      case 'git_log': {
-        if (!context.projectPath) return JSON.stringify({ error: 'No project path' })
-        const log = await this.gitService.log(context.projectPath, {
-          limit: numberOrUndefined(args.limit) ?? 10,
-        })
-        return JSON.stringify(log, null, 2)
-      }
-
-      case 'git_diff': {
-        if (!context.projectPath) return JSON.stringify({ error: 'No project path' })
-        const diff = await this.gitService.diff(context.projectPath, {
-          staged: boolOrUndefined(args.staged),
-        })
-        return diff.slice(0, 8_000) || '(no changes)'
-      }
-
-      case 'list_projects': {
-        const projects = this.projectDAO.list()
-        return JSON.stringify(
-          projects.map((project) => ({
-            id: project.id,
-            name: project.name,
-            path: project.path,
-            lastOpened: project.lastOpened,
-          })),
-          null,
-          2
-        )
-      }
-
-      case 'read_file': {
-        const filePath = asString(args.path)
-        if (!filePath) return JSON.stringify({ error: 'path is required' })
-        const content = await fs.readFile(filePath, 'utf-8')
-        return content.slice(0, 8_000)
-      }
-
-      case 'browser_reset_session': {
-        const ses = session.fromPartition('persist:browser')
-        await ses.clearStorageData({
-          storages: ['cookies', 'localstorage', 'indexdb', 'serviceworkers', 'cachestorage'],
-        })
-        await ses.clearCache()
-        return JSON.stringify({ success: true, message: 'Browser session cleared: cookies, localStorage, indexedDB, service workers, cache storage, and HTTP cache.' })
-      }
-
-      case 'list_files': {
-        const dirPath = asString(args.path)
-        if (!dirPath) return JSON.stringify({ error: 'path is required' })
-
-        const entries = await fs.readdir(dirPath, { withFileTypes: true })
-        const mapped = await Promise.all(entries.slice(0, 500).map(async (entry) => {
-          const fullPath = path.join(dirPath, entry.name)
-          let size: number | undefined
-          if (entry.isFile()) {
-            try {
-              size = (await fs.stat(fullPath)).size
-            } catch {
-              size = undefined
-            }
-          }
-          return {
-            name: entry.name,
-            path: fullPath,
-            isDirectory: entry.isDirectory(),
-            size,
-          }
-        }))
-        return JSON.stringify(mapped, null, 2)
-      }
-
-      default: {
-        if (this.isBrowserTool(name)) {
-          // Check if destructive confirmation is required
-          if (
-            readConfig().browserConfirmDestructive &&
-            DESTRUCTIVE_BROWSER_TOOLS.has(name)
-          ) {
-            const confirmed = await this.requestConfirmation(run, name, args)
-            if (!confirmed) {
-              return JSON.stringify({ error: 'ACTION_DENIED_BY_USER' })
-            }
-          }
-
-          const result = await this.browserBridge.executeCommand({
-            tool: name,
-            args,
-            projectId: context.projectId,
-            timeoutMs: this.browserTimeoutForTool(name),
-          })
-
-          run.lastBrowserAction = name
-          run.awaitingVerification =
-            run.planEnforcement &&
-            name !== 'browser_dom_map' &&
-            name !== 'browser_get_element_info'
-          this.emitPlanUpdate(run)
-
-          return safeJsonStringify(result)
-        }
-
-        return JSON.stringify({ error: `Unknown tool: ${name}` })
-      }
+    // Browser reset: special Electron session handling
+    if (name === 'browser_reset_session') {
+      const ses = session.fromPartition('persist:browser')
+      await ses.clearStorageData({
+        storages: ['cookies', 'localstorage', 'indexdb', 'serviceworkers', 'cachestorage'],
+      })
+      await ses.clearCache()
+      return JSON.stringify({ success: true, message: 'Browser session cleared: cookies, localStorage, indexedDB, service workers, cache storage, and HTTP cache.' })
     }
+
+    // Registry-managed tools (data, git, file, codebase)
+    if (this.toolRegistry.has(name)) {
+      return this.toolRegistry.execute(name, context, args)
+    }
+
+    // Browser tools: route through BrowserBridge
+    if (this.isBrowserTool(name)) {
+      // Check if destructive confirmation is required
+      if (
+        readConfig().browserConfirmDestructive &&
+        DESTRUCTIVE_BROWSER_TOOLS.has(name)
+      ) {
+        const confirmed = await this.requestConfirmation(run, name, args)
+        if (!confirmed) {
+          return JSON.stringify({ error: 'ACTION_DENIED_BY_USER' })
+        }
+      }
+
+      const result = await this.browserBridge.executeCommand({
+        tool: name,
+        args,
+        projectId: context.projectId,
+        timeoutMs: this.browserTimeoutForTool(name),
+      })
+
+      run.lastBrowserAction = name
+      run.awaitingVerification =
+        run.planEnforcement &&
+        name !== 'browser_dom_map' &&
+        name !== 'browser_get_element_info'
+      this.emitPlanUpdate(run)
+
+      return safeJsonStringify(result)
+    }
+
+    return JSON.stringify({ error: `Unknown tool: ${name}` })
   }
 
   private executeSetPlan(run: ActiveRun, args: Record<string, unknown>): string {
+    if (!run.browserIntentDetected) {
+      return JSON.stringify({
+        error: 'PLAN_NOT_REQUIRED_YET. Only call set_plan immediately before browser actions. Skip it for code, git, notes, tasks, and file work.',
+      })
+    }
+
     const rawSteps = Array.isArray(args.steps) ? args.steps : []
     const steps = rawSteps
       .map((step) => {
@@ -1617,6 +988,7 @@ export class AgentService {
     }
 
     run.plan = steps.map((title) => ({ title, status: 'pending' }))
+    run.planScope = 'browser'
     run.awaitingVerification = false
     run.lastBrowserAction = null
 
@@ -1652,9 +1024,77 @@ export class AgentService {
     this.sendEvent(run, 'agent:planUpdate', {
       runId: run.id,
       plan: run.plan ?? [],
+      planScope: run.planScope,
       awaitingVerification: run.awaitingVerification,
       lastBrowserAction: run.lastBrowserAction,
     })
+  }
+
+  private detectBrowserIntent(input: string): boolean {
+    const lowered = input.toLowerCase()
+    const browserTerms = [
+      'browser',
+      'navigate',
+      'navega',
+      'navegue',
+      'site',
+      'pagina',
+      'página',
+      'screen',
+      'screenshot',
+      'print',
+      'visual',
+      'dom',
+      'form',
+      'formulario',
+      'formulário',
+      'login',
+      'click',
+      'clique',
+      'ui',
+      'ux',
+      'teste',
+      'test',
+    ]
+    return browserTerms.some((term) => lowered.includes(term))
+  }
+
+  private recordRunUsage(run: ActiveRun, usage: TokenUsage | null | undefined): void {
+    const normalized = normalizeUsage(usage)
+    if (!normalized) return
+
+    run.usage.callCount += 1
+    run.usage.lastCall = normalized
+    run.usage.total = sumUsage(run.usage.total, normalized)
+    run.usage.capturedAt = new Date().toISOString()
+
+    const snapshot = this.buildRunUsageSnapshot(run)
+    this.sendEvent(run, 'agent:usage', {
+      runId: run.id,
+      conversationId: run.conversationId,
+      callCount: snapshot?.callCount ?? run.usage.callCount,
+      lastCall: snapshot?.lastCall ?? normalized,
+      total: snapshot?.total ?? run.usage.total,
+      provider: run.provider,
+      model: run.model,
+      effortLevel: run.effortLevel,
+      capturedAt: snapshot?.capturedAt ?? run.usage.capturedAt,
+      source: snapshot?.source ?? normalized.source ?? 'provider',
+    })
+  }
+
+  private buildRunUsageSnapshot(run: ActiveRun): RunUsageSnapshot | null {
+    if (!run.usage.callCount || !run.usage.total) return null
+    return {
+      callCount: run.usage.callCount,
+      lastCall: run.usage.lastCall,
+      total: run.usage.total,
+      provider: run.provider,
+      model: run.model,
+      effortLevel: run.effortLevel,
+      capturedAt: run.usage.capturedAt,
+      source: run.usage.total.source ?? 'provider',
+    }
   }
 
   private isBrowserTool(name: string): boolean {
@@ -1700,6 +1140,73 @@ function normalizeAssistantContent(content: unknown): string {
     .join('')
 }
 
+function normalizeUsage(usage: TokenUsage | null | undefined): TokenUsage | null {
+  if (!usage) return null
+  const prompt_tokens = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0
+  const completion_tokens = typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0
+  const total_tokens = typeof usage.total_tokens === 'number'
+    ? usage.total_tokens
+    : prompt_tokens + completion_tokens
+  const cache_read_tokens = typeof usage.cache_read_tokens === 'number' ? usage.cache_read_tokens : 0
+  const cache_write_tokens = typeof usage.cache_write_tokens === 'number' ? usage.cache_write_tokens : 0
+  const reasoning_tokens = typeof usage.reasoning_tokens === 'number' ? usage.reasoning_tokens : 0
+
+  if (
+    prompt_tokens === 0 &&
+    completion_tokens === 0 &&
+    total_tokens === 0 &&
+    cache_read_tokens === 0 &&
+    cache_write_tokens === 0 &&
+    reasoning_tokens === 0
+  ) {
+    return null
+  }
+
+  return {
+    prompt_tokens,
+    completion_tokens,
+    total_tokens,
+    cache_read_tokens,
+    cache_write_tokens,
+    reasoning_tokens,
+    source: usage.source ?? 'provider',
+  }
+}
+
+function sumUsage(base: TokenUsage | null, extra: TokenUsage): TokenUsage {
+  return {
+    prompt_tokens: (base?.prompt_tokens ?? 0) + (extra.prompt_tokens ?? 0),
+    completion_tokens: (base?.completion_tokens ?? 0) + (extra.completion_tokens ?? 0),
+    total_tokens: (base?.total_tokens ?? 0) + (extra.total_tokens ?? 0),
+    cache_read_tokens: (base?.cache_read_tokens ?? 0) + (extra.cache_read_tokens ?? 0),
+    cache_write_tokens: (base?.cache_write_tokens ?? 0) + (extra.cache_write_tokens ?? 0),
+    reasoning_tokens: (base?.reasoning_tokens ?? 0) + (extra.reasoning_tokens ?? 0),
+    source: base?.source === extra.source ? (base?.source ?? 'provider') : extra.source ?? base?.source ?? 'provider',
+  }
+}
+
+function parseUsageJson<T>(value: unknown): T | null {
+  if (typeof value !== 'string' || value.length === 0) return null
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return null
+  }
+}
+
+function hydrateChatMessageRow(row: Record<string, unknown>): ChatMessage {
+  const hydrated = { ...row } as ChatMessage & Record<string, unknown>
+  hydrated.responseUsage = parseUsageJson<TokenUsage>(row.responseUsageJson)
+  hydrated.runUsage = parseUsageJson<RunUsageSnapshot>(row.runUsageJson)
+  hydrated.provider = typeof row.provider === 'string' ? row.provider : null
+  hydrated.model = typeof row.model === 'string' ? row.model : null
+  hydrated.effortLevel = typeof row.effortLevel === 'string' ? row.effortLevel as ChatEffortLevel : null
+  hydrated.usageCapturedAt = typeof row.usageCapturedAt === 'string' ? row.usageCapturedAt : null
+  delete hydrated.responseUsageJson
+  delete hydrated.runUsageJson
+  return hydrated
+}
+
 function parseJsonObject(value: unknown): Record<string, unknown> {
   if (typeof value !== 'string') return {}
   try {
@@ -1722,10 +1229,6 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
-function stringOrUndefined(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
-
 function numberOrUndefined(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim()) {
@@ -1733,16 +1236,6 @@ function numberOrUndefined(value: unknown): number | undefined {
     if (Number.isFinite(parsed)) return parsed
   }
   return undefined
-}
-
-function boolOrUndefined(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined
-}
-
-function stringArrayOrUndefined(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const strings = value.filter((item): item is string => typeof item === 'string')
-  return strings.length > 0 ? strings : undefined
 }
 
 function isAbortError(error: unknown): boolean {

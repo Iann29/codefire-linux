@@ -132,6 +132,70 @@ export class ChunkDAO {
       .get(projectId) as { count: number }
     return row.count
   }
+
+  findBySymbol(
+    projectId: string,
+    query: string,
+    options?: { limit?: number; types?: string[] }
+  ): CodeChunk[] {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) return []
+
+    const limit = options?.limit && options.limit > 0 ? options.limit : 20
+    const types = options?.types?.filter((item) => item.trim().length > 0) ?? []
+    const typeClause = types.length > 0
+      ? ` AND chunkType IN (${types.map(() => '?').join(', ')})`
+      : ''
+
+    const sql = `
+      SELECT *
+      FROM codeChunks
+      WHERE projectId = ?
+        AND symbolName IS NOT NULL
+        AND (
+          lower(symbolName) = ?
+          OR lower(symbolName) LIKE ?
+          OR lower(symbolName) LIKE ?
+          OR lower(symbolName) LIKE ?
+          OR lower(symbolName) LIKE ?
+        )
+        ${typeClause}
+      ORDER BY
+        CASE
+          WHEN lower(symbolName) = ? THEN 0
+          WHEN lower(symbolName) LIKE ? THEN 1
+          WHEN lower(symbolName) LIKE ? THEN 2
+          WHEN lower(symbolName) LIKE ? THEN 3
+          ELSE 4
+        END,
+        LENGTH(symbolName),
+        COALESCE(startLine, 0)
+      LIMIT ?
+    `
+
+    const exact = normalized
+    const qualifiedExact = `%.${normalized}`
+    const prefix = `${normalized}%`
+    const memberPrefix = `%.${normalized}%`
+    const contains = `%${normalized}%`
+
+    return this.db
+      .prepare(sql)
+      .all(
+        projectId,
+        exact,
+        qualifiedExact,
+        prefix,
+        memberPrefix,
+        contains,
+        ...types,
+        exact,
+        qualifiedExact,
+        prefix,
+        contains,
+        limit
+      ) as CodeChunk[]
+  }
 }
 
 /**

@@ -4,7 +4,7 @@ import { ProviderRouter } from '../services/providers/ProviderRouter'
 import { OAuthEngine } from '../services/providers/OAuthEngine'
 import { TokenStore } from '../services/providers/TokenStore'
 import { readConfig } from '../services/ConfigStore'
-import type { ChatAttachment } from '@shared/models'
+import type { ChatAttachment, ChatEffortLevel } from '@shared/models'
 
 const providerRouter = new ProviderRouter()
 const tokenStore = new TokenStore()
@@ -66,6 +66,7 @@ export function registerAgentHandlers(agentService: AgentService): void {
       maxIterations?: number
       maxToolCalls?: number
       temperature?: number
+      effortLevel?: ChatEffortLevel
       planEnforcement?: boolean
       contextCompaction?: boolean
       attachments?: ChatAttachment[]
@@ -79,6 +80,7 @@ export function registerAgentHandlers(agentService: AgentService): void {
         apiKey: payload.apiKey,
         maxIterations: payload.maxIterations ?? payload.maxToolCalls,
         temperature: payload.temperature,
+        effortLevel: payload.effortLevel,
         planEnforcement: payload.planEnforcement,
         contextCompaction: payload.contextCompaction,
         senderWebContentsId: _event.sender.id,
