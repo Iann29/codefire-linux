@@ -315,10 +315,14 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
-  if (fileWatcher) fileWatcher.unwatchAll()
-  if (liveWatcher) liveWatcher.stop()
-  if (browserExecutor) browserExecutor.stop()
-  trayManager.destroy()
-  terminalService?.killAll()
-  closeDatabase()
+
+  // Each cleanup step is wrapped individually so a failure in one
+  // does not prevent the remaining resources from being released.
+  try { if (fileWatcher) fileWatcher.unwatchAll() } catch (e) { console.error('[Quit] fileWatcher cleanup failed:', e) }
+  try { if (liveWatcher) liveWatcher.stop() } catch (e) { console.error('[Quit] liveWatcher cleanup failed:', e) }
+  try { if (browserExecutor) browserExecutor.stop() } catch (e) { console.error('[Quit] browserExecutor cleanup failed:', e) }
+  try { trayManager.destroy() } catch (e) { console.error('[Quit] trayManager cleanup failed:', e) }
+  try { terminalService?.killAll() } catch (e) { console.error('[Quit] terminalService cleanup failed:', e) }
+  try { windowManager.closeAll() } catch (e) { console.error('[Quit] windowManager cleanup failed:', e) }
+  try { closeDatabase() } catch (e) { console.error('[Quit] closeDatabase failed:', e) }
 })

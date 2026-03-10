@@ -201,6 +201,36 @@ describe('TerminalService', () => {
     it('handles empty service gracefully', () => {
       expect(() => service.killAll()).not.toThrow()
     })
+
+    it('continues killing remaining sessions when one kill throws', () => {
+      service.create('test-1', '/tmp/project1')
+      service.create('test-2', '/tmp/project2')
+      service.create('test-3', '/tmp/project3')
+
+      const pty1 = mockPty.spawn.mock.results[0].value
+      const pty2 = mockPty.spawn.mock.results[1].value
+      const pty3 = mockPty.spawn.mock.results[2].value
+
+      // Make the second PTY throw on kill
+      pty2.kill.mockImplementation(() => {
+        throw new Error('PTY already dead')
+      })
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      expect(() => service.killAll()).not.toThrow()
+
+      // All three should have been attempted
+      expect(pty1.kill).toHaveBeenCalledOnce()
+      expect(pty2.kill).toHaveBeenCalledOnce()
+      expect(pty3.kill).toHaveBeenCalledOnce()
+      // Map should be cleared even though one kill threw
+      expect(service.has('test-1')).toBe(false)
+      expect(service.has('test-2')).toBe(false)
+      expect(service.has('test-3')).toBe(false)
+
+      consoleSpy.mockRestore()
+    })
   })
 
   // ─── has ────────────────────────────────────────────────────────────────

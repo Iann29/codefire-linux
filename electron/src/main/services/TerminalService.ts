@@ -103,17 +103,27 @@ export class TerminalService {
   kill(id: string): void {
     const session = this.sessions.get(id)
     if (session) {
-      session.pty.kill()
+      try {
+        session.pty.kill()
+      } catch (err) {
+        console.error(`[TerminalService] Failed to kill PTY ${id}:`, err)
+      }
       this.sessions.delete(id)
     }
   }
 
   /**
    * Kill all PTY sessions. Called on app quit.
+   * Each kill is wrapped in try/catch so a single failure doesn't prevent
+   * cleanup of remaining sessions.
    */
   killAll(): void {
     for (const session of this.sessions.values()) {
-      session.pty.kill()
+      try {
+        session.pty.kill()
+      } catch (err) {
+        console.error(`[TerminalService] Failed to kill PTY ${session.id}:`, err)
+      }
     }
     this.sessions.clear()
   }

@@ -189,14 +189,14 @@ export default function TerminalTab({ terminalId, isActive, isVisible, gridMode,
   return (
     <div
       ref={containerRef}
-      className="h-full w-full overflow-hidden"
+      className="h-full w-full"
       style={{
         display: shouldShow ? 'block' : 'none',
         backgroundColor: '#171717',
         ...(gridMode && isActive ? { boxShadow: 'inset 0 0 0 1px rgba(184,173,207,0.4)' } : {}),
       }}
       onMouseDown={() => {
-        if (gridMode && onActivate) onActivate()
+        if (gridMode && !isActive && onActivate) onActivate()
       }}
     />
   )

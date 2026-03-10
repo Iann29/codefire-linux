@@ -26,7 +26,6 @@ export const chatComposerStore = {
   consumeAttachments(): ChatAttachment[] {
     const result = _pendingAttachments
     _pendingAttachments = []
-    notify()
     return result
   },
 
