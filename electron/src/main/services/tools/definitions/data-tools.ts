@@ -12,6 +12,28 @@ import type { ProjectDAO } from '@main/database/dao/ProjectDAO'
 import type { ToolDefinition, ToolExecutionContext } from '../ToolContracts'
 
 // ---------------------------------------------------------------------------
+// Priority mapping — single source of truth
+// ---------------------------------------------------------------------------
+
+const PRIORITY_LABEL_TO_NUM: Record<string, number> = {
+  none: 0,
+  low: 1,
+  medium: 2,
+  med: 2,
+  high: 3,
+  urgent: 4,
+  critical: 4,
+}
+
+const PRIORITY_NUM_TO_LABEL: Record<number, string> = {
+  0: 'none',
+  1: 'low',
+  2: 'medium',
+  3: 'high',
+  4: 'urgent',
+}
+
+// ---------------------------------------------------------------------------
 // Arg-parsing helpers (local copies — no imports from AgentService)
 // ---------------------------------------------------------------------------
 
@@ -42,6 +64,47 @@ function stringArrayOrUndefined(v: unknown): string[] | undefined {
   return s.length > 0 ? s : undefined
 }
 
+/**
+ * Parse priority from either a number or a string label.
+ * Accepts: 0-4, "none", "low", "medium", "med", "high", "urgent", "critical"
+ */
+function parsePriority(v: unknown): number | undefined {
+  // Try as number first
+  const num = numberOrUndefined(v)
+  if (num !== undefined && num >= 0 && num <= 4) return Math.round(num)
+
+  // Try as string label
+  if (typeof v === 'string') {
+    const label = v.trim().toLowerCase()
+    const mapped = PRIORITY_LABEL_TO_NUM[label]
+    if (mapped !== undefined) return mapped
+  }
+
+  return undefined
+}
+
+/**
+ * Format a task for tool output with human-readable fields.
+ */
+function formatTask(task: {
+  id: number
+  title: string
+  status: string
+  priority: number
+  labels: string | null
+  description?: string | null
+}) {
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    priorityLabel: PRIORITY_NUM_TO_LABEL[task.priority] ?? 'none',
+    labels: task.labels,
+    description: task.description?.slice(0, 200) ?? null,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -58,11 +121,17 @@ export function createDataTools(deps: {
     // ----- list_tasks -----
     {
       name: 'list_tasks',
-      description: 'List tasks for the current project or globally.',
+      description:
+        'List tasks for the current project or globally. ' +
+        'Priority levels: 0=none, 1=low, 2=medium, 3=high, 4=urgent. ' +
+        'The response includes both numeric priority and a priorityLabel string.',
       schema: {
         type: 'object',
         properties: {
-          status: { type: 'string', description: 'Filter tasks by status.' },
+          status: {
+            type: 'string',
+            description: 'Filter by status: "todo", "in_progress", or "done".',
+          },
         },
       },
       category: 'task',
@@ -73,14 +142,7 @@ export function createDataTools(deps: {
           : taskDAO.listGlobal(stringOrUndefined(args.status))
 
         return JSON.stringify(
-          tasks.slice(0, 30).map((task) => ({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-            priority: task.priority,
-            labels: task.labels,
-            description: task.description?.slice(0, 200),
-          })),
+          tasks.slice(0, 30).map(formatTask),
           null,
           2,
         )
@@ -90,13 +152,18 @@ export function createDataTools(deps: {
     // ----- create_task -----
     {
       name: 'create_task',
-      description: 'Create a new task in the current project.',
+      description:
+        'Create a new task in the current project. ' +
+        'Priority accepts a number (0-4) or a label: "none", "low", "medium", "high", "urgent".',
       schema: {
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Task title.' },
           description: { type: 'string', description: 'Task description.' },
-          priority: { type: 'number', description: 'Task priority.' },
+          priority: {
+            type: 'string',
+            description: 'Priority: 0/none, 1/low, 2/medium, 3/high, 4/urgent. Accepts number or label.',
+          },
           labels: { type: 'array', items: { type: 'string' }, description: 'Task labels.' },
         },
         required: ['title'],
@@ -111,26 +178,38 @@ export function createDataTools(deps: {
           projectId: ctx.projectId || '__global__',
           title,
           description: stringOrUndefined(args.description),
-          priority: numberOrUndefined(args.priority),
+          priority: parsePriority(args.priority),
           labels: stringArrayOrUndefined(args.labels),
           isGlobal: !ctx.projectId,
         })
-        return JSON.stringify({ success: true, id: task.id, title: task.title })
+        return JSON.stringify({
+          success: true,
+          ...formatTask(task),
+        })
       },
     },
 
     // ----- update_task -----
     {
       name: 'update_task',
-      description: 'Update an existing task by ID.',
+      description:
+        'Update an existing task by ID. Returns the full updated task. ' +
+        'Priority accepts a number (0-4) or a label: "none", "low", "medium", "high", "urgent". ' +
+        'Status accepts: "todo", "in_progress", "done".',
       schema: {
         type: 'object',
         properties: {
           id: { type: 'number', description: 'Task ID.' },
           title: { type: 'string', description: 'New title.' },
           description: { type: 'string', description: 'New description.' },
-          status: { type: 'string', description: 'New status.' },
-          priority: { type: 'number', description: 'New priority.' },
+          status: {
+            type: 'string',
+            description: 'New status: "todo", "in_progress", or "done".',
+          },
+          priority: {
+            type: 'string',
+            description: 'New priority: 0/none, 1/low, 2/medium, 3/high, 4/urgent. Accepts number or label.',
+          },
           labels: { type: 'array', items: { type: 'string' }, description: 'New labels.' },
         },
         required: ['id'],
@@ -141,17 +220,26 @@ export function createDataTools(deps: {
         const id = numberOrUndefined(args.id)
         if (id === undefined) return JSON.stringify({ error: 'id is required' })
 
+        const priority = parsePriority(args.priority)
+
+        // Warn if priority was provided but couldn't be parsed
+        if (args.priority !== undefined && priority === undefined) {
+          return JSON.stringify({
+            error: `Invalid priority value: ${JSON.stringify(args.priority)}. Use 0-4 or "none"/"low"/"medium"/"high"/"urgent".`,
+          })
+        }
+
         const updates = {
           title: stringOrUndefined(args.title),
           description: stringOrUndefined(args.description),
           status: stringOrUndefined(args.status),
-          priority: numberOrUndefined(args.priority),
+          priority,
           labels: stringArrayOrUndefined(args.labels),
         }
         const task = taskDAO.update(id, updates)
         return task
-          ? JSON.stringify({ success: true, id: task.id, title: task.title, status: task.status })
-          : JSON.stringify({ error: 'Task not found' })
+          ? JSON.stringify({ success: true, ...formatTask(task) })
+          : JSON.stringify({ error: `Task with id ${id} not found` })
       },
     },
 
