@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { MessageCircle, GripVertical } from 'lucide-react'
+import { MessageCircle, GripVertical, LayoutGrid } from 'lucide-react'
 import TerminalTab from './TerminalTab'
 
 interface TerminalPanelProps {
@@ -41,6 +41,7 @@ function createTabId(projectId: string): string {
 export default function TerminalPanel({ projectId, projectPath, showChat, onToggleChat, terminalOnLeft, onSwapPanels }: TerminalPanelProps) {
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [gridMode, setGridMode] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
     x: number
     y: number
@@ -48,6 +49,12 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
   } | null>(null)
   const mountedRef = useRef(false)
   const [terminalAvailable, setTerminalAvailable] = useState<boolean | null>(null)
+
+  // Grid: first 4 tabs are visible in grid mode
+  const gridTabIds = gridMode ? tabs.slice(0, 4).map((t) => t.id) : []
+
+  // Adaptive grid rows: 1 row for ≤2 terminals, 2 rows for 3-4
+  const gridRows = gridMode && gridTabIds.length <= 2 ? '1fr' : '1fr 1fr'
 
   // ─── Create a new terminal tab ──────────────────────────────────────────
   const addTab = useCallback(async () => {
@@ -80,6 +87,38 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
     },
     [activeTabId]
   )
+
+  // ─── Auto-disable grid mode when conditions aren't met ────────────────────
+  useEffect(() => {
+    if (!gridMode) return
+    // Need at least 2 tabs for grid
+    if (tabs.length < 2) {
+      setGridMode(false)
+      return
+    }
+    // If active tab isn't in the grid (first 4), exit grid mode
+    if (activeTabId) {
+      const first4 = tabs.slice(0, 4).map((t) => t.id)
+      if (!first4.includes(activeTabId)) {
+        setGridMode(false)
+      }
+    }
+  }, [gridMode, activeTabId, tabs])
+
+  // ─── Toggle grid view ───────────────────────────────────────────────────
+  const toggleGridMode = useCallback(() => {
+    if (!gridMode) {
+      const first4 = tabs.slice(0, 4)
+      if (first4.length < 2) return
+      // Ensure active tab is in the grid
+      if (activeTabId && !first4.some((t) => t.id === activeTabId)) {
+        setActiveTabId(first4[0].id)
+      }
+      setGridMode(true)
+    } else {
+      setGridMode(false)
+    }
+  }, [gridMode, tabs, activeTabId])
 
   // ─── Check availability and create first tab on mount ────────────────────
   useEffect(() => {
@@ -194,7 +233,13 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
                     : 'bg-[#0a0a0a] text-[#737373] hover:text-[#a3a3a3] hover:bg-[#0f0f0f]'
                 }
               `}
-              onClick={() => setActiveTabId(tab.id)}
+              onClick={() => {
+                if (gridMode) {
+                  const first4 = tabs.slice(0, 4).map((t) => t.id)
+                  if (!first4.includes(tab.id)) setGridMode(false)
+                }
+                setActiveTabId(tab.id)
+              }}
               onAuxClick={(e) => {
                 // Middle-click to close
                 if (e.button === 1) {
@@ -233,6 +278,21 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
           <span className="text-lg leading-none">+</span>
         </button>
 
+        {/* Grid view toggle */}
+        <div className="w-px h-4 bg-[#262626]" />
+        <button
+          className={`flex items-center justify-center w-9 h-9 transition-colors ${
+            gridMode
+              ? 'text-[#b8adcf] bg-[#b8adcf]/10'
+              : 'text-[#737373] hover:text-[#e5e5e5] hover:bg-[#1a1a1a]'
+          } ${tabs.length < 2 ? 'opacity-30 cursor-not-allowed' : ''}`}
+          onClick={toggleGridMode}
+          title={gridMode ? 'Single terminal view' : 'Grid view (2×2)'}
+          disabled={tabs.length < 2}
+        >
+          <LayoutGrid size={14} />
+        </button>
+
         {/* Chat Mode toggle */}
         {onToggleChat && (
           <>
@@ -254,12 +314,18 @@ export default function TerminalPanel({ projectId, projectPath, showChat, onTogg
       </div>
 
       {/* ─── Terminal Content ──────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 relative">
+      <div
+        className={`flex-1 min-h-0 ${gridMode ? 'grid grid-cols-2 gap-px bg-[#262626]' : 'relative'}`}
+        style={gridMode ? { gridTemplateRows: gridRows } : undefined}
+      >
         {tabs.map((tab) => (
           <TerminalTab
             key={tab.id}
             terminalId={tab.id}
             isActive={tab.id === activeTabId}
+            isVisible={gridMode ? gridTabIds.includes(tab.id) : tab.id === activeTabId}
+            gridMode={gridMode}
+            onActivate={() => setActiveTabId(tab.id)}
           />
         ))}
       </div>

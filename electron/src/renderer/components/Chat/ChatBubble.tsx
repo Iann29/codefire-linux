@@ -147,16 +147,39 @@ export default function ChatBubble({
             alt="Full size"
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
           />
-          <button
-            className="absolute top-4 right-4 p-2 rounded-full bg-neutral-800/80 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors"
-            onClick={() => setLightboxUrl(null)}
-          >
-            <X size={18} />
-          </button>
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <button
+              className="p-2 rounded-full bg-neutral-800/80 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors"
+              title="Save to Downloads"
+              onClick={(e) => {
+                e.stopPropagation()
+                downloadDataUrl(lightboxUrl)
+              }}
+            >
+              <Download size={18} />
+            </button>
+            <button
+              className="p-2 rounded-full bg-neutral-800/80 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors"
+              onClick={() => setLightboxUrl(null)}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
       )}
     </div>
   )
+}
+
+// ─── Download helper ─────────────────────────────────────────────────────────
+
+function downloadDataUrl(dataUrl: string) {
+  const link = document.createElement('a')
+  link.href = dataUrl
+  link.download = `screenshot-${Date.now()}.png`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 // ─── ActionButton ────────────────────────────────────────────────────────────
