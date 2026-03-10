@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Plus } from 'lucide-react'
@@ -14,7 +14,7 @@ interface KanbanColumnProps {
   onAddTask: (title: string) => void
 }
 
-export default function KanbanColumn({
+export default memo(function KanbanColumn({
   id,
   title,
   tasks,
@@ -37,7 +37,7 @@ export default function KanbanColumn({
 
   return (
     <div
-      className={`flex flex-col bg-neutral-900 rounded-cf border transition-colors min-h-0
+      className={`flex flex-col bg-neutral-900 rounded-cf border min-h-0
         ${isOver ? 'border-codefire-orange/50 bg-neutral-800/30' : 'border-neutral-800'}`}
     >
       {/* Column header */}
@@ -46,7 +46,7 @@ export default function KanbanColumn({
         <span className="text-sm text-neutral-300 font-medium">{title}</span>
         <span className="text-xs text-neutral-500 ml-auto">{tasks.length}</span>
         <button
-          className="text-neutral-500 hover:text-codefire-orange transition-colors"
+          className="text-neutral-500 hover:text-codefire-orange"
           onClick={() => setShowInput(true)}
         >
           <Plus size={14} />
@@ -79,7 +79,7 @@ export default function KanbanColumn({
       )}
 
       {/* Task list */}
-      <div ref={setNodeRef} className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[60px]">
+      <div ref={setNodeRef} className="flex-1 overflow-y-auto p-2 space-y-1.5 min-h-[60px]">
         <SortableContext
           items={tasks.map((t) => String(t.id))}
           strategy={verticalListSortingStrategy}
@@ -101,4 +101,4 @@ export default function KanbanColumn({
       </div>
     </div>
   )
-}
+})

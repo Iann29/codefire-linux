@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTasks } from '@renderer/hooks/useTasks'
 import KanbanBoard from '@renderer/components/Kanban/KanbanBoard'
@@ -20,6 +20,13 @@ export default function TasksView({ projectId }: TasksViewProps) {
     updateTask,
     deleteTask,
   } = useTasks(projectId)
+
+  // Memoize sorted arrays to avoid re-creating on every render
+  const sortedTodo = useMemo(() => sortTasks(todoTasks, sort), [todoTasks, sort])
+  const sortedInProgress = useMemo(() => sortTasks(inProgressTasks, sort), [inProgressTasks, sort])
+  const sortedDone = useMemo(() => sortTasks(doneTasks, sort), [doneTasks, sort])
+
+  const totalCount = todoTasks.length + inProgressTasks.length + doneTasks.length
 
   if (loading) {
     return (
@@ -44,16 +51,16 @@ export default function TasksView({ projectId }: TasksViewProps) {
         <div className="flex items-center gap-3">
           <SortControls sort={sort} onChange={setSort} />
           <span className="text-xs text-neutral-500">
-            {todoTasks.length + inProgressTasks.length + doneTasks.length} total
+            {totalCount} total
           </span>
         </div>
       </div>
 
       <div className="flex-1 min-h-0">
         <KanbanBoard
-          todoTasks={sortTasks(todoTasks, sort)}
-          inProgressTasks={sortTasks(inProgressTasks, sort)}
-          doneTasks={sortTasks(doneTasks, sort)}
+          todoTasks={sortedTodo}
+          inProgressTasks={sortedInProgress}
+          doneTasks={sortedDone}
           onUpdateTask={updateTask}
           onDeleteTask={deleteTask}
           onAddTask={createTask}

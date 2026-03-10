@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { TaskItem, TaskNote } from '@shared/models'
 import { api } from '@renderer/lib/api'
 
@@ -30,10 +30,14 @@ export function useTasks(projectId: string) {
       if (status && status !== 'todo') {
         await api.tasks.update(task.id, { status })
       }
-      await fetchTasks()
+      // Optimistic: append new task locally
+      setTasks((prev) => [
+        ...prev,
+        { ...task, status: status || 'todo' } as TaskItem,
+      ])
       return task
     },
-    [projectId, fetchTasks]
+    [projectId]
   )
 
   const updateTask = useCallback(
@@ -47,24 +51,45 @@ export function useTasks(projectId: string) {
         labels?: string[]
       }
     ) => {
-      await api.tasks.update(id, data)
-      await fetchTasks()
+      // Optimistic update — apply changes immediately
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const updated = { ...t, ...data }
+          if (data.labels) {
+            updated.labels = JSON.stringify(data.labels) as unknown as string
+          }
+          return updated as TaskItem
+        })
+      )
+      try {
+        await api.tasks.update(id, data)
+      } catch {
+        // Rollback on failure
+        await fetchTasks()
+      }
     },
     [fetchTasks]
   )
 
   const deleteTask = useCallback(
     async (id: number) => {
-      await api.tasks.delete(id)
-      await fetchTasks()
+      // Optimistic: remove immediately
+      setTasks((prev) => prev.filter((t) => t.id !== id))
+      try {
+        await api.tasks.delete(id)
+      } catch {
+        // Rollback on failure
+        await fetchTasks()
+      }
     },
     [fetchTasks]
   )
 
-  // Group tasks by status
-  const todoTasks = tasks.filter((t) => t.status === 'todo')
-  const inProgressTasks = tasks.filter((t) => t.status === 'in_progress')
-  const doneTasks = tasks.filter((t) => t.status === 'done')
+  // Memoize grouped tasks to avoid new arrays every render
+  const todoTasks = useMemo(() => tasks.filter((t) => t.status === 'todo'), [tasks])
+  const inProgressTasks = useMemo(() => tasks.filter((t) => t.status === 'in_progress'), [tasks])
+  const doneTasks = useMemo(() => tasks.filter((t) => t.status === 'done'), [tasks])
 
   return {
     tasks,

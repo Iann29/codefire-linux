@@ -1,12 +1,13 @@
+import { memo } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { MessageSquare, GripVertical } from 'lucide-react'
+import { GripVertical } from 'lucide-react'
 import type { TaskItem } from '@shared/models'
 
 interface TaskCardProps {
   task: TaskItem
   onClick: () => void
   noteCount?: number
+  isDragOverlay?: boolean
 }
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -33,20 +34,22 @@ function parseLabels(labels: string | null): string[] {
   }
 }
 
-export default function TaskCard({ task, onClick, noteCount = 0 }: TaskCardProps) {
+export default memo(function TaskCard({ task, onClick, noteCount = 0, isDragOverlay }: TaskCardProps) {
   const {
     attributes,
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
   } = useSortable({ id: String(task.id) })
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
+  // Only apply transform, no CSS transition — eliminates hover flicker
+  const style: React.CSSProperties = {
+    transform: transform
+      ? `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)`
+      : undefined,
+    opacity: isDragging ? 0.3 : 1,
+    pointerEvents: isDragging ? 'none' : undefined,
   }
 
   const labels = parseLabels(task.labels)
@@ -54,18 +57,22 @@ export default function TaskCard({ task, onClick, noteCount = 0 }: TaskCardProps
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`bg-neutral-800 border border-neutral-700/50 rounded-cf p-2.5
-        hover:border-neutral-600 transition-colors cursor-pointer group
-        ${isDragging ? 'shadow-lg ring-1 ring-codefire-orange/30' : ''}`}
-      onClick={onClick}
+      style={isDragOverlay ? undefined : style}
+      className={`bg-neutral-800 border rounded-cf p-2.5 cursor-pointer group select-none
+        ${isDragOverlay
+          ? 'border-codefire-orange/40 shadow-lg shadow-black/40 ring-1 ring-codefire-orange/20'
+          : isDragging
+            ? 'border-neutral-700/30'
+            : 'border-neutral-700/50 hover:border-neutral-600'
+        }`}
+      onClick={isDragging ? undefined : onClick}
     >
       <div className="flex items-start gap-1.5">
         {/* Drag handle */}
         <button
           {...attributes}
           {...listeners}
-          className="mt-0.5 text-neutral-600 hover:text-neutral-400 cursor-grab active:cursor-grabbing shrink-0"
+          className="mt-0.5 text-neutral-600 hover:text-neutral-400 cursor-grab active:cursor-grabbing shrink-0 touch-none"
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical size={14} />
@@ -75,33 +82,34 @@ export default function TaskCard({ task, onClick, noteCount = 0 }: TaskCardProps
           <div className="text-sm text-neutral-200 leading-snug">{task.title}</div>
 
           {/* Priority + Labels row */}
-          <div className="flex items-center flex-wrap gap-1 mt-1.5">
-            {task.priority > 0 && (
-              <span
-                className={`text-xs px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[task.priority] || ''}`}
-              >
-                {PRIORITY_LABELS[task.priority] || `P${task.priority}`}
-              </span>
-            )}
-            {labels.map((label) => (
-              <span
-                key={label}
-                className="text-xs px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400 border border-neutral-600/50"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
+          {(task.priority > 0 || labels.length > 0) && (
+            <div className="flex items-center flex-wrap gap-1 mt-1.5">
+              {task.priority > 0 && (
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded border ${PRIORITY_COLORS[task.priority] || ''}`}
+                >
+                  {PRIORITY_LABELS[task.priority] || `P${task.priority}`}
+                </span>
+              )}
+              {labels.map((label) => (
+                <span
+                  key={label}
+                  className="text-xs px-1.5 py-0.5 rounded bg-neutral-700 text-neutral-400 border border-neutral-600/50"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* Note count */}
           {noteCount > 0 && (
             <div className="flex items-center gap-1 mt-1.5 text-xs text-neutral-500">
-              <MessageSquare size={10} />
-              <span>{noteCount}</span>
+              <span>{noteCount} notes</span>
             </div>
           )}
         </div>
       </div>
     </div>
   )
-}
+})

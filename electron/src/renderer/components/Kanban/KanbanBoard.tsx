@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import {
   DndContext,
   type DragEndEvent,
+  type DragStartEvent,
+  DragOverlay,
   PointerSensor,
   useSensor,
   useSensors,
-  closestCorners,
+  closestCenter,
 } from '@dnd-kit/core'
 import type { TaskItem } from '@shared/models'
 import KanbanColumn from './KanbanColumn'
 import TaskDetailSheet from './TaskDetailSheet'
+import TaskCard from './TaskCard'
 
 interface KanbanBoardProps {
   todoTasks: TaskItem[]
@@ -44,12 +47,15 @@ export default function KanbanBoard({
   onAddTask,
 }: KanbanBoardProps) {
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null)
+  const [activeTask, setActiveTask] = useState<TaskItem | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
+      activationConstraint: { distance: 8 },
     })
   )
+
+  const allTasks = [...todoTasks, ...inProgressTasks, ...doneTasks]
 
   const getTasksForColumn = (columnId: string): TaskItem[] => {
     switch (columnId) {
@@ -72,7 +78,13 @@ export default function KanbanBoard({
     return null
   }
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const task = allTasks.find((t) => String(t.id) === String(event.active.id))
+    setActiveTask(task ?? null)
+  }, [allTasks])
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    setActiveTask(null)
     const { active, over } = event
     if (!over) return
 
@@ -90,13 +102,19 @@ export default function KanbanBoard({
     if (!targetColumn || targetColumn === sourceColumn) return
 
     await onUpdateTask(taskId, { status: targetColumn })
-  }
+  }, [todoTasks, inProgressTasks, doneTasks, onUpdateTask])
+
+  const handleDragCancel = useCallback(() => {
+    setActiveTask(null)
+  }, [])
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div className="flex h-full p-3 gap-3">
         <div className="flex-1 grid grid-cols-3 gap-3 min-h-0 min-w-0">
@@ -134,6 +152,17 @@ export default function KanbanBoard({
           />
         )}
       </div>
+
+      {/* Drag overlay — renders a floating copy of the card being dragged */}
+      <DragOverlay dropAnimation={null}>
+        {activeTask ? (
+          <TaskCard
+            task={activeTask}
+            onClick={() => {}}
+            isDragOverlay
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   )
 }
