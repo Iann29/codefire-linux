@@ -1,6 +1,6 @@
 {
   "name": "pinyino",
-  "version": "1.16.2",
+  "version": "1.17.0",
   "description": "Pinyino — Linux companion for AI coding CLIs",
   "main": "dist-electron/main/index.js",
   "author": {

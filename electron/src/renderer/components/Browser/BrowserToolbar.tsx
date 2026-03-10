@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, RotateCw, Home, Camera, Bug, Trash2, Monitor, Smartphone, Tablet, Laptop, ChevronDown, RotateCcw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RotateCw, Home, Camera, Bug, Trash2, Monitor, Smartphone, Tablet, Laptop, ChevronDown, RotateCcw, ScanEye, Loader2 } from 'lucide-react'
 import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
 import { normalizeAddress } from './normalizeAddress'
 import { VIEWPORT_PRESETS, type ViewportPreset } from './viewportPresets'
@@ -10,6 +10,8 @@ interface BrowserToolbarProps {
   onForward: () => void
   onReload: () => void
   onScreenshot: () => void
+  onContextShot?: () => void
+  contextShotLoading?: boolean
   onCaptureIssue?: () => void
   onClearSession?: () => void
   canGoBack: boolean
@@ -43,6 +45,8 @@ export default function BrowserToolbar({
   onForward,
   onReload,
   onScreenshot,
+  onContextShot,
+  contextShotLoading,
   onCaptureIssue,
   onClearSession,
   canGoBack,
@@ -225,7 +229,20 @@ export default function BrowserToolbar({
           )}
         </div>
 
-        <button type="button" onClick={onScreenshot} className={btnClass} title="Screenshot">
+        {/* Context Shot (primary) */}
+        {onContextShot && (
+          <button
+            type="button"
+            onClick={onContextShot}
+            disabled={contextShotLoading}
+            className={`${btnClass} ${contextShotLoading ? 'animate-pulse text-codefire-orange' : ''}`}
+            title="Context Shot"
+          >
+            {contextShotLoading ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />}
+          </button>
+        )}
+        {/* Raw Shot (secondary) */}
+        <button type="button" onClick={onScreenshot} className={btnClass} title="Raw Screenshot">
           <Camera size={14} />
         </button>
         {onCaptureIssue && (

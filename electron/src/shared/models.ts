@@ -162,6 +162,46 @@ export interface BrowserScreenshot {
   createdAt: string
 }
 
+// ─── Contextual Screenshot Models ─────────────────────────────────────────────
+
+export interface ResolvePageContextInput {
+  projectPath: string
+  pageUrl: string
+  pageTitle?: string | null
+  runtimeRequests?: Array<{
+    url: string
+    method?: string
+    type?: string
+  }>
+}
+
+export interface PageContextEvidence {
+  capturedAt: string
+  pageUrl: string
+  pageTitle: string | null
+  route: {
+    pathname: string
+    matchedPath: string | null
+    filePath: string | null
+    routeType: 'static' | 'dynamic' | 'api' | 'catch-all' | 'unknown' | null
+    framework: string | null
+    confidence: 'confirmed' | 'inferred' | 'none'
+  }
+  components: Array<{
+    name: string
+    filePath: string
+    relation: 'route-export' | 'direct-import' | 'direct-render' | 'one-hop-render'
+    confidence: 'confirmed' | 'inferred'
+  }>
+  backend: Array<{
+    label: string
+    filePath: string | null
+    kind: 'api-route' | 'server-action' | 'supabase-function' | 'network-endpoint'
+    relation: 'observed-request' | 'direct-import' | 'route-companion' | 'convention-match'
+    confidence: 'confirmed' | 'inferred'
+  }>
+}
+
 // ─── Gmail Models ─────────────────────────────────────────────────────────────
 
 export interface GmailAccount {

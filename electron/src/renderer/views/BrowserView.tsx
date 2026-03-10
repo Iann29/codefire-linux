@@ -15,9 +15,11 @@ import ContentStudioSheet from '@renderer/components/Browser/ContentStudioSheet'
 import ReviewModeBar from '@renderer/components/Browser/ReviewModeBar'
 import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 import { api } from '@renderer/lib/api'
+import { composeContextualScreenshot } from '@renderer/components/Browser/composeContextualScreenshot'
 
 interface BrowserViewProps {
   projectId: string
+  projectPath?: string
 }
 
 interface ConsoleEntry {
@@ -26,7 +28,7 @@ interface ConsoleEntry {
   timestamp: number
 }
 
-export default function BrowserView({ projectId }: BrowserViewProps) {
+export default function BrowserView({ projectId, projectPath }: BrowserViewProps) {
   const {
     tabs,
     activeTab,
@@ -55,6 +57,7 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
   const [showFormTester, setShowFormTester] = useState(false)
   const [showContentStudio, setShowContentStudio] = useState(false)
   const [showReviewMode, setShowReviewMode] = useState(false)
+  const [contextShotLoading, setContextShotLoading] = useState(false)
 
   // Dynamic viewport: uses active tab's viewport dimensions, scaled to fit container
   const viewportRef = useRef({ w: activeTab.viewportWidth, h: activeTab.viewportHeight })
@@ -916,6 +919,91 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
     }
   }
 
+  async function handleContextShot() {
+    if (!projectPath) {
+      handleScreenshot()
+      return
+    }
+
+    const wv = getActiveWebview()
+    if (!wv || !wv.capturePage) return
+
+    setContextShotLoading(true)
+    try {
+      // 1. Capture screenshot first — guaranteed to work since raw screenshot works
+      const nativeImg = await wv.capturePage()
+      const rawDataUrl = nativeImg.toDataURL()
+
+      // 2. Always send the raw screenshot first as a safety net
+      //    If composition succeeds, we'll replace it; if not, the user still gets something
+      let finalDataUrl = rawDataUrl
+
+      // 3. Try to enrich with context (best-effort — failures don't block)
+      try {
+        // Collect runtime evidence
+        let runtimeRequests: Array<{ url: string; method?: string; type?: string }> = []
+        try {
+          const raw = await wv.executeJavaScript(
+            `(function() { try { return JSON.stringify(performance.getEntriesByType('resource').map(function(e) { return { url: e.name, type: e.initiatorType } })) } catch(e) { return '[]' } })()`
+          )
+          const entries = typeof raw === 'string' ? raw : JSON.stringify(raw)
+          const parsed = JSON.parse(entries) as Array<{ url: string; type: string }>
+          const seen = new Set<string>()
+          runtimeRequests = parsed
+            .filter(e => {
+              if (!e.url || seen.has(e.url)) return false
+              seen.add(e.url)
+              return e.url.startsWith('http')
+            })
+            .map(e => ({ url: e.url, type: e.type }))
+        } catch {
+          // page may block JS execution
+        }
+
+        // Get page info
+        let pageUrl = activeTab.url
+        let pageTitle: string | null = activeTab.title ?? null
+        try {
+          pageUrl = wv.getURL() || pageUrl
+          pageTitle = wv.getTitle() || pageTitle
+        } catch {
+          // webview methods may not be ready
+        }
+
+        // Resolve context via IPC
+        const evidence = await api.browser.resolvePageContext({
+          projectPath,
+          pageUrl,
+          pageTitle,
+          runtimeRequests,
+        })
+
+        // Compose annotated image
+        const composedDataUrl = await composeContextualScreenshot(rawDataUrl, evidence)
+        if (composedDataUrl && composedDataUrl.startsWith('data:')) {
+          finalDataUrl = composedDataUrl
+        }
+      } catch (enrichErr) {
+        console.error('[ContextShot] enrichment failed, using raw screenshot:', enrichErr)
+      }
+
+      // 4. Always dispatch to chat — regardless of enrichment success
+      chatComposerStore.addAttachment({
+        id: crypto.randomUUID(),
+        kind: 'image' as const,
+        name: `context-shot-${Date.now()}.png`,
+        mimeType: 'image/png',
+        dataUrl: finalDataUrl,
+        source: 'screenshot' as const,
+      })
+    } catch (err) {
+      // Only reaches here if capturePage itself fails — extremely unlikely
+      console.error('[ContextShot] capture failed:', err)
+    } finally {
+      setContextShotLoading(false)
+    }
+  }
+
   function handleCaptureIssue() {
     const wv = getActiveWebview()
     if (wv && wv.capturePage) {
@@ -995,6 +1083,8 @@ export default function BrowserView({ projectId }: BrowserViewProps) {
         onForward={() => getActiveWebview()?.goForward()}
         onReload={() => getActiveWebview()?.reload()}
         onScreenshot={handleScreenshot}
+        onContextShot={handleContextShot}
+        contextShotLoading={contextShotLoading}
         onCaptureIssue={handleCaptureIssue}
         onClearSession={handleClearSession}
         canGoBack={canGoBack}

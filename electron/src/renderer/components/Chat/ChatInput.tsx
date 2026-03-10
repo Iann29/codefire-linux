@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useState, useLayoutEffect } from 'react'
 import { Send, Loader2, Square, Paperclip, X, FileText } from 'lucide-react'
 import type { ChatAttachment } from '@shared/models'
 import { modelHasVision } from './ChatHeader'
@@ -39,6 +39,8 @@ export default function ChatInput({
   inputRef,
   projectName,
 }: ChatInputProps) {
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
   useLayoutEffect(() => {
     const textarea = inputRef.current
     if (!textarea) return
@@ -73,7 +75,8 @@ export default function ChatInput({
                 <img
                   src={att.dataUrl}
                   alt={att.name}
-                  className="h-10 w-10 rounded-lg object-cover"
+                  className="h-10 w-10 rounded-lg object-cover cursor-pointer hover:brightness-110 transition-[filter]"
+                  onClick={() => setLightboxUrl(att.dataUrl)}
                 />
               ) : (
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-800">
@@ -198,6 +201,29 @@ export default function ChatInput({
         )}
       </div>
       </div>
+
+      {/* Image lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightboxUrl(null)}
+          onKeyDown={(e) => e.key === 'Escape' && setLightboxUrl(null)}
+          role="button"
+          tabIndex={0}
+        >
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+          />
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-neutral-800/80 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

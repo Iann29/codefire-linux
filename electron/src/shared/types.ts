@@ -155,7 +155,7 @@ export type VisualBaselineChannel =
   | 'visual:approveBaseline'
   | 'visual:deleteBaseline'
 
-export type BrowserChannel = 'browser:clearSession'
+export type BrowserChannel = 'browser:clearSession' | 'browser:resolvePageContext'
 
 export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status' | 'agent:continue'
 

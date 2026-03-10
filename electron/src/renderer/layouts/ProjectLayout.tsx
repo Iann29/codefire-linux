@@ -178,7 +178,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {renderActiveView(tab, projectId, handleTabChange)}
         <Suspense fallback={lazyFallback}>
           <div style={{ display: tab === 'Browser' ? 'flex' : 'none' }} className="flex-1 flex-col h-full">
-            <BrowserView projectId={projectId} />
+            <BrowserView projectId={projectId} projectPath={project?.path} />
           </div>
         </Suspense>
         {hasOpenedTerminal && (

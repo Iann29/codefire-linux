@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, ListTodo, StickyNote, Terminal, Wrench, ChevronDown, X } from 'lucide-react'
+import { Copy, ListTodo, StickyNote, Terminal, Wrench, ChevronDown, X, Download } from 'lucide-react'
 import type { ChatMessageAttachment, TokenUsage } from '@shared/models'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ export default function ChatBubble({
 }: ChatBubbleProps) {
   const isUser = role === 'user'
   const [toolsExpanded, setToolsExpanded] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -95,7 +96,12 @@ export default function ChatBubble({
               {attachments.map((att) => (
                 <div key={att.id} className="rounded border border-neutral-700 overflow-hidden" style={{ width: 56, height: 56 }}>
                   {att.kind === 'image' ? (
-                    <img src={att.dataUrl} alt={att.name} className="w-full h-full object-cover" />
+                    <img
+                      src={att.dataUrl}
+                      alt={att.name}
+                      className="w-full h-full object-cover cursor-pointer hover:brightness-110 transition-[filter]"
+                      onClick={() => setLightboxUrl(att.dataUrl)}
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-neutral-800 text-[8px] text-neutral-500">{att.name}</div>
                   )}
@@ -126,6 +132,29 @@ export default function ChatBubble({
           </div>
         )}
       </div>
+
+      {/* Image lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightboxUrl(null)}
+          onKeyDown={(e) => e.key === 'Escape' && setLightboxUrl(null)}
+          role="button"
+          tabIndex={0}
+        >
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+          />
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-neutral-800/80 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-colors"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

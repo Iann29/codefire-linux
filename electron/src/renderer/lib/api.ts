@@ -22,6 +22,8 @@ import type {
   ChatEffortLevel,
   VisualBaseline,
   VisualComparison,
+  ResolvePageContextInput,
+  PageContextEvidence,
 } from '@shared/models'
 const invoke = window.api.invoke
 
@@ -583,6 +585,8 @@ export const api = {
 
   browser: {
     clearSession: () => invoke('browser:clearSession') as Promise<{ success: boolean; partition: string }>,
+    resolvePageContext: (input: ResolvePageContextInput) =>
+      invoke('browser:resolvePageContext', input) as Promise<PageContextEvidence>,
   },
 
   github: {
