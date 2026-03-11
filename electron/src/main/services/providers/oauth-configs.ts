@@ -42,6 +42,8 @@ export interface OAuthProviderConfig {
   tokenInputHint?: string
   /** Extra headers to include in API requests (e.g. anthropic-beta for OAuth tokens) */
   extraApiHeaders?: Record<string, string>
+  /** ChatGPT Codex responses endpoint (for subscription-based calls via ChatGPT backend) */
+  chatgptCodexUrl?: string
 }
 
 export interface ApiKeyProviderConfig {
@@ -83,21 +85,26 @@ export const CLAUDE_OAUTH: OAuthProviderConfig = {
 }
 
 // ─── OpenAI (ChatGPT Plus/Pro) ──────────────────────────────────────────────
-// Flow: Auth0 PKCE OAuth 2.0 — same as Codex CLI
-// Reference: codex-cli source, CLIProxyAPI --openai-login
+// Flow: Auth0 PKCE OAuth 2.0 — same as OpenCode / Codex CLI
+// Reference: opencode source, intent-prompt-mvp working implementation
 
 export const OPENAI_OAUTH: OAuthProviderConfig = {
   id: 'openai-subscription',
   name: 'ChatGPT (Subscription)',
-  authUrl: 'https://auth.openai.com/authorize',
+  authUrl: 'https://auth.openai.com/oauth/authorize',
   tokenUrl: 'https://auth.openai.com/oauth/token',
-  clientId: 'app-LrRbd5kkz6DWlCMumfv8jisf',
+  clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
   scopes: ['openid', 'profile', 'email', 'offline_access'],
   redirectUri: 'http://localhost:19485/oauth/callback',
   usePKCE: true,
   apiBaseUrl: 'https://api.openai.com',
+  /** ChatGPT Codex responses endpoint (used for subscription-based calls) */
+  chatgptCodexUrl: 'https://chatgpt.com/backend-api/codex/responses',
   extraAuthParams: {
     audience: 'https://api.openai.com/v1',
+    id_token_add_organizations: 'true',
+    codex_cli_simplified_flow: 'true',
+    originator: 'opencode',
   },
   profileUrl: 'https://api.openai.com/v1/me',
 }

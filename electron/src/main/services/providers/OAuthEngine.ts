@@ -155,6 +155,7 @@ export class OAuthEngine {
       subscriptionTier: tier,
       providerId: config.id,
       createdAt: Date.now(),
+      chatgptAccountId: null,
     })
 
     return { success: true, accountIndex }
@@ -228,11 +229,20 @@ export class OAuthEngine {
         access_token: string
         refresh_token?: string
         expires_in?: number
+        id_token?: string
       }
 
       const newExpiresAt = json.expires_in
         ? Date.now() + json.expires_in * 1000
         : 0
+
+      // Extract/update chatgptAccountId from refreshed JWT
+      let chatgptAccountId = stored.chatgptAccountId ?? null
+      const claims = this.parseJwtClaims(json.id_token || json.access_token)
+      if (claims) {
+        const newAccountId = this.extractChatGptAccountId(claims)
+        if (newAccountId) chatgptAccountId = newAccountId
+      }
 
       // Some providers rotate refresh tokens — re-save at the same index (email match ensures same slot)
       if (json.refresh_token) {
@@ -241,6 +251,7 @@ export class OAuthEngine {
           accessToken: json.access_token,
           refreshToken: json.refresh_token,
           expiresAt: newExpiresAt,
+          chatgptAccountId,
         })
       } else {
         this.tokenStore.updateAccessToken(providerId, json.access_token, newExpiresAt, accountIndex)
@@ -285,7 +296,46 @@ export class OAuthEngine {
     return this.tokenStore.listAccounts()
   }
 
+  /**
+   * Get the ChatGPT account ID for a provider account.
+   * Used for the ChatGPT-Account-Id header when calling the Codex endpoint.
+   */
+  getAccountId(providerId: string, accountIndex: number = 0): string | null {
+    const stored = this.tokenStore.getAccount(providerId, accountIndex)
+    return stored?.chatgptAccountId ?? null
+  }
+
   // ── Private ────────────────────────────────────────────────────────────────
+
+  /**
+   * Parse JWT claims from a token string (without verification).
+   */
+  private parseJwtClaims(token: string): Record<string, unknown> | null {
+    if (!token) return null
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    try {
+      return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'))
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Extract ChatGPT account ID from JWT claims.
+   * Tries multiple known claim paths used by OpenAI.
+   */
+  private extractChatGptAccountId(claims: Record<string, unknown>): string | null {
+    // Direct claim
+    if (typeof claims.chatgpt_account_id === 'string') return claims.chatgpt_account_id
+    // Nested under auth namespace
+    const auth = claims['https://api.openai.com/auth'] as Record<string, unknown> | undefined
+    if (auth && typeof auth.chatgpt_account_id === 'string') return auth.chatgpt_account_id
+    // From organizations array
+    const orgs = claims.organizations as Array<{ id?: string }> | undefined
+    if (orgs?.[0]?.id) return orgs[0].id
+    return null
+  }
 
   /**
    * Complete the OAuth flow: exchange code for tokens, fetch profile, save account.
@@ -298,15 +348,24 @@ export class OAuthEngine {
     try {
       const token = await this.exchangeCodeForTokens(config, code, codeVerifier)
 
+      // Extract accountId from JWT claims (for ChatGPT-Account-Id header)
+      let chatgptAccountId: string | null = null
+      const claims = this.parseJwtClaims(token.idToken || token.accessToken)
+      if (claims) {
+        chatgptAccountId = this.extractChatGptAccountId(claims)
+      }
+
       // Fetch user profile if available
       let email: string | null = null
       let name: string | null = null
       let tier: string | null = null
       if (config.profileUrl) {
         const profile = await this.fetchProfile(config, token.accessToken)
-        email = profile.email
+        email = profile.email ?? (claims?.email as string) ?? null
         name = profile.name
         tier = profile.tier
+      } else if (claims) {
+        email = (claims.email as string) ?? null
       }
 
       const accountIndex = this.tokenStore.addAccount({
@@ -319,6 +378,7 @@ export class OAuthEngine {
         subscriptionTier: tier,
         providerId: config.id,
         createdAt: Date.now(),
+        chatgptAccountId,
       })
 
       return { success: true, accountIndex }
@@ -397,6 +457,7 @@ export class OAuthEngine {
     refreshToken: string | null
     expiresAt: number
     scope: string
+    idToken: string
   }> {
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -428,6 +489,7 @@ export class OAuthEngine {
       expires_in?: number
       scope?: string
       token_type?: string
+      id_token?: string
     }
 
     return {
@@ -435,6 +497,7 @@ export class OAuthEngine {
       refreshToken: json.refresh_token ?? null,
       expiresAt: json.expires_in ? Date.now() + json.expires_in * 1000 : 0,
       scope: json.scope ?? config.scopes.join(' '),
+      idToken: json.id_token ?? '',
     }
   }
 

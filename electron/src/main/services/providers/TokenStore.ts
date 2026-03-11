@@ -13,6 +13,8 @@ export interface StoredToken {
   createdAt: number
   /** Subscription tier detected from profile API (e.g. "Pro", "Max", "Plus", "Advanced") */
   subscriptionTier: string | null
+  /** ChatGPT account ID extracted from JWT claims (used for ChatGPT-Account-Id header) */
+  chatgptAccountId: string | null
 }
 
 interface EncryptedEntry {
