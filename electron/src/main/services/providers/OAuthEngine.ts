@@ -5,7 +5,19 @@ import { TokenStore } from './TokenStore'
 import { OAUTH_PROVIDERS, ALL_SUBSCRIPTION_PROVIDERS, type OAuthProviderConfig, isOAuthConfig } from './oauth-configs'
 
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
-const CALLBACK_PORT = 19485
+
+/** Parse port and path from a redirect URI (e.g. http://localhost:1455/auth/callback) */
+function parseRedirectUri(redirectUri: string): { port: number; path: string } {
+  try {
+    const url = new URL(redirectUri)
+    return {
+      port: parseInt(url.port, 10) || 19485,
+      path: url.pathname || '/oauth/callback',
+    }
+  } catch {
+    return { port: 19485, path: '/oauth/callback' }
+  }
+}
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
@@ -389,6 +401,8 @@ export class OAuthEngine {
 
   /**
    * Localhost callback flow: start HTTP server, open browser, wait for redirect.
+   * Port and path are extracted dynamically from config.redirectUri so each
+   * provider can use its own registered redirect URI.
    */
   private openLocalhostCallback(
     config: OAuthProviderConfig,
@@ -396,15 +410,17 @@ export class OAuthEngine {
     state: string,
     codeVerifier: string
   ): Promise<{ code: string; codeVerifier: string }> {
+    const { port, path: callbackPath } = parseRedirectUri(config.redirectUri)
+
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
-        if (!req.url?.startsWith('/oauth/callback')) {
+        if (!req.url?.startsWith(callbackPath)) {
           res.writeHead(404)
           res.end()
           return
         }
 
-        const url = new URL(req.url, `http://localhost:${CALLBACK_PORT}`)
+        const url = new URL(req.url, `http://localhost:${port}`)
         const code = url.searchParams.get('code')
         const returnedState = url.searchParams.get('state')
         const error = url.searchParams.get('error')
@@ -431,7 +447,7 @@ export class OAuthEngine {
         resolve({ code, codeVerifier })
       })
 
-      server.listen(CALLBACK_PORT, '127.0.0.1', () => {
+      server.listen(port, '127.0.0.1', () => {
         shell.openExternal(authUrl)
 
         const timer = setTimeout(() => {
@@ -443,7 +459,7 @@ export class OAuthEngine {
       })
 
       server.on('error', (err) => {
-        reject(new Error(`Failed to start OAuth callback server: ${err.message}`))
+        reject(new Error(`Failed to start OAuth callback server on port ${port}: ${err.message}`))
       })
     })
   }

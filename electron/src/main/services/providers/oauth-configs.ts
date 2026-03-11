@@ -95,13 +95,14 @@ export const OPENAI_OAUTH: OAuthProviderConfig = {
   tokenUrl: 'https://auth.openai.com/oauth/token',
   clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
   scopes: ['openid', 'profile', 'email', 'offline_access'],
-  redirectUri: 'http://localhost:19485/oauth/callback',
+  // Must match exactly what's registered for this client_id at OpenAI
+  redirectUri: 'http://localhost:1455/auth/callback',
   usePKCE: true,
   apiBaseUrl: 'https://api.openai.com',
   /** ChatGPT Codex responses endpoint (used for subscription-based calls) */
   chatgptCodexUrl: 'https://chatgpt.com/backend-api/codex/responses',
   extraAuthParams: {
-    audience: 'https://api.openai.com/v1',
+    // No 'audience' — the working intent-prompt-mvp implementation doesn't send it
     id_token_add_organizations: 'true',
     codex_cli_simplified_flow: 'true',
     originator: 'opencode',
