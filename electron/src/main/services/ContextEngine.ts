@@ -12,6 +12,8 @@ import {
   chunkGitHistory,
   detectLanguage,
 } from '@main/services/CodeChunker'
+import type { EmbeddingClient } from './EmbeddingClient'
+import { float32ArrayToBlob } from '@main/database/search/vector-search'
 
 const execFileAsync = promisify(execFile)
 
@@ -25,6 +27,10 @@ const SKIP_DIRECTORIES = new Set([
   '__pycache__',
   '.next',
   'dist',
+  'dist-electron',
+  'release',
+  'out',
+  '.output',
   '.git',
   '.gradle',
   'Pods',
@@ -36,32 +42,49 @@ const SKIP_DIRECTORIES = new Set([
   'coverage',
   'vendor',
   'target',
+  '.cache',
+  '.vite',
+  '.turbo',
+  '.parcel-cache',
+  '.svelte-kit',
+  '.vercel',
+  '.netlify',
+  '.angular',
+  '.nuxt',
+  '.docusaurus',
+  '.storybook-static',
+  'storybook-static',
+  '.temp',
+  'tmp',
 ])
 
 const SKIP_EXTENSIONS = new Set([
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'svg',
-  'ico',
-  'webp',
-  'woff',
-  'woff2',
-  'ttf',
-  'eot',
-  'zip',
-  'tar',
-  'gz',
-  'dmg',
-  'mp3',
-  'mp4',
-  'wav',
-  'mov',
-  'pdf',
-  'lock',
-  'sum',
+  // Images
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'webp', 'bmp', 'tiff', 'avif',
+  // Fonts
+  'woff', 'woff2', 'ttf', 'eot', 'otf',
+  // Archives & packages
+  'zip', 'tar', 'gz', 'bz2', 'xz', 'rar', '7z',
+  'dmg', 'deb', 'rpm', 'AppImage', 'snap', 'flatpak',
+  'asar', 'nupkg', 'msi', 'exe',
+  // Media
+  'mp3', 'mp4', 'wav', 'mov', 'avi', 'mkv', 'flac', 'ogg', 'webm',
+  // Documents
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  // Lock & dependency files
+  'lock', 'sum',
+  // Binary & compiled
+  'so', 'dylib', 'dll', 'o', 'a', 'lib', 'pyc', 'pyo', 'class', 'wasm',
+  // Data & resource blobs
+  'pak', 'dat', 'bin', 'db', 'sqlite', 'sqlite3',
+  // Source maps & minified bundles (low-value for indexing)
+  'map',
+  // Misc binary
+  'DS_Store',
 ])
+
+// Max file size to index (512 KB). Anything larger is likely a bundle, binary, or generated file.
+const MAX_FILE_SIZE = 512 * 1024
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -78,6 +101,15 @@ function shouldSkipFile(filePath: string): boolean {
   if (dotIdx < 0) return false
   const ext = filePath.slice(dotIdx + 1).toLowerCase()
   return SKIP_EXTENSIONS.has(ext)
+}
+
+function isFileTooLarge(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath)
+    return stat.size > MAX_FILE_SIZE
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -100,7 +132,7 @@ function enumerateFiles(dirPath: string): string[] {
       }
     } else if (entry.isFile()) {
       const fullPath = path.join(dirPath, entry.name)
-      if (!shouldSkipFile(fullPath)) {
+      if (!shouldSkipFile(fullPath) && !isFileTooLarge(fullPath)) {
         results.push(fullPath)
       }
     }
@@ -117,13 +149,20 @@ function enumerateFiles(dirPath: string): string[] {
  * Handles full-project indexing, single-file indexing, and file removal.
  * Uses CodeChunker for semantic chunking and IndexDAO/ChunkDAO for persistence.
  */
+/** Max chunks per embedding batch (avoid oversized API requests). */
+const EMBEDDING_BATCH_SIZE = 50
+
 export class ContextEngine {
+  private db: Database.Database
   private chunkDAO: ChunkDAO
   private indexDAO: IndexDAO
+  private embeddingClient: EmbeddingClient | null
 
-  constructor(private db: Database.Database) {
+  constructor(db: Database.Database, embeddingClient?: EmbeddingClient) {
+    this.db = db
     this.chunkDAO = new ChunkDAO(db)
     this.indexDAO = new IndexDAO(db)
+    this.embeddingClient = embeddingClient ?? null
   }
 
   /**
@@ -217,7 +256,10 @@ export class ContextEngine {
       // Step 5: Chunk git history
       await this.indexGitHistory(projectId, projectPath)
 
-      // Step 6: Update state to ready
+      // Step 6: Generate embeddings for new chunks (if API key is available)
+      await this.generateEmbeddings(projectId)
+
+      // Step 7: Update state to ready
       const totalChunks = this.chunkDAO.countByProject(projectId)
       this.indexDAO.updateState(projectId, {
         status: 'ready',
@@ -294,6 +336,9 @@ export class ContextEngine {
       })
     }
 
+    // Generate embeddings for the new chunks
+    await this.generateEmbeddings(projectId)
+
     // Update total chunk count
     const totalChunks = this.chunkDAO.countByProject(projectId)
     this.indexDAO.updateState(projectId, { totalChunks })
@@ -318,6 +363,47 @@ export class ContextEngine {
   }
 
   // ─── Private ───────────────────────────────────────────────────────────────
+
+  /**
+   * Generate embeddings for chunks that don't have one yet.
+   * Processes in batches to avoid oversized API requests.
+   * Silently skips if no API key is configured.
+   */
+  private async generateEmbeddings(projectId: string): Promise<void> {
+    if (!this.embeddingClient?.hasApiKey()) return
+
+    const chunks = this.db
+      .prepare(
+        'SELECT id, content FROM codeChunks WHERE projectId = ? AND embedding IS NULL'
+      )
+      .all(projectId) as { id: string; content: string }[]
+
+    if (chunks.length === 0) return
+
+    for (let i = 0; i < chunks.length; i += EMBEDDING_BATCH_SIZE) {
+      const batch = chunks.slice(i, i + EMBEDDING_BATCH_SIZE)
+      try {
+        const embeddings = await this.embeddingClient.getEmbeddings(
+          batch.map((c) => c.content),
+          'document'
+        )
+        for (let j = 0; j < batch.length; j++) {
+          this.chunkDAO.updateEmbedding(
+            batch[j].id,
+            float32ArrayToBlob(embeddings[j])
+          )
+        }
+      } catch (err) {
+        console.error(
+          `[ContextEngine] Embedding batch ${i / EMBEDDING_BATCH_SIZE + 1} failed:`,
+          err
+        )
+        // Stop generating embeddings on error — search will fall back to FTS-only.
+        // Already-embedded chunks remain usable.
+        break
+      }
+    }
+  }
 
   /**
    * Index git history as commit chunks.
