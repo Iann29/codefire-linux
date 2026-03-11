@@ -99,7 +99,7 @@ export function registerAllHandlers(
   registerComponentGraphHandlers()
   registerLaunchGuardHandlers()
   registerContentStudioHandlers()
-  registerPromptHandlers()
+  registerPromptHandlers(db)
 
   // Run project discovery at startup to populate claudeProject links (deferred to not block startup)
   setImmediate(() => {

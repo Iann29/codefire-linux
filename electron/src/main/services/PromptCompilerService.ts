@@ -4,6 +4,8 @@
 //   Phase 1 (clarify): interpret intent, produce confirmation summary in PT
 //   Phase 2 (generate): produce one strong final prompt in EN
 
+import type { ProjectContext } from '@shared/models'
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type TaskMode = 'general' | 'coding' | 'debug' | 'refactor' | 'writing'
@@ -13,6 +15,7 @@ export interface PromptPayload {
   taskMode: TaskMode
   userCorrections: string
   clarification: ClarificationResult | null
+  projectContext?: ProjectContext
 }
 
 export interface ClarificationResult {
@@ -51,6 +54,7 @@ export function normalizePromptPayload(body: {
   taskMode?: string
   userCorrections?: string
   clarification?: unknown
+  projectContext?: ProjectContext
 }): PromptPayload {
   const originalBrief = cleanString(body.originalBrief)
 
@@ -62,11 +66,39 @@ export function normalizePromptPayload(body: {
       body.clarification && typeof body.clarification === 'object'
         ? (body.clarification as ClarificationResult)
         : null,
+    projectContext: body.projectContext || undefined,
   }
 }
 
+function buildProjectContextBlock(ctx: ProjectContext): string {
+  const lines: string[] = ['## Project Context']
+  lines.push(`- Project: ${ctx.projectName} (${ctx.projectPath})`)
+
+  if (ctx.techStack.length) {
+    lines.push(`- Tech Stack: ${ctx.techStack.join(', ')}`)
+  }
+  if (ctx.gitBranch) {
+    lines.push(`- Current Git Branch: ${ctx.gitBranch}`)
+  }
+  if (ctx.openTasks.length) {
+    lines.push('- Open Tasks:')
+    for (const t of ctx.openTasks.slice(0, 10)) {
+      lines.push(`  - [${t.status}] ${t.title} (${t.priority})`)
+    }
+  }
+  if (ctx.memories.length) {
+    lines.push('- Project Memories/Rules:')
+    for (const m of ctx.memories.slice(0, 5)) {
+      const snippet = m.snippet.length > 200 ? m.snippet.slice(0, 200) + '...' : m.snippet
+      lines.push(`  - ${m.name}: "${snippet}"`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
 export function buildClarifyRequest(payload: PromptPayload): PromptRequest {
-  const system = [
+  const systemLines = [
     'You are an Intent-to-Prompt Compiler.',
     'The user writes in Portuguese or mixed language.',
     'Your current task is Phase 1 only: interpret intent and prepare a confirmation summary in Portuguese.',
@@ -84,15 +116,27 @@ export function buildClarifyRequest(payload: PromptPayload): PromptRequest {
     '  "confirmationPrompt": "string",',
     '  "questions": ["string"]',
     '}',
-  ].join('\n')
+  ]
 
+  if (payload.projectContext) {
+    systemLines.push(
+      '',
+      buildProjectContextBlock(payload.projectContext),
+      '',
+      'Use the project context above to better understand the user\'s intent.',
+      'Reference the project\'s tech stack, current branch, and open tasks when relevant.',
+      'Skip questions that are already answered by the project context (e.g. do not ask about the stack if it is listed above).',
+    )
+  }
+
+  const system = systemLines.join('\n')
   const user = JSON.stringify(payload, null, 2)
 
   return { instructions: system, input: user }
 }
 
 export function buildGenerateRequest(payload: PromptPayload): PromptRequest {
-  const system = [
+  const systemLines = [
     'You are an Intent-to-Prompt Compiler.',
     'The user already reviewed the task intent.',
     'Your current task is Phase 2 only: generate one strong final prompt in English.',
@@ -112,8 +156,20 @@ export function buildGenerateRequest(payload: PromptPayload): PromptRequest {
     'If the request is software-related, assume the target AI can inspect a codebase, compare existing implementations, and make changes.',
     'When repo names, product names, file paths, or existing systems are mentioned, include them concretely in the final prompt.',
     'Include the sections Role, Objective, Context, Constraints, Technical Details, Expected Output, Acceptance Criteria, Avoid, and Clarification Rule when they apply.',
-  ].join('\n')
+  ]
 
+  if (payload.projectContext) {
+    systemLines.push(
+      '',
+      buildProjectContextBlock(payload.projectContext),
+      '',
+      'Use the project context above to generate a prompt that references the correct tech stack, file paths, and conventions.',
+      'Include the project name, path, and current branch in the generated prompt so the target AI has full context.',
+      'Align the prompt with open tasks and project rules/memories when relevant.',
+    )
+  }
+
+  const system = systemLines.join('\n')
   const user = JSON.stringify(payload, null, 2)
 
   return { instructions: system, input: user }
@@ -155,6 +211,21 @@ export function buildClarificationFallback(payload: PromptPayload): Clarificatio
     `Modo inferido: ${modeLabel}`,
     `Briefing original: "${payload.originalBrief.trim()}"`,
   ].filter(Boolean)
+
+  // Inject project context into fallback
+  if (payload.projectContext) {
+    const pc = payload.projectContext
+    context.push(`Projeto: ${pc.projectName} (${pc.projectPath})`)
+    if (pc.techStack.length) {
+      context.push(`Stack detectada: ${pc.techStack.join(', ')}`)
+    }
+    if (pc.gitBranch) {
+      context.push(`Branch atual: ${pc.gitBranch}`)
+    }
+    if (pc.openTasks.length) {
+      context.push(`Tasks abertas: ${pc.openTasks.map((t) => t.title).join('; ')}`)
+    }
+  }
 
   const assumptions = [
     'Se algum detalhe tecnico nao foi informado, ele deve ser tratado como suposicao e nao como fato.',
@@ -217,8 +288,34 @@ export function buildGenerationFallback(payload: PromptPayload): GenerationResul
     [payload.originalBrief, payload.userCorrections].filter(Boolean).join('\n')
   )
   const derivedContext = cleanList(clarification.context)
+
+  // Build project context items for fallback
+  const projectContextItems: string[] = []
+  if (payload.projectContext) {
+    const pc = payload.projectContext
+    projectContextItems.push(`Project: ${pc.projectName} (${pc.projectPath})`)
+    if (pc.techStack.length) {
+      projectContextItems.push(`Tech stack: ${pc.techStack.join(', ')}`)
+    }
+    if (pc.gitBranch) {
+      projectContextItems.push(`Current branch: ${pc.gitBranch}`)
+    }
+    if (pc.openTasks.length) {
+      projectContextItems.push(
+        `Open tasks: ${pc.openTasks.map((t) => `[${t.status}] ${t.title}`).join('; ')}`
+      )
+    }
+    if (pc.memories.length) {
+      for (const m of pc.memories.slice(0, 3)) {
+        const snippet = m.snippet.length > 150 ? m.snippet.slice(0, 150) + '...' : m.snippet
+        projectContextItems.push(`Project memory (${m.name}): ${snippet}`)
+      }
+    }
+  }
+
   const contextItems = uniqueList(
     [
+      ...projectContextItems,
       ...derivedContext,
       referencedPaths.length ? `Referenced paths: ${referencedPaths.join(', ')}` : null,
       payload.userCorrections &&

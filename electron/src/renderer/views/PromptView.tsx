@@ -1,7 +1,23 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2, Copy, Check, AlertTriangle, Sparkles, RotateCcw } from 'lucide-react'
+import {
+  Loader2,
+  Copy,
+  Check,
+  AlertTriangle,
+  Sparkles,
+  RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  GitBranch,
+  ListChecks,
+  Cpu,
+  BookOpen,
+} from 'lucide-react'
 import { api } from '@renderer/lib/api'
 import { usePromptCompiler } from '@renderer/hooks/usePromptCompiler'
+import type { ContextToggles } from '@renderer/hooks/usePromptCompiler'
+import type { ProjectContext } from '@shared/models'
 
 interface PromptViewProps {
   projectId: string
@@ -22,14 +38,21 @@ const SAMPLE_BRIEFS: Record<string, { label: string; brief: string }> = {
   },
 }
 
-export default function PromptView({ projectId }: PromptViewProps) {
-  void projectId
+const DEFAULT_TOGGLES: ContextToggles = {
+  techStack: true,
+  gitBranch: true,
+  tasks: true,
+  memories: true,
+}
 
+export default function PromptView({ projectId }: PromptViewProps) {
   const [brief, setBrief] = useState('')
   const [corrections, setCorrections] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [copied, setCopied] = useState(false)
+  const [contextOpen, setContextOpen] = useState(true)
+  const [toggles, setToggles] = useState<ContextToggles>(DEFAULT_TOGGLES)
 
   const {
     clarification,
@@ -38,9 +61,12 @@ export default function PromptView({ projectId }: PromptViewProps) {
     generating,
     warning,
     mode,
+    projectContext,
+    contextLoading,
     clarify,
     generate,
     reset,
+    fetchContext,
   } = usePromptCompiler()
 
   // Load available models from provider
@@ -54,19 +80,28 @@ export default function PromptView({ projectId }: PromptViewProps) {
         }
       })
       .catch(() => {
-        // No provider configured — model select will be empty
+        // No provider configured
       })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch project context on mount
+  useEffect(() => {
+    if (projectId) {
+      fetchContext(projectId)
+    }
+  }, [projectId, fetchContext])
+
   const handleClarify = useCallback(async () => {
     if (!brief.trim()) return
-    await clarify(brief, selectedModel || undefined).catch(() => {})
-  }, [brief, selectedModel, clarify])
+    await clarify(brief, selectedModel || undefined, toggles).catch(() => {})
+  }, [brief, selectedModel, clarify, toggles])
 
   const handleGenerate = useCallback(async () => {
     if (!clarification) return
-    await generate(brief, corrections, clarification, selectedModel || undefined).catch(() => {})
-  }, [brief, corrections, clarification, selectedModel, generate])
+    await generate(brief, corrections, clarification, selectedModel || undefined, toggles).catch(
+      () => {}
+    )
+  }, [brief, corrections, clarification, selectedModel, generate, toggles])
 
   const handleCopy = useCallback(async () => {
     if (!generation?.finalPrompt) return
@@ -86,6 +121,14 @@ export default function PromptView({ projectId }: PromptViewProps) {
     if (sample) setBrief(sample.brief)
   }, [])
 
+  const handleToggle = useCallback((key: keyof ContextToggles) => {
+    setToggles((prev) => ({ ...prev, [key]: !prev[key] }))
+  }, [])
+
+  const handleRefreshContext = useCallback(() => {
+    if (projectId) fetchContext(projectId)
+  }, [projectId, fetchContext])
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -94,11 +137,13 @@ export default function PromptView({ projectId }: PromptViewProps) {
           <Sparkles size={14} className="text-codefire-orange" />
           <h2 className="text-title text-neutral-200 font-medium">Prompt Compiler</h2>
           {mode && (
-            <span className={`text-tiny px-1.5 py-0.5 rounded-cf ${
-              mode === 'ai'
-                ? 'bg-green-500/10 text-green-400'
-                : 'bg-yellow-500/10 text-yellow-400'
-            }`}>
+            <span
+              className={`text-tiny px-1.5 py-0.5 rounded-cf ${
+                mode === 'ai'
+                  ? 'bg-green-500/10 text-green-400'
+                  : 'bg-yellow-500/10 text-yellow-400'
+              }`}
+            >
               {mode === 'ai' ? 'AI' : 'Demo'}
             </span>
           )}
@@ -120,8 +165,29 @@ export default function PromptView({ projectId }: PromptViewProps) {
         </div>
       )}
 
-      {/* Main content — scrollable */}
+      {/* Main content -- scrollable */}
       <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
+        {/* Project Context Panel */}
+        {projectContext && (
+          <ProjectContextPanel
+            context={projectContext}
+            loading={contextLoading}
+            open={contextOpen}
+            toggles={toggles}
+            onToggleOpen={() => setContextOpen((o) => !o)}
+            onToggle={handleToggle}
+            onRefresh={handleRefreshContext}
+          />
+        )}
+
+        {/* Context loading skeleton */}
+        {contextLoading && !projectContext && (
+          <div className="bg-neutral-800/40 border border-neutral-800 rounded-cf p-3 flex items-center gap-2">
+            <Loader2 size={14} className="animate-spin text-neutral-500" />
+            <span className="text-xs text-neutral-500">Carregando contexto do projeto...</span>
+          </div>
+        )}
+
         {/* Input section */}
         <section className="space-y-2">
           <label className="block">
@@ -156,9 +222,7 @@ export default function PromptView({ projectId }: PromptViewProps) {
               onChange={(e) => setSelectedModel(e.target.value)}
               className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-cf px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-codefire-orange/50 focus:ring-1 focus:ring-codefire-orange/20"
             >
-              {models.length === 0 && (
-                <option value="">Nenhum provider configurado</option>
-              )}
+              {models.length === 0 && <option value="">Nenhum provider configurado</option>}
               {models.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
@@ -188,35 +252,35 @@ export default function PromptView({ projectId }: PromptViewProps) {
         {clarification && (
           <section className="space-y-2 border-t border-neutral-800 pt-3">
             <h3 className="text-xs font-medium text-neutral-400 uppercase tracking-wider">
-              Fase 1 — Entendimento
+              Fase 1 -- Entendimento
             </h3>
 
-            <Card title="Entendimento">
+            <InfoCard title="Entendimento">
               <p className="text-xs text-neutral-400 leading-relaxed">
                 {clarification.understanding}
               </p>
-            </Card>
+            </InfoCard>
 
-            <Card title="Objetivo">
+            <InfoCard title="Objetivo">
               <BulletList items={clarification.objective} empty="Objetivo nao identificado." />
-            </Card>
+            </InfoCard>
 
-            <Card title="Contexto">
+            <InfoCard title="Contexto">
               <BulletList items={clarification.context} empty="Nenhum contexto identificado." />
-            </Card>
+            </InfoCard>
 
-            <Card title="Restricoes">
+            <InfoCard title="Restricoes">
               <BulletList items={clarification.constraints} empty="Nenhuma restricao informada." />
-            </Card>
+            </InfoCard>
 
-            <Card title="Suposicoes">
+            <InfoCard title="Suposicoes">
               <BulletList items={clarification.assumptions} empty="Sem suposicoes." />
-            </Card>
+            </InfoCard>
 
             {clarification.questions.length > 0 && (
-              <Card title="Perguntas">
+              <InfoCard title="Perguntas">
                 <BulletList items={clarification.questions} empty="" />
-              </Card>
+              </InfoCard>
             )}
 
             {/* Confirmation block */}
@@ -257,7 +321,7 @@ export default function PromptView({ projectId }: PromptViewProps) {
           <section className="space-y-2 border-t border-neutral-800 pt-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-medium text-neutral-400 uppercase tracking-wider">
-                Fase 2 — Prompt Final
+                Fase 2 -- Prompt Final
               </h3>
               <button
                 onClick={handleCopy}
@@ -292,7 +356,200 @@ export default function PromptView({ projectId }: PromptViewProps) {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function ProjectContextPanel({
+  context,
+  loading,
+  open,
+  toggles,
+  onToggleOpen,
+  onToggle,
+  onRefresh,
+}: {
+  context: ProjectContext
+  loading: boolean
+  open: boolean
+  toggles: ContextToggles
+  onToggleOpen: () => void
+  onToggle: (key: keyof ContextToggles) => void
+  onRefresh: () => void
+}) {
+  const enabledCount = Object.values(toggles).filter(Boolean).length
+
+  return (
+    <div className="bg-neutral-800/40 border border-neutral-800 rounded-cf overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={onToggleOpen}
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-neutral-800/60 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {open ? (
+            <ChevronDown size={12} className="text-neutral-500 shrink-0" />
+          ) : (
+            <ChevronRight size={12} className="text-neutral-500 shrink-0" />
+          )}
+          <span className="text-xs font-medium text-neutral-300 truncate">
+            Contexto: {context.projectName}
+          </span>
+          {context.gitBranch && (
+            <span className="flex items-center gap-1 text-tiny px-1.5 py-0.5 rounded-cf bg-blue-500/10 text-blue-400 shrink-0">
+              <GitBranch size={10} />
+              {context.gitBranch}
+            </span>
+          )}
+          <span className="text-tiny text-neutral-600 shrink-0">{enabledCount}/4</span>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onRefresh()
+          }}
+          disabled={loading}
+          className="p-1 text-neutral-600 hover:text-neutral-300 transition-colors"
+          title="Recarregar contexto"
+        >
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </button>
+
+      {/* Body */}
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-neutral-800">
+          {/* Tech Stack */}
+          <ContextToggleRow
+            icon={<Cpu size={12} />}
+            label="Tech Stack"
+            enabled={toggles.techStack}
+            onToggle={() => onToggle('techStack')}
+            isEmpty={context.techStack.length === 0}
+          >
+            {context.techStack.length > 0 ? (
+              <div className="flex gap-1 flex-wrap mt-1">
+                {context.techStack.map((tech) => (
+                  <span
+                    key={tech}
+                    className="text-tiny px-1.5 py-0.5 rounded-cf bg-neutral-700/60 text-neutral-400"
+                  >
+                    {tech}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-tiny text-neutral-600 italic mt-1">Nenhuma detectada</span>
+            )}
+          </ContextToggleRow>
+
+          {/* Git Branch */}
+          <ContextToggleRow
+            icon={<GitBranch size={12} />}
+            label="Branch"
+            enabled={toggles.gitBranch}
+            onToggle={() => onToggle('gitBranch')}
+            isEmpty={!context.gitBranch}
+          >
+            <span className="text-tiny text-neutral-400 mt-1">
+              {context.gitBranch || 'Sem repositorio git'}
+            </span>
+          </ContextToggleRow>
+
+          {/* Tasks */}
+          <ContextToggleRow
+            icon={<ListChecks size={12} />}
+            label={`Tasks abertas (${context.openTasks.length})`}
+            enabled={toggles.tasks}
+            onToggle={() => onToggle('tasks')}
+            isEmpty={context.openTasks.length === 0}
+          >
+            {context.openTasks.length > 0 ? (
+              <ul className="mt-1 space-y-0.5">
+                {context.openTasks.slice(0, 8).map((t, i) => (
+                  <li key={i} className="flex items-center gap-1.5 text-tiny text-neutral-400">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        t.status === 'in_progress' ? 'bg-blue-400' : 'bg-neutral-600'
+                      }`}
+                    />
+                    <span className="truncate">{t.title}</span>
+                    <span className="text-neutral-600 shrink-0">({t.priority})</span>
+                  </li>
+                ))}
+                {context.openTasks.length > 8 && (
+                  <li className="text-tiny text-neutral-600">
+                    +{context.openTasks.length - 8} mais...
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <span className="text-tiny text-neutral-600 italic mt-1">Nenhuma task aberta</span>
+            )}
+          </ContextToggleRow>
+
+          {/* Memories */}
+          <ContextToggleRow
+            icon={<BookOpen size={12} />}
+            label={`Memorias (${context.memories.length})`}
+            enabled={toggles.memories}
+            onToggle={() => onToggle('memories')}
+            isEmpty={context.memories.length === 0}
+          >
+            {context.memories.length > 0 ? (
+              <ul className="mt-1 space-y-1">
+                {context.memories.slice(0, 4).map((m, i) => (
+                  <li key={i} className="text-tiny">
+                    <span className="text-neutral-300 font-medium">{m.name}</span>
+                    <p className="text-neutral-600 line-clamp-2 break-all">{m.snippet}</p>
+                  </li>
+                ))}
+                {context.memories.length > 4 && (
+                  <li className="text-tiny text-neutral-600">
+                    +{context.memories.length - 4} mais...
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <span className="text-tiny text-neutral-600 italic mt-1">Nenhuma memoria</span>
+            )}
+          </ContextToggleRow>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ContextToggleRow({
+  icon,
+  label,
+  enabled,
+  onToggle,
+  isEmpty,
+  children,
+}: {
+  icon: React.ReactNode
+  label: string
+  enabled: boolean
+  onToggle: () => void
+  isEmpty: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div className={`pt-2 ${isEmpty ? 'opacity-50' : ''}`}>
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={onToggle}
+          disabled={isEmpty}
+          className="w-3 h-3 rounded border-neutral-600 bg-neutral-800 text-codefire-orange focus:ring-0 focus:ring-offset-0 cursor-pointer disabled:cursor-not-allowed"
+        />
+        <span className="text-neutral-500">{icon}</span>
+        <span className="text-xs text-neutral-400">{label}</span>
+      </label>
+      {enabled && <div className="ml-[22px]">{children}</div>}
+    </div>
+  )
+}
+
+function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-neutral-800/40 border border-neutral-800 rounded-cf p-2.5">
       <h4 className="text-xs font-medium text-neutral-300 mb-1.5">{title}</h4>
@@ -309,7 +566,9 @@ function BulletList({ items, empty }: { items: string[]; empty: string }) {
   return (
     <ul className="space-y-0.5 text-xs text-neutral-400 leading-relaxed pl-3">
       {items.map((item, i) => (
-        <li key={i} className="list-disc">{item}</li>
+        <li key={i} className="list-disc">
+          {item}
+        </li>
       ))}
     </ul>
   )

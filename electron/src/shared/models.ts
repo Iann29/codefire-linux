@@ -487,6 +487,28 @@ export interface VisualComparison {
   createdAt: string
 }
 
+// ─── Project Context (used by Prompt Compiler) ───────────────────────────────
+
+export interface ProjectContextTask {
+  title: string
+  status: string
+  priority: string
+}
+
+export interface ProjectContextMemory {
+  name: string
+  snippet: string
+}
+
+export interface ProjectContext {
+  projectName: string
+  projectPath: string
+  techStack: string[]
+  gitBranch: string | null
+  openTasks: ProjectContextTask[]
+  memories: ProjectContextMemory[]
+}
+
 // ─── Snapshot & Pattern Models ────────────────────────────────────────────────
 
 export interface CodebaseSnapshot {

@@ -730,11 +730,28 @@ export const api = {
   },
 
   promptCompiler: {
+    gatherContext: (projectId: string) =>
+      invoke('prompt:gatherContext', projectId) as Promise<{
+        projectName: string
+        projectPath: string
+        techStack: string[]
+        gitBranch: string | null
+        openTasks: Array<{ title: string; status: string; priority: string }>
+        memories: Array<{ name: string; snippet: string }>
+      }>,
     clarify: (payload: {
       originalBrief: string
       taskMode?: string
       userCorrections?: string
       model?: string
+      projectContext?: {
+        projectName: string
+        projectPath: string
+        techStack: string[]
+        gitBranch: string | null
+        openTasks: Array<{ title: string; status: string; priority: string }>
+        memories: Array<{ name: string; snippet: string }>
+      }
     }) =>
       invoke('prompt:clarify', payload) as Promise<{
         mode: 'ai' | 'demo'
@@ -755,6 +772,14 @@ export const api = {
       userCorrections?: string
       clarification?: unknown
       model?: string
+      projectContext?: {
+        projectName: string
+        projectPath: string
+        techStack: string[]
+        gitBranch: string | null
+        openTasks: Array<{ title: string; status: string; priority: string }>
+        memories: Array<{ name: string; snippet: string }>
+      }
     }) =>
       invoke('prompt:generate', payload) as Promise<{
         mode: 'ai' | 'demo'
