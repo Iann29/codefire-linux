@@ -154,6 +154,10 @@ export class IndexDAO {
         fields.push('lastError = ?')
         values.push(state.lastError)
       }
+      if (state.embeddingModel !== undefined) {
+        fields.push('embeddingModel = ?')
+        values.push(state.embeddingModel)
+      }
 
       if (fields.length > 0) {
         values.push(projectId)
@@ -164,15 +168,16 @@ export class IndexDAO {
     } else {
       this.db
         .prepare(
-          `INSERT INTO indexState (projectId, status, lastFullIndexAt, totalChunks, lastError)
-           VALUES (?, ?, ?, ?, ?)`
+          `INSERT INTO indexState (projectId, status, lastFullIndexAt, totalChunks, lastError, embeddingModel)
+           VALUES (?, ?, ?, ?, ?, ?)`
         )
         .run(
           projectId,
           state.status ?? 'idle',
           state.lastFullIndexAt ?? null,
           state.totalChunks ?? 0,
-          state.lastError ?? null
+          state.lastError ?? null,
+          state.embeddingModel ?? null
         )
     }
   }

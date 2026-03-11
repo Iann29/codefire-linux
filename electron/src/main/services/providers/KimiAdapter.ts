@@ -14,7 +14,7 @@ const PROVIDER_ID = 'kimi-subscription'
 /**
  * Kimi (Moonshot) adapter.
  * Uses Anthropic Messages API format with API key authentication.
- * Requires header `User-Agent: claude-code/1.0`.
+ * Requires header `User-Agent: coding-agent` (enforced by Kimi API).
  */
 export class KimiAdapter implements ProviderAdapter {
   readonly id = PROVIDER_ID
@@ -54,6 +54,7 @@ export class KimiAdapter implements ProviderAdapter {
 
   async listModels(): Promise<ModelInfo[]> {
     return [
+      { id: 'kimi-for-coding', name: 'Kimi for Coding' },
       { id: 'kimi-k2.5', name: 'Kimi K2.5' },
       { id: 'kimi-k2', name: 'Kimi K2' },
     ]
@@ -73,7 +74,7 @@ export class KimiAdapter implements ProviderAdapter {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'kimi-k2.5',
+          model: 'kimi-for-coding',
           max_tokens: 1,
           messages: [{ role: 'user', content: 'ping' }],
         }),

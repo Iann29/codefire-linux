@@ -4,6 +4,7 @@ import { getDatabase, closeDatabase } from './database/connection'
 import { registerAllHandlers } from './ipc'
 import { registerSearchHandlers } from './ipc/search-handlers'
 import { registerGmailHandlers } from './ipc/gmail-handlers'
+import { setSettingsEmbeddingClient } from './ipc/settings-handlers'
 import { WindowManager } from './windows/WindowManager'
 import { TrayManager } from './windows/TrayManager'
 import { TerminalService } from './services/TerminalService'
@@ -74,6 +75,10 @@ function initDeferredServices() {
   })
   searchEngine = new SearchEngine(db, embeddingClient)
   contextEngine = new ContextEngine(db, embeddingClient)
+
+  // Late-bind embedding client to settings handler so config changes
+  // are reflected in real-time without requiring an app restart.
+  setSettingsEmbeddingClient(embeddingClient)
 
   // File watcher for incremental index updates
   fileWatcher = new FileWatcher()

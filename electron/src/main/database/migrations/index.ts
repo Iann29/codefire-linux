@@ -610,4 +610,15 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 25: Track which embedding model generated each project's embeddings
+  {
+    version: 25,
+    name: 'v25_addEmbeddingModelToIndexState',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE indexState ADD COLUMN embeddingModel TEXT;
+      `)
+    },
+  },
 ]

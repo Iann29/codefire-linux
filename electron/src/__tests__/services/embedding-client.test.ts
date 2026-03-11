@@ -351,7 +351,7 @@ describe('EmbeddingClient (Gemini)', () => {
 
   beforeEach(() => {
     client = new EmbeddingClient({
-      model: 'google/gemini-embedding-2',
+      model: 'google/gemini-embedding-2-preview',
       googleAiApiKey: 'test-gemini-key',
     })
     vi.clearAllMocks()
@@ -372,7 +372,7 @@ describe('EmbeddingClient (Gemini)', () => {
 
     it('reports no API key when only openRouterKey is set', () => {
       const mismatchClient = new EmbeddingClient({
-        model: 'google/gemini-embedding-2',
+        model: 'google/gemini-embedding-2-preview',
         openRouterKey: 'sk-or-test',
         // no googleAiApiKey
       })
@@ -393,14 +393,14 @@ describe('EmbeddingClient (Gemini)', () => {
 
       const [url, options] = mockFetch.mock.calls[0]
       expect(url).toContain(
-        'generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents'
+        'generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:batchEmbedContents'
       )
       expect(url).toContain('key=test-gemini-key')
       expect(options.method).toBe('POST')
 
       const body = JSON.parse(options.body)
       expect(body.requests).toHaveLength(1)
-      expect(body.requests[0].model).toBe('models/gemini-embedding-2')
+      expect(body.requests[0].model).toBe('models/gemini-embedding-2-preview')
       expect(body.requests[0].content.parts[0].text).toBe('hello world')
       expect(body.requests[0].taskType).toBe('RETRIEVAL_QUERY')
       expect(body.requests[0].outputDimensionality).toBe(1536)
@@ -419,7 +419,7 @@ describe('EmbeddingClient (Gemini)', () => {
 
     it('throws on missing Google AI API key', async () => {
       const noKeyClient = new EmbeddingClient({
-        model: 'google/gemini-embedding-2',
+        model: 'google/gemini-embedding-2-preview',
       })
 
       await expect(noKeyClient.getEmbedding('test')).rejects.toThrow(
@@ -497,12 +497,12 @@ describe('EmbeddingClient.updateConfig', () => {
     expect(client.getProvider()).toBe('openrouter')
 
     client.updateConfig({
-      model: 'google/gemini-embedding-2',
+      model: 'google/gemini-embedding-2-preview',
       googleAiApiKey: 'gemini-key',
     })
 
     expect(client.getProvider()).toBe('gemini')
-    expect(client.getModel()).toBe('google/gemini-embedding-2')
+    expect(client.getModel()).toBe('google/gemini-embedding-2-preview')
     expect(client.hasApiKey()).toBe(true)
   })
 
@@ -528,7 +528,7 @@ describe('EmbeddingClient.updateConfig', () => {
 
   it('respects custom dimensions', () => {
     const client = new EmbeddingClient({
-      model: 'google/gemini-embedding-2',
+      model: 'google/gemini-embedding-2-preview',
       dimensions: 768,
       googleAiApiKey: 'test-key',
     })

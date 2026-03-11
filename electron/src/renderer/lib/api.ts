@@ -25,6 +25,7 @@ import type {
   ResolvePageContextInput,
   PageContextEvidence,
   ProviderModelGroup,
+  IndexState,
 } from '@shared/models'
 const invoke = window.api.invoke
 
@@ -427,13 +428,7 @@ export const api = {
     reindex: (projectId: string) =>
       invoke('search:reindex', projectId) as Promise<{ success: boolean }>,
     getIndexState: (projectId: string) =>
-      invoke('search:getIndexState', projectId) as Promise<{
-        projectId: string
-        status: string
-        lastFullIndexAt: string | null
-        totalChunks: number
-        lastError: string | null
-      } | null>,
+      invoke('search:getIndexState', projectId) as Promise<IndexState | null>,
     clearIndex: (projectId: string) =>
       invoke('search:clearIndex', projectId) as Promise<{ success: boolean }>,
     testEmbedding: (config: { model: string; openRouterKey?: string; googleAiApiKey?: string }) =>

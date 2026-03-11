@@ -154,8 +154,10 @@ export class ProviderRouter {
       }
 
       case 'kimi-subscription': {
-        const kimiKey = overrides?.apiKey || config.customEndpointKey
-        if (!kimiKey) throw new Error('Kimi API key not configured in Settings > Engine.')
+        // Read API key from TokenStore (saved via "Connect account" flow), then fallback to overrides/custom
+        const storedKimi = this.tokenStore?.getAccount(providerType, accountIndex)
+        const kimiKey = storedKimi?.accessToken || overrides?.apiKey || config.customEndpointKey
+        if (!kimiKey) throw new Error('Kimi API key not configured. Go to Settings > Engine and add your Kimi API key.')
         provider = new KimiAdapter(kimiKey)
         break
       }

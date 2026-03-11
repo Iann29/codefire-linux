@@ -142,7 +142,7 @@ export const KIMI_CONFIG: ApiKeyProviderConfig = {
   id: 'kimi-subscription',
   name: 'Kimi',
   apiBaseUrl: 'https://api.kimi.com/coding/v1',
-  userAgent: 'claude-code/1.0',
+  userAgent: 'coding-agent',
 }
 
 // ─── Registry ───────────────────────────────────────────────────────────────

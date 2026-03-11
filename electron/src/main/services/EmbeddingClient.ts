@@ -35,7 +35,7 @@ export interface EmbeddingClientConfig {
 const MODEL_PROVIDER_MAP: Record<string, EmbeddingProvider> = {
   'openai/text-embedding-3-small': 'openrouter',
   'openai/text-embedding-3-large': 'openrouter',
-  'google/gemini-embedding-2': 'gemini',
+  'google/gemini-embedding-2-preview': 'gemini',
 }
 
 /**

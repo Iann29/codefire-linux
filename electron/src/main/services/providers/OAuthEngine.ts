@@ -131,8 +131,8 @@ export class OAuthEngine {
   }
 
   /**
-   * Save a direct token (e.g. from `claude setup-token`) without going through OAuth.
-   * Used for providers that use tokenInputFlow.
+   * Save a direct token (e.g. from `claude setup-token`) or API key without going through OAuth.
+   * Used for providers that use tokenInputFlow or API key auth.
    */
   async saveDirectToken(
     providerId: string,
@@ -142,26 +142,35 @@ export class OAuthEngine {
     token = token.replace(/\s+/g, '')
 
     const config = ALL_SUBSCRIPTION_PROVIDERS[providerId]
-    if (!config || !isOAuthConfig(config)) {
+    if (!config) {
       return { success: false, error: `Unknown provider: ${providerId}` }
     }
 
-    // Fetch profile if available to get email/name
+    // Fetch profile if available (only for OAuth providers with a profileUrl)
     let email: string | null = null
     let name: string | null = null
     let tier: string | null = null
-    if (config.profileUrl) {
-      const profile = await this.fetchProfileWithToken(config, token)
-      email = profile.email
-      name = profile.name
-      tier = profile.tier
+    let scopes = ''
+
+    if (isOAuthConfig(config)) {
+      scopes = config.scopes.join(' ')
+      if (config.profileUrl) {
+        const profile = await this.fetchProfileWithToken(config, token)
+        email = profile.email
+        name = profile.name
+        tier = profile.tier
+      }
+    } else {
+      // ApiKeyProviderConfig (e.g. Kimi) — store the API key directly
+      scopes = 'api-key'
+      name = config.name
     }
 
     const accountIndex = this.tokenStore.addAccount({
       accessToken: token,
       refreshToken: null,
-      expiresAt: 0, // no expiry — setup tokens last ~1 year
-      scope: config.scopes.join(' '),
+      expiresAt: 0, // no expiry — API keys don't expire
+      scope: scopes,
       accountEmail: email,
       accountName: name,
       subscriptionTier: tier,

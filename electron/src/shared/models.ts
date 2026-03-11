@@ -131,6 +131,7 @@ export interface IndexState {
   lastFullIndexAt: string | null
   totalChunks: number
   lastError: string | null
+  embeddingModel: string | null
 }
 
 export interface IndexRequest {

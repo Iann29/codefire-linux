@@ -27,6 +27,9 @@ const TOKEN_INPUT_PROVIDERS: Record<string, { hint: string }> = {
   'claude-subscription': {
     hint: 'Run "claude setup-token" in your terminal, then paste the sk-ant-oat01-... token here.',
   },
+  'kimi-subscription': {
+    hint: 'Enter your Kimi (Moonshot) API key. Get one at platform.moonshot.cn/console/api-keys',
+  },
 }
 
 const PROVIDER_OPTIONS: { value: AIProviderType; label: string }[] = [
@@ -96,7 +99,7 @@ function getTokenStatus(account: AccountEntry) {
 
 // ─── Index Status Panel ───────────────────────────────────────────────────
 
-function IndexStatusPanel() {
+function IndexStatusPanel({ currentEmbeddingModel }: { currentEmbeddingModel: string }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [indexStates, setIndexStates] = useState<Map<string, IndexState | null>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -124,11 +127,9 @@ function IndexStatusPanel() {
   async function handleReindex(projectId: string) {
     setActionInProgress(projectId)
     await api.search.reindex(projectId).catch(() => {})
-    setTimeout(async () => {
-      const state = await api.search.getIndexState(projectId).catch(() => null)
-      setIndexStates((prev) => new Map(prev).set(projectId, state))
-      setActionInProgress(null)
-    }, 1000)
+    const state = await api.search.getIndexState(projectId).catch(() => null)
+    setIndexStates((prev) => new Map(prev).set(projectId, state))
+    setActionInProgress(null)
   }
 
   async function handleClear(projectId: string) {
@@ -150,11 +151,17 @@ function IndexStatusPanel() {
         const chunks = state?.totalChunks ?? 0
         const isActive = actionInProgress === p.id
         const name = p.name.split(/[/\\]/).pop() ?? p.name
+        const modelStale = status === 'ready' && state?.embeddingModel && state.embeddingModel !== currentEmbeddingModel
 
         return (
           <div key={p.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-neutral-800 border border-neutral-700">
             <Database size={12} className="text-neutral-500 shrink-0" />
             <span className="text-xs text-neutral-300 truncate flex-1" title={p.name}>{name}</span>
+            {modelStale && (
+              <span className="text-[10px] text-yellow-400 shrink-0" title={`Indexed with ${state.embeddingModel}, current model is ${currentEmbeddingModel}. Rebuild to update.`}>
+                <AlertTriangle size={11} className="inline -mt-0.5" /> stale
+              </span>
+            )}
             <span className={`text-[10px] font-mono shrink-0 ${
               status === 'idle' ? 'text-neutral-600' :
               status === 'indexing' ? 'text-codefire-orange' :
@@ -783,7 +790,7 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
           options={[
             { value: 'openai/text-embedding-3-small', label: 'text-embedding-3-small (OpenAI via OpenRouter)' },
             { value: 'openai/text-embedding-3-large', label: 'text-embedding-3-large (OpenAI via OpenRouter)' },
-            { value: 'google/gemini-embedding-2', label: 'Gemini Embedding 2 (Google)' },
+            { value: 'google/gemini-embedding-2-preview', label: 'Gemini Embedding 2 Preview (Google)' },
           ]}
         />
         {config.embeddingModel?.startsWith('google/') && (
@@ -1001,7 +1008,7 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
         <p className="text-[10px] text-neutral-600 mb-2">
           Semantic code index for each project. Rebuild to re-index all files, or clear to remove index data.
         </p>
-        <IndexStatusPanel />
+        <IndexStatusPanel currentEmbeddingModel={config.embeddingModel} />
       </Section>
     </div>
   )

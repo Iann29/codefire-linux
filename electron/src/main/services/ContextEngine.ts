@@ -266,6 +266,7 @@ export class ContextEngine {
         lastFullIndexAt: new Date().toISOString(),
         totalChunks,
         lastError: null,
+        embeddingModel: this.embeddingClient?.getModel() ?? null,
       })
     } catch (error: unknown) {
       // Step 7: Set error state
@@ -368,19 +369,48 @@ export class ContextEngine {
    * Generate embeddings for chunks that don't have one yet.
    * Processes in batches to avoid oversized API requests.
    * Silently skips if no API key is configured.
+   *
+   * Detects embedding model changes: if the current model differs from
+   * the one stored in indexState, all existing embeddings are invalidated
+   * (set to NULL) so they get re-generated with the new model.
    */
   private async generateEmbeddings(projectId: string): Promise<void> {
     if (!this.embeddingClient?.hasApiKey()) return
 
+    const currentModel = this.embeddingClient.getModel()
+
+    // ── Model mismatch detection ───────────────────────────────────────────
+    // If the embedding model changed since last indexing, old embeddings
+    // live in a different vector space and are useless. Null them out.
+    const state = this.indexDAO.getState(projectId)
+    if (state?.embeddingModel && state.embeddingModel !== currentModel) {
+      console.log(
+        `[ContextEngine] Embedding model changed: ${state.embeddingModel} → ${currentModel}. Clearing stale embeddings for project ${projectId}.`
+      )
+      this.db
+        .prepare('UPDATE codeChunks SET embedding = NULL WHERE projectId = ? AND embedding IS NOT NULL')
+        .run(projectId)
+    }
+
+    // ── Find chunks needing embeddings ─────────────────────────────────────
     const chunks = this.db
       .prepare(
         'SELECT id, content FROM codeChunks WHERE projectId = ? AND embedding IS NULL'
       )
       .all(projectId) as { id: string; content: string }[]
 
-    if (chunks.length === 0) return
+    if (chunks.length === 0) {
+      // Even if no chunks to embed, record the current model
+      this.indexDAO.updateState(projectId, { embeddingModel: currentModel })
+      return
+    }
+
+    // ── Generate in batches (resilient — continue on error) ────────────────
+    let successCount = 0
+    let failCount = 0
 
     for (let i = 0; i < chunks.length; i += EMBEDDING_BATCH_SIZE) {
+      const batchNum = Math.floor(i / EMBEDDING_BATCH_SIZE) + 1
       const batch = chunks.slice(i, i + EMBEDDING_BATCH_SIZE)
       try {
         const embeddings = await this.embeddingClient.getEmbeddings(
@@ -393,15 +423,29 @@ export class ContextEngine {
             float32ArrayToBlob(embeddings[j])
           )
         }
+        successCount += batch.length
       } catch (err) {
+        failCount += batch.length
         console.error(
-          `[ContextEngine] Embedding batch ${i / EMBEDDING_BATCH_SIZE + 1} failed:`,
+          `[ContextEngine] Embedding batch ${batchNum} failed (${batch.length} chunks):`,
           err
         )
-        // Stop generating embeddings on error — search will fall back to FTS-only.
-        // Already-embedded chunks remain usable.
-        break
+        // Continue with remaining batches instead of giving up entirely.
+        // This handles transient errors (rate limits, timeouts) more gracefully.
       }
+    }
+
+    // Record which model was used
+    this.indexDAO.updateState(projectId, { embeddingModel: currentModel })
+
+    if (failCount > 0) {
+      console.warn(
+        `[ContextEngine] Embedding generation: ${successCount} succeeded, ${failCount} failed (project ${projectId}). Failed chunks will be retried on next rebuild.`
+      )
+    } else {
+      console.log(
+        `[ContextEngine] Embedded ${successCount} chunks for project ${projectId} using ${currentModel}.`
+      )
     }
   }
 
