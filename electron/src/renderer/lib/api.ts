@@ -24,6 +24,7 @@ import type {
   VisualComparison,
   ResolvePageContextInput,
   PageContextEvidence,
+  ProviderModelGroup,
 } from '@shared/models'
 const invoke = window.api.invoke
 
@@ -435,6 +436,14 @@ export const api = {
       } | null>,
     clearIndex: (projectId: string) =>
       invoke('search:clearIndex', projectId) as Promise<{ success: boolean }>,
+    testEmbedding: (config: { model: string; openRouterKey?: string; googleAiApiKey?: string }) =>
+      invoke('embedding:test', config) as Promise<{
+        success: boolean
+        error?: string
+        dimensions?: number
+        provider?: string
+        latencyMs?: number
+      }>,
   },
 
   shell: {
@@ -539,6 +548,8 @@ export const api = {
   provider: {
     listModels: () =>
       invoke('provider:listModels') as Promise<Array<{ id: string; name: string }>>,
+    listAllModels: () =>
+      invoke('provider:listAllModels') as Promise<ProviderModelGroup[]>,
     healthCheck: () =>
       invoke('provider:healthCheck') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
     startOAuth: (providerId: string) =>

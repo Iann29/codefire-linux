@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron'
-import type { AppConfig, RateLimitInfo, ModelRoutingRule } from '@shared/models'
+import type { AppConfig, RateLimitInfo, ModelRoutingRule, ProviderModelGroup, AIProviderType } from '@shared/models'
 import {
   ProviderHttpError,
   type ProviderAdapter,
@@ -320,6 +320,117 @@ export class ProviderRouter {
     } catch {
       return []
     }
+  }
+
+  /**
+   * List models from ALL connected/configured providers, grouped by provider.
+   * A provider is considered "connected" if:
+   * - Subscription providers: have at least one account in TokenStore
+   * - OpenRouter: has an API key configured
+   * - Custom: has a URL configured
+   */
+  async listAllConnectedModels(config: AppConfig): Promise<ProviderModelGroup[]> {
+    const groups: ProviderModelGroup[] = []
+    const tasks: Array<Promise<void>> = []
+
+    // Check subscription providers (parallel)
+    const subscriptionIds: AIProviderType[] = [
+      'claude-subscription',
+      'openai-subscription',
+      'gemini-subscription',
+      'kimi-subscription',
+    ]
+
+    for (const providerId of subscriptionIds) {
+      // For kimi, check if there's an API key or accounts
+      if (providerId === 'kimi-subscription') {
+        const hasAccounts = this.tokenStore ? this.tokenStore.getAccountCount(providerId) > 0 : false
+        const hasKey = !!config.customEndpointKey
+        if (!hasAccounts && !hasKey) continue
+      } else {
+        // Other subscription providers: check if any accounts exist
+        if (!this.tokenStore || this.tokenStore.getAccountCount(providerId) === 0) continue
+      }
+
+      tasks.push(
+        (async () => {
+          try {
+            const tempConfig = { ...config, aiProvider: providerId }
+            const provider = this.resolveProvider(tempConfig)
+            const models = await provider.listModels()
+            if (models.length > 0) {
+              groups.push({
+                providerId,
+                providerName: PROVIDER_NAMES[providerId] ?? providerId,
+                models,
+              })
+            }
+          } catch {
+            // Provider not functional — skip
+          }
+        })()
+      )
+    }
+
+    // Check OpenRouter
+    if (config.openRouterKey) {
+      tasks.push(
+        (async () => {
+          try {
+            const provider = new OpenRouterAdapter(config.openRouterKey)
+            const models = await provider.listModels()
+            if (models.length > 0) {
+              groups.push({
+                providerId: 'openrouter',
+                providerName: PROVIDER_NAMES['openrouter'] ?? 'OpenRouter',
+                models,
+              })
+            }
+          } catch {
+            // OpenRouter not functional — skip
+          }
+        })()
+      )
+    }
+
+    // Check Custom Endpoint
+    if (config.customEndpointUrl) {
+      tasks.push(
+        (async () => {
+          try {
+            const provider = new CustomEndpointAdapter(
+              config.customEndpointUrl,
+              config.customEndpointKey || ''
+            )
+            const models = await provider.listModels()
+            if (models.length > 0) {
+              groups.push({
+                providerId: 'custom',
+                providerName: PROVIDER_NAMES['custom'] ?? 'Custom Endpoint',
+                models,
+              })
+            }
+          } catch {
+            // Custom endpoint not functional — skip
+          }
+        })()
+      )
+    }
+
+    await Promise.all(tasks)
+
+    // Sort groups: subscription providers first, then OpenRouter, then custom
+    const ORDER: Record<string, number> = {
+      'claude-subscription': 0,
+      'openai-subscription': 1,
+      'gemini-subscription': 2,
+      'kimi-subscription': 3,
+      openrouter: 4,
+      custom: 5,
+    }
+    groups.sort((a, b) => (ORDER[a.providerId] ?? 99) - (ORDER[b.providerId] ?? 99))
+
+    return groups
   }
 
   async healthCheck(config: AppConfig): Promise<ProviderHealth> {

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { api } from '@renderer/lib/api'
 import { usePromptCompiler } from '@renderer/hooks/usePromptCompiler'
+import { useAvailableModels } from '@renderer/hooks/useAvailableModels'
 import type { ContextToggles } from '@renderer/hooks/usePromptCompiler'
 import type { ProjectContext } from '@shared/models'
 
@@ -49,7 +50,6 @@ export default function PromptView({ projectId }: PromptViewProps) {
   const [brief, setBrief] = useState('')
   const [corrections, setCorrections] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
-  const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
   const [copied, setCopied] = useState(false)
   const [contextOpen, setContextOpen] = useState(true)
   const [toggles, setToggles] = useState<ContextToggles>(DEFAULT_TOGGLES)
@@ -69,20 +69,15 @@ export default function PromptView({ projectId }: PromptViewProps) {
     fetchContext,
   } = usePromptCompiler()
 
-  // Load available models from provider
+  // Dynamic model list from all connected providers
+  const { groups: modelGroups, allModels, loading: modelsLoading } = useAvailableModels()
+
+  // Auto-select first model when available
   useEffect(() => {
-    api.provider
-      .listModels()
-      .then((list) => {
-        setModels(list)
-        if (list.length > 0 && !selectedModel) {
-          setSelectedModel(list[0].id)
-        }
-      })
-      .catch(() => {
-        // No provider configured
-      })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (allModels.length > 0 && !selectedModel) {
+      setSelectedModel(allModels[0].id)
+    }
+  }, [allModels, selectedModel])
 
   // Fetch project context on mount
   useEffect(() => {
@@ -220,13 +215,21 @@ export default function PromptView({ projectId }: PromptViewProps) {
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-cf px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-codefire-orange/50 focus:ring-1 focus:ring-codefire-orange/20"
+              disabled={modelsLoading}
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-cf px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-codefire-orange/50 focus:ring-1 focus:ring-codefire-orange/20 disabled:opacity-50"
             >
-              {models.length === 0 && <option value="">Nenhum provider configurado</option>}
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
+              {allModels.length === 0 && !modelsLoading && (
+                <option value="">Nenhum provider configurado</option>
+              )}
+              {modelsLoading && <option value="">Carregando modelos...</option>}
+              {modelGroups.map((group) => (
+                <optgroup key={group.providerId} label={group.providerName}>
+                  {group.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>

@@ -21,6 +21,11 @@ ipcMain.handle('provider:listModels', async () => {
   return providerRouter.listModels(config)
 })
 
+ipcMain.handle('provider:listAllModels', async () => {
+  const config = readConfig()
+  return providerRouter.listAllConnectedModels(config)
+})
+
 ipcMain.handle('provider:healthCheck', async () => {
   const config = readConfig()
   return providerRouter.healthCheck(config)

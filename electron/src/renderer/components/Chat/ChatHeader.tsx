@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Flame, Zap, BookOpen, Cpu, ChevronDown, Plus, Trash2, Terminal } from 'lucide-react'
-import type { ChatConversation, ChatEffortLevel, Session } from '@shared/models'
+import type { ChatConversation, ChatEffortLevel, ProviderModelGroup, Session } from '@shared/models'
 import {
   modelSupportsClaudeEffortById,
   modelSupportsVisionById,
@@ -18,29 +18,51 @@ interface ChatModelOption {
   capabilities?: ModelCapability[]
 }
 
-// ─── Chat Model Options ──────────────────────────────────────────────────────
+// ─── Static Model Capabilities Map ───────────────────────────────────────────
+// Capabilities are properties of the models themselves, not the provider.
+// This map is used for badge display regardless of which provider serves them.
 
-export const CHAT_MODELS: ChatModelOption[] = [
-  // OpenRouter models (available to all)
-  { value: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'google/gemini-3-flash-preview', label: 'Gemini 3 Flash', capabilities: ['vision', 'streaming'] },
-  { value: 'qwen/qwen3.5-plus-02-15', label: 'Qwen 3.5 Plus', capabilities: ['tools', 'streaming'] },
-  { value: 'qwen/qwen3-coder-next', label: 'Qwen3 Coder Next', capabilities: ['tools', 'streaming'] },
-  { value: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2', capabilities: ['tools', 'streaming'] },
-  { value: 'minimax/minimax-m2.5', label: 'MiniMax M2.5', capabilities: ['streaming'] },
-  { value: 'z-ai/glm-5', label: 'GLM-5', capabilities: ['tools', 'streaming'] },
-  { value: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', capabilities: ['tools', 'streaming'] },
-  { value: 'openai/gpt-5.4', label: 'GPT-5.4', capabilities: ['tools', 'vision', 'streaming'] },
-  // Subscription-native models
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'claude-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'claude-subscription', capabilities: ['vision', 'streaming'] },
-  { value: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'o3', label: 'o3', provider: 'openai-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'o4-mini', label: 'o4 Mini', provider: 'openai-subscription', capabilities: ['streaming'] },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'gemini-subscription', capabilities: ['tools', 'vision', 'streaming'] },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'gemini-subscription', capabilities: ['vision', 'streaming'] },
-]
+const MODEL_CAPABILITIES: Record<string, ModelCapability[]> = {
+  // Claude models
+  'claude-opus-4-6': ['tools', 'vision', 'streaming'],
+  'claude-sonnet-4-6': ['tools', 'vision', 'streaming'],
+  'claude-haiku-4-5-20251001': ['vision', 'streaming'],
+  // OpenAI models (subscription)
+  'gpt-4.1': ['tools', 'vision', 'streaming'],
+  'gpt-5.4': ['tools', 'vision', 'streaming'],
+  'o3': ['tools', 'vision', 'streaming'],
+  'o4-mini': ['streaming'],
+  // Gemini models (subscription)
+  'gemini-2.5-pro': ['tools', 'vision', 'streaming'],
+  'gemini-2.5-flash': ['vision', 'streaming'],
+  'gemini-2.0-flash': ['vision', 'streaming'],
+  // OpenRouter models (prefixed)
+  'google/gemini-3.1-pro-preview': ['tools', 'vision', 'streaming'],
+  'google/gemini-3-flash-preview': ['vision', 'streaming'],
+  'qwen/qwen3.5-plus-02-15': ['tools', 'streaming'],
+  'qwen/qwen3-coder-next': ['tools', 'streaming'],
+  'deepseek/deepseek-v3.2': ['tools', 'streaming'],
+  'minimax/minimax-m2.5': ['streaming'],
+  'z-ai/glm-5': ['tools', 'streaming'],
+  'moonshotai/kimi-k2.5': ['tools', 'streaming'],
+  'openai/gpt-5.4': ['tools', 'vision', 'streaming'],
+  'anthropic/claude-opus-4-6': ['tools', 'vision', 'streaming'],
+  'anthropic/claude-sonnet-4-6': ['tools', 'vision', 'streaming'],
+  'anthropic/claude-haiku-4-5-20251001': ['vision', 'streaming'],
+  // Kimi models
+  'kimi-k2.5': ['tools', 'streaming'],
+  'kimi-k2': ['streaming'],
+}
+
+/** Look up capabilities for a model ID (tries exact match, then normalized) */
+function getModelCapabilities(modelId: string): ModelCapability[] {
+  if (MODEL_CAPABILITIES[modelId]) return MODEL_CAPABILITIES[modelId]
+  const normalized = normalizeProviderModelId(modelId)
+  if (MODEL_CAPABILITIES[normalized]) return MODEL_CAPABILITIES[normalized]
+  return []
+}
+
+// ─── Claude Effort Options ───────────────────────────────────────────────────
 
 const CLAUDE_EFFORT_OPTIONS: Array<{ value: ChatEffortLevel; label: string; shortLabel: string }> = [
   { value: 'default', label: 'Default', shortLabel: 'Auto' },
@@ -60,9 +82,9 @@ interface ModelAlias {
 const MODEL_ALIASES: Record<string, ModelAlias> = {
   best: { model: 'claude-opus-4-6', provider: 'claude-subscription', description: 'Claude Opus 4.6' },
   fast: { model: 'claude-haiku-4-5-20251001', provider: 'claude-subscription', description: 'Claude Haiku 4.5' },
-  cheap: { model: 'google/gemini-3-flash-preview', description: 'Gemini 3 Flash' },
-  smart: { model: 'google/gemini-3.1-pro-preview', description: 'Gemini 3.1 Pro' },
-  code: { model: 'qwen/qwen3-coder-next', description: 'Qwen3 Coder Next' },
+  cheap: { model: 'google/gemini-3-flash-preview', provider: 'openrouter', description: 'Gemini 3 Flash' },
+  smart: { model: 'google/gemini-3.1-pro-preview', provider: 'openrouter', description: 'Gemini 3.1 Pro' },
+  code: { model: 'qwen/qwen3-coder-next', provider: 'openrouter', description: 'Qwen3 Coder Next' },
 }
 
 /** Resolve a model alias to the real model value, or return the original */
@@ -74,10 +96,9 @@ export function resolveModelAlias(modelValue: string): string {
 /** Check if a model supports vision (images) */
 export function modelHasVision(modelValue: string): boolean {
   const resolved = resolveModelAlias(modelValue)
-  const normalized = normalizeProviderModelId(resolved)
-  const found = CHAT_MODELS.find((m) => normalizeProviderModelId(m.value) === normalized)
-  if (!found) return modelSupportsVisionById(resolved)
-  return found?.capabilities?.includes('vision') ?? false
+  const caps = getModelCapabilities(resolved)
+  if (caps.includes('vision')) return true
+  return modelSupportsVisionById(resolved)
 }
 
 export function modelSupportsClaudeEffort(modelValue: string): boolean {
@@ -94,61 +115,105 @@ function getCapabilityBadges(capabilities?: ModelCapability[]): { char: string; 
   return badges
 }
 
-/** Build alias entries as ChatModelOption items, filtered by provider availability */
-function getAliasOptions(provider: string): (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] {
+/** Build alias entries filtered by connected providers */
+function getAliasOptions(
+  connectedProviderIds: Set<string>,
+): (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] {
   return Object.entries(MODEL_ALIASES)
     .filter(([, alias]) => {
-      if (alias.provider && provider !== alias.provider) return false
+      // Only show alias if its target provider is connected
+      if (alias.provider && !connectedProviderIds.has(alias.provider)) return false
       return true
     })
     .map(([name, alias]) => {
-      const target = CHAT_MODELS.find((m) => m.value === alias.model)
       return {
         value: `__alias__${name}`,
         label: `${name}`,
         provider: alias.provider,
-        capabilities: target?.capabilities,
+        capabilities: getModelCapabilities(alias.model),
         _aliasTarget: alias.model,
         _aliasDescription: alias.description,
       }
     })
 }
 
-/** Get models relevant to the current provider, grouped */
-function getModelsForProvider(provider: string): { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] {
+/** Build grouped model options from dynamic provider model groups */
+function buildModelGroups(
+  modelGroups: ProviderModelGroup[],
+  connectedProviderIds: Set<string>,
+): { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] {
   const groups: { group: string; models: (ChatModelOption & { _aliasTarget?: string; _aliasDescription?: string })[] }[] = []
 
-  const aliases = getAliasOptions(provider)
+  // Quick Aliases (filtered by connected providers)
+  const aliases = getAliasOptions(connectedProviderIds)
   if (aliases.length > 0) {
     groups.push({ group: 'Quick Aliases', models: aliases })
   }
 
-  if (provider.endsWith('-subscription')) {
-    const native = CHAT_MODELS.filter((m) => m.provider === provider)
-    const openrouter = CHAT_MODELS.filter((m) => !m.provider)
-    if (native.length > 0) {
-      const label = provider.replace('-subscription', '').replace(/^./, (c) => c.toUpperCase())
-      groups.push({ group: `${label} (subscription)`, models: native })
+  // Each connected provider as a group
+  for (const pg of modelGroups) {
+    const models: ChatModelOption[] = pg.models.map((m) => ({
+      value: m.id,
+      label: m.name,
+      provider: pg.providerId,
+      capabilities: getModelCapabilities(m.id),
+    }))
+
+    if (models.length > 0) {
+      groups.push({ group: pg.providerName, models })
     }
-    groups.push({ group: 'OpenRouter', models: openrouter })
-    return groups
   }
-  groups.push({ group: '', models: CHAT_MODELS.filter((m) => !m.provider) })
+
   return groups
 }
 
+/** Get a human-friendly short name for a model ID */
 export function getModelShortName(modelValue: string): string {
+  // Check static capability map keys for a match
   const normalized = normalizeProviderModelId(modelValue)
-  const found = CHAT_MODELS.find((m) => normalizeProviderModelId(m.value) === normalized)
-  if (found) return found.label
+
+  // Try to find in aliases first
   const resolvedModel = resolveModelAlias(modelValue)
   if (resolvedModel !== modelValue) {
     const resolvedNormalized = normalizeProviderModelId(resolvedModel)
-    const resolvedFound = CHAT_MODELS.find((m) => normalizeProviderModelId(m.value) === resolvedNormalized)
-    if (resolvedFound) return resolvedFound.label
+    // Known model names for common models
+    const knownNames = getKnownModelName(resolvedNormalized)
+    if (knownNames) return knownNames
   }
+
+  const knownName = getKnownModelName(normalized)
+  if (knownName) return knownName
+
+  // Fallback: strip provider prefix and clean up
   const parts = modelValue.split('/')
   return parts.length > 1 ? parts.slice(1).join('/') : modelValue.replace(/-\d{8,}$/, '')
+}
+
+/** Static map of known model IDs to display names */
+const KNOWN_MODEL_NAMES: Record<string, string> = {
+  'claude-opus-4-6': 'Claude Opus 4.6',
+  'claude-sonnet-4-6': 'Claude Sonnet 4.6',
+  'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
+  'gpt-4.1': 'GPT-4.1',
+  'gpt-5.4': 'GPT-5.4',
+  'o3': 'o3',
+  'o4-mini': 'o4 Mini',
+  'gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'gemini-2.5-flash': 'Gemini 2.5 Flash',
+  'gemini-2.0-flash': 'Gemini 2.0 Flash',
+  'gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
+  'gemini-3-flash-preview': 'Gemini 3 Flash',
+  'qwen3.5-plus-02-15': 'Qwen 3.5 Plus',
+  'qwen3-coder-next': 'Qwen3 Coder Next',
+  'deepseek-v3.2': 'DeepSeek V3.2',
+  'minimax-m2.5': 'MiniMax M2.5',
+  'glm-5': 'GLM-5',
+  'kimi-k2.5': 'Kimi K2.5',
+  'kimi-k2': 'Kimi K2',
+}
+
+function getKnownModelName(normalizedId: string): string | null {
+  return KNOWN_MODEL_NAMES[normalizedId] ?? null
 }
 
 // ─── ChatHeader Props ────────────────────────────────────────────────────────
@@ -161,6 +226,8 @@ export interface ChatHeaderProps {
   chatEffortLevel: ChatEffortLevel
   onEffortLevelChange: (level: ChatEffortLevel) => void
   aiProvider: string
+  modelGroups: ProviderModelGroup[]
+  connectedProviderIds: Set<string>
   conversations: ChatConversation[]
   sessions: Session[]
   activeConversationId: number | null
@@ -179,6 +246,8 @@ export default function ChatHeader({
   chatEffortLevel,
   onEffortLevelChange,
   aiProvider,
+  modelGroups,
+  connectedProviderIds,
   conversations,
   sessions,
   activeConversationId,
@@ -209,11 +278,17 @@ export default function ChatHeader({
   const activeConversation = conversations.find(c => c.id === activeConversationId)
   const dropdownLabel = activeConversation?.title || 'Select thread...'
   const resolvedModel = resolveModelAlias(chatModel)
-  const resolvedModelMeta = CHAT_MODELS.find((model) => model.value === resolvedModel)
+  const isClaudeModel = normalizeProviderModelId(resolvedModel).startsWith('claude-')
   const showClaudeEffort =
-    aiProvider === 'claude-subscription' &&
-    resolvedModelMeta?.provider === 'claude-subscription' &&
+    isClaudeModel &&
+    connectedProviderIds.has('claude-subscription') &&
     modelSupportsClaudeEffort(chatModel)
+
+  const hasAnyProvider = connectedProviderIds.size > 0
+  const isSubscriptionProvider = aiProvider.endsWith('-subscription')
+
+  // Build dynamic model groups from connected providers
+  const displayGroups = buildModelGroups(modelGroups, connectedProviderIds)
 
   return (
     <div className="px-3 py-2 border-b border-neutral-800 bg-neutral-950 shrink-0 space-y-2">
@@ -240,14 +315,16 @@ export default function ChatHeader({
           <button
             onClick={() => setShowModelDropdown((v) => !v)}
             className="flex items-center justify-between gap-1 w-full min-w-0 px-2 py-1 rounded-full text-[10px] font-medium bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-300 transition-colors"
-            title={`Model: ${chatModel}`}
+            title={hasAnyProvider ? `Model: ${chatModel}` : 'No AI providers configured'}
           >
             <span className="flex items-center gap-1 min-w-0 flex-1">
               <Cpu size={10} className="shrink-0" />
-              <span className="truncate">{getModelShortName(chatModel)}</span>
+              <span className="truncate">
+                {hasAnyProvider ? getModelShortName(chatModel) : 'No providers'}
+              </span>
             </span>
             <span className="flex items-center gap-1 shrink-0">
-              {aiProvider.endsWith('-subscription') && (
+              {isSubscriptionProvider && (
                 <span className="text-[8px] text-green-500 font-bold" title="Using your subscription">SUB</span>
               )}
               <ChevronDown size={8} className="text-neutral-500" />
@@ -259,64 +336,72 @@ export default function ChatHeader({
               className="absolute top-full right-0 mt-1 max-h-80 overflow-y-auto bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50 py-1"
               style={{ width: 'min(16rem, calc(100vw - 1.5rem))' }}
             >
-              {getModelsForProvider(aiProvider).map(({ group, models }) => (
-                <div key={group || 'default'}>
-                  {group && (
-                    <div className="px-3 py-1 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider border-t border-neutral-800 first:border-t-0 mt-1 first:mt-0">
-                      {group}
-                    </div>
-                  )}
-                  {models.map((m) => {
-                    const isAlias = m.value.startsWith('__alias__')
-                    const aliasName = isAlias ? m.value.replace('__alias__', '') : null
-                    const aliasTarget = isAlias ? m._aliasTarget : null
-                    const aliasDescription = isAlias ? m._aliasDescription : null
-                    const isActive = isAlias ? chatModel === aliasTarget : m.value === chatModel
-                    const badges = getCapabilityBadges(m.capabilities)
-
-                    return (
-                      <button
-                        key={m.value}
-                        onClick={() => {
-                          const modelToSet = isAlias && aliasTarget ? aliasTarget : m.value
-                          onModelChange(modelToSet)
-                          setShowModelDropdown(false)
-                        }}
-                        className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] transition-colors ${
-                          isActive
-                            ? 'bg-neutral-800 text-codefire-orange'
-                            : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300'
-                        }`}
-                      >
-                        {isAlias ? (
-                          <span className="truncate flex-1 text-left">
-                            <span className="font-semibold">{aliasName}</span>
-                            <span className="text-neutral-500"> {'\u2192'} {aliasDescription}</span>
-                          </span>
-                        ) : (
-                          <span className="truncate">{m.label}</span>
-                        )}
-                        {badges.length > 0 && (
-                          <span className="flex items-center gap-0.5 shrink-0">
-                            {badges.map((b) => (
-                              <span
-                                key={b.key}
-                                title={b.title}
-                                className="text-[8px] text-neutral-600 font-mono leading-none px-0.5 rounded bg-neutral-800"
-                              >
-                                {b.char}
-                              </span>
-                            ))}
-                          </span>
-                        )}
-                        {isActive && (
-                          <span className="ml-auto text-[9px] text-codefire-orange/60 shrink-0">active</span>
-                        )}
-                      </button>
-                    )
-                  })}
+              {!hasAnyProvider ? (
+                <div className="px-3 py-3 text-[11px] text-neutral-500 text-center">
+                  Nenhum provider configurado.
+                  <br />
+                  <span className="text-neutral-600">Adicione em Settings &gt; Engine.</span>
                 </div>
-              ))}
+              ) : (
+                displayGroups.map(({ group, models }) => (
+                  <div key={group || 'default'}>
+                    {group && (
+                      <div className="px-3 py-1 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider border-t border-neutral-800 first:border-t-0 mt-1 first:mt-0">
+                        {group}
+                      </div>
+                    )}
+                    {models.map((m) => {
+                      const isAlias = m.value.startsWith('__alias__')
+                      const aliasName = isAlias ? m.value.replace('__alias__', '') : null
+                      const aliasTarget = isAlias ? m._aliasTarget : null
+                      const aliasDescription = isAlias ? m._aliasDescription : null
+                      const isActive = isAlias ? chatModel === aliasTarget : m.value === chatModel
+                      const badges = getCapabilityBadges(m.capabilities)
+
+                      return (
+                        <button
+                          key={m.value}
+                          onClick={() => {
+                            const modelToSet = isAlias && aliasTarget ? aliasTarget : m.value
+                            onModelChange(modelToSet)
+                            setShowModelDropdown(false)
+                          }}
+                          className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] transition-colors ${
+                            isActive
+                              ? 'bg-neutral-800 text-codefire-orange'
+                              : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-300'
+                          }`}
+                        >
+                          {isAlias ? (
+                            <span className="truncate flex-1 text-left">
+                              <span className="font-semibold">{aliasName}</span>
+                              <span className="text-neutral-500"> {'\u2192'} {aliasDescription}</span>
+                            </span>
+                          ) : (
+                            <span className="truncate">{m.label}</span>
+                          )}
+                          {badges.length > 0 && (
+                            <span className="flex items-center gap-0.5 shrink-0">
+                              {badges.map((b) => (
+                                <span
+                                  key={b.key}
+                                  title={b.title}
+                                  className="text-[8px] text-neutral-600 font-mono leading-none px-0.5 rounded bg-neutral-800"
+                                >
+                                  {b.char}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          {isActive && (
+                            <span className="ml-auto text-[9px] text-codefire-orange/60 shrink-0">active</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>

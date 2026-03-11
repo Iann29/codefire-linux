@@ -161,6 +161,7 @@ export type AgentChannel = 'agent:start' | 'agent:cancel' | 'agent:status' | 'ag
 
 export type ProviderChannel =
   | 'provider:listModels'
+  | 'provider:listAllModels'
   | 'provider:healthCheck'
   | 'provider:startOAuth'
   | 'provider:submitOAuthCode'
@@ -215,7 +216,7 @@ export type PremiumChannel =
 
 export type PromptCompilerChannel = 'prompt:clarify' | 'prompt:generate' | 'prompt:gatherContext'
 
-export type SearchChannel = 'search:query' | 'search:reindex' | 'search:getIndexState' | 'search:clearIndex'
+export type SearchChannel = 'search:query' | 'search:reindex' | 'search:getIndexState' | 'search:clearIndex' | 'embedding:test'
 
 export type GmailChannel =
   | 'gmail:listAccounts'

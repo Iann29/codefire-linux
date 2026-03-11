@@ -14,6 +14,7 @@ import { buildMessageContentWithAttachments } from '@shared/chatAttachments'
 import { createRunUsageSnapshot, createTokenUsage, getLatestResponseUsage, getLatestRunUsage } from '@shared/chatUsage'
 import { api } from '@renderer/lib/api'
 import { chatComposerStore } from '@renderer/stores/chatComposerStore'
+import { useAvailableModels } from '@renderer/hooks/useAvailableModels'
 import PlanRail from './PlanRail'
 import AgentRunStatus from './AgentRunStatus'
 import { parseSlashCommand, formatContextCommand, getContextWindowSize, estimateTokens } from './chatCommands'
@@ -341,6 +342,9 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
   const [chatModel, setChatModel] = useState('google/gemini-3.1-pro-preview')
   const [chatEffortLevel, setChatEffortLevel] = useState<ChatEffortLevel>('default')
   const [aiProvider, setAiProvider] = useState<string>('openrouter')
+
+  // Dynamic model list from all connected providers
+  const { groups: modelGroups, connectedProviderIds } = useAvailableModels()
   const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [activeRequestConversationId, setActiveRequestConversationId] = useState<number | null>(null)
@@ -1355,6 +1359,8 @@ export default function CodeFireChat({ projectId, projectName = 'All Projects' }
         chatEffortLevel={chatEffortLevel}
         onEffortLevelChange={handleEffortLevelChange}
         aiProvider={aiProvider}
+        modelGroups={modelGroups}
+        connectedProviderIds={connectedProviderIds}
         conversations={conversations}
         sessions={sessions}
         activeConversationId={activeConversationId}
