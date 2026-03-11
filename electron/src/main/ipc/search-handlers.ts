@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import type { SearchEngine, SearchOptions } from '../services/SearchEngine'
 import type { ContextEngine } from '../services/ContextEngine'
+import { EmbeddingClient } from '../services/EmbeddingClient'
 import { ProjectDAO } from '../database/dao/ProjectDAO'
 import { IndexDAO } from '../database/dao/IndexDAO'
 import Database from 'better-sqlite3'
@@ -78,6 +79,46 @@ export function registerSearchHandlers(
         lastError: null,
       })
       return { success: true }
+    }
+  )
+
+  ipcMain.handle(
+    'embedding:test',
+    async (
+      _event,
+      config: {
+        model: string
+        openRouterKey?: string
+        googleAiApiKey?: string
+      }
+    ) => {
+      const client = new EmbeddingClient({
+        model: config.model,
+        openRouterKey: config.openRouterKey,
+        googleAiApiKey: config.googleAiApiKey,
+      })
+
+      if (!client.hasApiKey()) {
+        return { success: false, error: 'No API key configured for this provider.' }
+      }
+
+      try {
+        const start = Date.now()
+        const embedding = await client.getEmbedding('Hello world')
+        const latencyMs = Date.now() - start
+
+        return {
+          success: true,
+          dimensions: embedding.length,
+          provider: client.getProvider(),
+          latencyMs,
+        }
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
     }
   )
 }

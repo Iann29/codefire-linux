@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Trash2, Database, KeyRound, AlertTriangle, CheckCircle, Clock, Zap, Bot, Sparkles, Moon, Plus, X, Route, Star } from 'lucide-react'
+import { RefreshCw, Trash2, Database, KeyRound, AlertTriangle, CheckCircle, Clock, Zap, Bot, Sparkles, Moon, Plus, X, Route, Star, Loader2, FlaskConical } from 'lucide-react'
 import type { AppConfig, Project, IndexState, ModelRoutingRule, AIProviderType } from '@shared/models'
 import { api } from '../../lib/api'
 import { Section, TextInput, Select, Toggle, NumberInput, Slider } from './SettingsField'
@@ -588,6 +588,13 @@ function PrimaryBadge({ isPrimary, onClick }: { isPrimary: boolean; onClick: () 
 export default function SettingsTabEngine({ config, onChange }: Props) {
   const [allAccounts, setAllAccounts] = useState<AccountEntry[]>([])
   const [addingProvider, setAddingProvider] = useState<string | null>(null)
+  const [embeddingTest, setEmbeddingTest] = useState<{
+    status: 'idle' | 'testing' | 'success' | 'error'
+    dimensions?: number
+    provider?: string
+    latencyMs?: number
+    error?: string
+  }>({ status: 'idle' })
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -789,6 +796,62 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
             secret
           />
         )}
+
+        {/* Test Embedding Button */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={embeddingTest.status === 'testing'}
+            onClick={async () => {
+              setEmbeddingTest({ status: 'testing' })
+              try {
+                const result = await api.search.testEmbedding({
+                  model: config.embeddingModel,
+                  openRouterKey: config.openRouterKey,
+                  googleAiApiKey: config.googleAiApiKey,
+                })
+                if (result.success) {
+                  setEmbeddingTest({
+                    status: 'success',
+                    dimensions: result.dimensions,
+                    provider: result.provider,
+                    latencyMs: result.latencyMs,
+                  })
+                } else {
+                  setEmbeddingTest({ status: 'error', error: result.error })
+                }
+              } catch (err) {
+                setEmbeddingTest({
+                  status: 'error',
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              }
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-neutral-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {embeddingTest.status === 'testing' ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <FlaskConical className="w-3 h-3" />
+            )}
+            {embeddingTest.status === 'testing' ? 'Testing...' : 'Test embedding'}
+          </button>
+
+          {embeddingTest.status === 'success' && (
+            <span className="flex items-center gap-1 text-[10px] text-green-400">
+              <CheckCircle className="w-3 h-3" />
+              {embeddingTest.dimensions}d &middot; {embeddingTest.latencyMs}ms
+            </span>
+          )}
+
+          {embeddingTest.status === 'error' && (
+            <span className="flex items-center gap-1 text-[10px] text-red-400 max-w-[280px] truncate" title={embeddingTest.error}>
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              {embeddingTest.error}
+            </span>
+          )}
+        </div>
+
         <Select
           label="Chat model"
           hint="Model used for summaries and briefings"
