@@ -729,6 +729,42 @@ export const api = {
     }>,
   },
 
+  promptCompiler: {
+    clarify: (payload: {
+      originalBrief: string
+      taskMode?: string
+      userCorrections?: string
+      model?: string
+    }) =>
+      invoke('prompt:clarify', payload) as Promise<{
+        mode: 'ai' | 'demo'
+        data: {
+          understanding: string
+          objective: string[]
+          context: string[]
+          constraints: string[]
+          assumptions: string[]
+          confirmationPrompt: string
+          questions: string[]
+        }
+        warning?: string
+      }>,
+    generate: (payload: {
+      originalBrief: string
+      taskMode?: string
+      userCorrections?: string
+      clarification?: unknown
+      model?: string
+    }) =>
+      invoke('prompt:generate', payload) as Promise<{
+        mode: 'ai' | 'demo'
+        data: {
+          finalPrompt: string
+        }
+        warning?: string
+      }>,
+  },
+
   visualBaselines: {
     save: (data: {
       projectId: string

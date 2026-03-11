@@ -32,6 +32,7 @@ import { registerDesignSystemHandlers } from './design-system-handlers'
 import { registerComponentGraphHandlers } from './component-graph-handlers'
 import { registerLaunchGuardHandlers } from './launch-guard-handlers'
 import { registerContentStudioHandlers } from './content-studio-handlers'
+import { registerPromptHandlers } from './prompt-handlers'
 import type { WindowManager } from '../windows/WindowManager'
 import type { TerminalService } from '../services/TerminalService'
 import type { GitService } from '../services/GitService'
@@ -98,6 +99,7 @@ export function registerAllHandlers(
   registerComponentGraphHandlers()
   registerLaunchGuardHandlers()
   registerContentStudioHandlers()
+  registerPromptHandlers()
 
   // Run project discovery at startup to populate claudeProject links (deferred to not block startup)
   setImmediate(() => {

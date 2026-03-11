@@ -29,6 +29,7 @@ const RecordingsView = lazy(() => import('@renderer/views/RecordingsView'))
 const BrowserView = lazy(() => import('@renderer/views/BrowserView'))
 const VisualizerView = lazy(() => import('@renderer/views/VisualizerView'))
 const TerminalView = lazy(() => import('@renderer/views/TerminalView'))
+const PromptView = lazy(() => import('@renderer/views/PromptView'))
 
 interface ProjectLayoutProps {
   projectId: string
@@ -162,7 +163,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
         {tab === 'Images' && <ImagesView projectId={pid} />}
         {tab === 'Recordings' && <RecordingsView projectId={pid} />}
         {tab === 'Visualizer' && <VisualizerView projectId={pid} projectPath={project!.path} />}
-        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Visualizer'].includes(tab) && (
+        {tab === 'Prompt' && <PromptView projectId={pid} />}
+        {!['Sessions','Files','Memory','Services','Rules','Git','Images','Recordings','Visualizer','Prompt'].includes(tab) && (
           <div className="flex-1 p-4 overflow-y-auto">
             <h2 className="text-title text-neutral-300">{tab}</h2>
             <p className="text-sm text-neutral-600 mt-1">Coming soon</p>

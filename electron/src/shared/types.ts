@@ -213,6 +213,8 @@ export type PremiumChannel =
   | 'premium:admin:revokeGrant'
   | 'premium:admin:listGrants'
 
+export type PromptCompilerChannel = 'prompt:clarify' | 'prompt:generate'
+
 export type SearchChannel = 'search:query' | 'search:reindex' | 'search:getIndexState' | 'search:clearIndex'
 
 export type GmailChannel =
@@ -274,6 +276,7 @@ export type IpcChannel =
   | AgentChannel
   | ProviderChannel
   | PremiumChannel
+  | PromptCompilerChannel
 
 // ─── Electron API ────────────────────────────────────────────────────────────
 

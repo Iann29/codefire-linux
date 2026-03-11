@@ -13,6 +13,7 @@ import {
   Mic,
   BarChart3,
   Terminal,
+  Sparkles,
 } from 'lucide-react'
 import TabButton from './TabButton'
 
@@ -35,6 +36,7 @@ const tabs = [
   { id: 'Details', icon: Info },
   { id: 'Recordings', icon: Mic },
   { id: 'Terminal', icon: Terminal },
+  { id: 'Prompt', icon: Sparkles },
   { id: 'Visualizer', icon: BarChart3 },
 ] as const
 
