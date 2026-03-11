@@ -185,22 +185,96 @@ export class ProviderRouter {
     model: string,
     overrides?: { apiKey?: string }
   ): ProviderAdapter {
+    // 1. Check explicit model routing rules first
     const rules = config.modelRouting
     if (rules && rules.length > 0 && model) {
       for (const rule of rules) {
         if (this.matchesRoutingPattern(rule.pattern, model)) {
-          // Build a config override with the rule's provider
           const routedConfig = { ...config, aiProvider: rule.provider }
           console.log(
             `[ProviderRouter] Model routing: "${model}" matched pattern "${rule.pattern}" -> ${rule.provider} (${rule.label})`
           )
-          // Invalidate cache since we're switching provider for this call
           return this.resolveProvider(routedConfig, overrides)
         }
       }
     }
-    // No routing rule matched — use default provider
+
+    // 2. Auto-detect provider from model ID (prevents sending wrong models to wrong providers)
+    if (model) {
+      const detected = this.detectProviderForModel(model, config)
+      if (detected && detected !== config.aiProvider) {
+        const routedConfig = { ...config, aiProvider: detected }
+        console.log(
+          `[ProviderRouter] Auto-routing model "${model}" -> ${detected} (detected from model ID)`
+        )
+        return this.resolveProvider(routedConfig, overrides)
+      }
+    }
+
+    // 3. Fallback to default provider
     return this.resolveProvider(config, overrides)
+  }
+
+  /**
+   * Detect which provider a model belongs to based on its ID pattern.
+   * - Models with "/" prefix (e.g. "openai/gpt-5.4") -> openrouter
+   * - "claude-*" -> claude-subscription (if connected)
+   * - "gpt-*", "o3*", "o4-*", "chatgpt-*" -> openai-subscription (if connected)
+   * - "gemini-*" -> gemini-subscription (if connected)
+   * - "kimi-*" -> kimi-subscription (if connected)
+   * Returns null if unable to detect or if the model matches the default provider.
+   */
+  private detectProviderForModel(model: string, config: AppConfig): AIProviderType | null {
+    const m = model.toLowerCase()
+
+    // Prefixed models (e.g. "openai/gpt-5.4", "anthropic/claude-opus-4-6") -> OpenRouter
+    if (model.includes('/')) {
+      if (config.openRouterKey) return 'openrouter'
+      return null
+    }
+
+    // Claude models
+    if (m.startsWith('claude-')) {
+      if (this.isProviderConnected('claude-subscription', config)) return 'claude-subscription'
+      if (config.openRouterKey) return 'openrouter'
+      return null
+    }
+
+    // OpenAI models
+    if (m.startsWith('gpt-') || m === 'o3' || m.startsWith('o3-') || m.startsWith('o4-') || m.startsWith('chatgpt-')) {
+      if (this.isProviderConnected('openai-subscription', config)) return 'openai-subscription'
+      if (config.openRouterKey) return 'openrouter'
+      return null
+    }
+
+    // Gemini models
+    if (m.startsWith('gemini-')) {
+      if (this.isProviderConnected('gemini-subscription', config)) return 'gemini-subscription'
+      if (config.openRouterKey) return 'openrouter'
+      return null
+    }
+
+    // Kimi models
+    if (m.startsWith('kimi-')) {
+      if (this.isProviderConnected('kimi-subscription', config)) return 'kimi-subscription'
+      if (config.openRouterKey) return 'openrouter'
+      return null
+    }
+
+    return null
+  }
+
+  /** Check if a subscription provider has credentials available */
+  private isProviderConnected(providerId: string, config: AppConfig): boolean {
+    if (SUBSCRIPTION_PROVIDERS.has(providerId)) {
+      if (providerId === 'kimi-subscription') {
+        return (this.tokenStore?.getAccountCount(providerId) ?? 0) > 0 || !!config.customEndpointKey
+      }
+      return (this.tokenStore?.getAccountCount(providerId) ?? 0) > 0
+    }
+    if (providerId === 'openrouter') return !!config.openRouterKey
+    if (providerId === 'custom') return !!config.customEndpointUrl
+    return false
   }
 
   /**
