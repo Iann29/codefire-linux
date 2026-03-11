@@ -383,6 +383,19 @@ export interface RateLimitInfo {
 
 export type AIProviderType = 'openrouter' | 'custom' | 'claude-subscription' | 'openai-subscription' | 'gemini-subscription' | 'kimi-subscription'
 
+// ─── Provider Model Group (aggregated from all connected providers) ──────────
+
+export interface ProviderModelInfo {
+  id: string
+  name: string
+}
+
+export interface ProviderModelGroup {
+  providerId: AIProviderType
+  providerName: string
+  models: ProviderModelInfo[]
+}
+
 // ─── Model Routing ──────────────────────────────────────────────────────────
 
 export interface ModelRoutingRule {
@@ -409,6 +422,7 @@ export interface AppConfig {
   // Engine
   aiProvider: AIProviderType
   openRouterKey: string
+  googleAiApiKey: string
   customEndpointUrl: string
   customEndpointKey: string
   contextSearchEnabled: boolean

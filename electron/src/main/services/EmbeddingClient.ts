@@ -1,44 +1,125 @@
 /**
- * Client for generating text embeddings via OpenRouter API.
+ * Multi-provider embedding client.
+ *
+ * Routes embedding requests to OpenRouter (for OpenAI models) or
+ * the Gemini API (for Google models) based on the configured model ID.
  * Includes an LRU cache (max 50 entries) to avoid redundant API calls.
  */
 
 import { createHash } from 'crypto'
 
-const EMBEDDING_ENDPOINT = 'https://openrouter.ai/api/v1/embeddings'
-const EMBEDDING_MODEL = 'openai/text-embedding-3-large'
-const EMBEDDING_DIMENSIONS = 1536
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/embeddings'
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta'
+const DEFAULT_DIMENSIONS = 1536
 const CACHE_MAX_SIZE = 50
 const RATE_LIMIT_DELAY_MS = 1000
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type EmbeddingTaskType = 'document' | 'query'
+
+export type EmbeddingProvider = 'openrouter' | 'gemini'
+
+export interface EmbeddingClientConfig {
+  model: string
+  dimensions?: number
+  openRouterKey?: string
+  googleAiApiKey?: string
+}
+
+// ─── Model Registry ─────────────────────────────────────────────────────────
+
+/** Known embedding models and their provider routing. */
+const MODEL_PROVIDER_MAP: Record<string, EmbeddingProvider> = {
+  'openai/text-embedding-3-small': 'openrouter',
+  'openai/text-embedding-3-large': 'openrouter',
+  'google/gemini-embedding-2': 'gemini',
+}
+
+/**
+ * Resolve the provider for a given model ID.
+ * Falls back to prefix-based detection if not in the registry.
+ */
+function resolveProvider(model: string): EmbeddingProvider {
+  if (MODEL_PROVIDER_MAP[model]) return MODEL_PROVIDER_MAP[model]
+  if (model.startsWith('google/') || model.startsWith('gemini-')) return 'gemini'
+  return 'openrouter'
+}
+
+// ─── Client ─────────────────────────────────────────────────────────────────
+
 export class EmbeddingClient {
-  private apiKey: string | null
+  private model: string
+  private dimensions: number
+  private openRouterKey: string | null
+  private googleAiApiKey: string | null
+  private provider: EmbeddingProvider
   private cache: Map<string, Float32Array>
 
-  constructor(apiKey?: string) {
-    this.apiKey = apiKey ?? null
+  constructor(config: EmbeddingClientConfig) {
+    this.model = config.model
+    this.dimensions = config.dimensions ?? DEFAULT_DIMENSIONS
+    this.openRouterKey = config.openRouterKey ?? null
+    this.googleAiApiKey = config.googleAiApiKey ?? null
+    this.provider = resolveProvider(this.model)
     this.cache = new Map()
   }
 
+  // ─── Public API ───────────────────────────────────────────────────────────
+
   /**
-   * Set the API key for OpenRouter.
+   * Update the client configuration at runtime.
+   * Clears the cache when the model changes (different vector space).
    */
-  setApiKey(apiKey: string): void {
-    this.apiKey = apiKey
+  updateConfig(config: Partial<EmbeddingClientConfig>): void {
+    if (config.model !== undefined && config.model !== this.model) {
+      this.model = config.model
+      this.provider = resolveProvider(this.model)
+      this.clearCache()
+    }
+    if (config.dimensions !== undefined) this.dimensions = config.dimensions
+    if (config.openRouterKey !== undefined) this.openRouterKey = config.openRouterKey || null
+    if (config.googleAiApiKey !== undefined) this.googleAiApiKey = config.googleAiApiKey || null
   }
 
   /**
-   * Check whether an API key is configured.
+   * Check whether the required API key for the current provider is configured.
    */
   hasApiKey(): boolean {
-    return this.apiKey !== null && this.apiKey.length > 0
+    if (this.provider === 'gemini') {
+      return this.googleAiApiKey !== null && this.googleAiApiKey.length > 0
+    }
+    return this.openRouterKey !== null && this.openRouterKey.length > 0
+  }
+
+  /** The current model ID. */
+  getModel(): string {
+    return this.model
+  }
+
+  /** The current provider. */
+  getProvider(): EmbeddingProvider {
+    return this.provider
+  }
+
+  /** The configured output dimensions. */
+  getDimensions(): number {
+    return this.dimensions
   }
 
   /**
    * Get a single embedding for a text string.
    * Returns a cached result if available.
+   *
+   * @param taskType - Hint for the embedding model. `'query'` for search queries,
+   *   `'document'` for indexed content. Only affects Gemini models.
    */
-  async getEmbedding(text: string): Promise<Float32Array> {
+  async getEmbedding(
+    text: string,
+    taskType: EmbeddingTaskType = 'query'
+  ): Promise<Float32Array> {
     const cacheKey = this.getCacheKey(text)
 
     // Check cache
@@ -51,7 +132,7 @@ export class EmbeddingClient {
     }
 
     // Call API
-    const embeddings = await this.callAPI([text])
+    const embeddings = await this.callAPI([text], taskType)
     const embedding = embeddings[0]
 
     // Cache result
@@ -63,8 +144,14 @@ export class EmbeddingClient {
   /**
    * Get embeddings for multiple texts in a single API call.
    * Individual texts are cached and checked before making the request.
+   *
+   * @param taskType - Hint for the embedding model. `'query'` for search queries,
+   *   `'document'` for indexed content. Only affects Gemini models.
    */
-  async getEmbeddings(texts: string[]): Promise<Float32Array[]> {
+  async getEmbeddings(
+    texts: string[],
+    taskType: EmbeddingTaskType = 'query'
+  ): Promise<Float32Array[]> {
     if (texts.length === 0) return []
 
     // Check which texts are already cached
@@ -92,7 +179,7 @@ export class EmbeddingClient {
     }
 
     // Call API for uncached texts
-    const newEmbeddings = await this.callAPI(uncachedTexts)
+    const newEmbeddings = await this.callAPI(uncachedTexts, taskType)
 
     // Fill in results and cache
     for (let j = 0; j < uncachedIndices.length; j++) {
@@ -112,15 +199,16 @@ export class EmbeddingClient {
     this.cache.clear()
   }
 
-  // ─── Private ────────────────────────────────────────────────────────────────
+  // ─── Private ──────────────────────────────────────────────────────────────
 
   /**
    * Generate a cache key from text content.
+   * Includes the model name so different models don't share cache entries.
    * Uses a SHA-256 hash for long texts to keep memory usage low.
    */
   private getCacheKey(text: string): string {
-    if (text.length <= 200) return text
-    return createHash('sha256').update(text).digest('hex')
+    const raw = text.length <= 200 ? text : createHash('sha256').update(text).digest('hex')
+    return `${this.model}:${raw}`
   }
 
   /**
@@ -136,39 +224,53 @@ export class EmbeddingClient {
   }
 
   /**
+   * Route API calls to the correct provider.
+   */
+  private async callAPI(
+    input: string[],
+    taskType: EmbeddingTaskType,
+    isRetry = false
+  ): Promise<Float32Array[]> {
+    if (this.provider === 'gemini') {
+      return this.callGeminiAPI(input, taskType, isRetry)
+    }
+    return this.callOpenRouterAPI(input, isRetry)
+  }
+
+  // ─── OpenRouter (OpenAI models) ───────────────────────────────────────────
+
+  /**
    * Call the OpenRouter embeddings API.
    * Retries once on 429 (rate limit) after a 1-second delay.
    */
-  private async callAPI(
-    input: string | string[],
+  private async callOpenRouterAPI(
+    input: string[],
     isRetry = false
   ): Promise<Float32Array[]> {
-    if (!this.apiKey) {
+    if (!this.openRouterKey) {
       throw new Error(
-        'No API key configured. Call setApiKey() or pass an API key to the constructor.'
+        'No OpenRouter API key configured. Set it in Settings → Engine.'
       )
     }
 
-    const response = await fetch(EMBEDDING_ENDPOINT, {
+    const response = await fetch(OPENROUTER_ENDPOINT, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.openRouterKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: EMBEDDING_MODEL,
+        model: this.model,
         input,
-        dimensions: EMBEDDING_DIMENSIONS,
+        dimensions: this.dimensions,
       }),
     })
 
     if (!response.ok) {
-      // Retry once on rate limit
       if (response.status === 429 && !isRetry) {
         await this.delay(RATE_LIMIT_DELAY_MS)
-        return this.callAPI(input, true)
+        return this.callOpenRouterAPI(input, true)
       }
-
       throw new Error(
         `OpenRouter API error: ${response.status} ${response.statusText}`
       )
@@ -180,6 +282,69 @@ export class EmbeddingClient {
 
     return json.data.map((d) => new Float32Array(d.embedding))
   }
+
+  // ─── Gemini API (Google models) ───────────────────────────────────────────
+
+  /**
+   * Call the Gemini batchEmbedContents API.
+   * Retries once on 429 (rate limit) after a 1-second delay.
+   *
+   * Uses task type hints for better retrieval quality:
+   * - RETRIEVAL_DOCUMENT for indexing content
+   * - RETRIEVAL_QUERY for search queries
+   */
+  private async callGeminiAPI(
+    input: string[],
+    taskType: EmbeddingTaskType,
+    isRetry = false
+  ): Promise<Float32Array[]> {
+    if (!this.googleAiApiKey) {
+      throw new Error(
+        'No Google AI API key configured. Set it in Settings → Engine, or get one at ai.google.dev'
+      )
+    }
+
+    // Strip the "google/" prefix for the Gemini API model name
+    const geminiModelId = this.model.startsWith('google/')
+      ? this.model.slice('google/'.length)
+      : this.model
+
+    const geminiTaskType =
+      taskType === 'document' ? 'RETRIEVAL_DOCUMENT' : 'RETRIEVAL_QUERY'
+
+    const url = `${GEMINI_ENDPOINT}/models/${geminiModelId}:batchEmbedContents?key=${this.googleAiApiKey}`
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: input.map((text) => ({
+          model: `models/${geminiModelId}`,
+          content: { parts: [{ text }] },
+          taskType: geminiTaskType,
+          outputDimensionality: this.dimensions,
+        })),
+      }),
+    })
+
+    if (!response.ok) {
+      if (response.status === 429 && !isRetry) {
+        await this.delay(RATE_LIMIT_DELAY_MS)
+        return this.callGeminiAPI(input, taskType, true)
+      }
+      throw new Error(
+        `Gemini API error: ${response.status} ${response.statusText}`
+      )
+    }
+
+    const json = (await response.json()) as {
+      embeddings: Array<{ values: number[] }>
+    }
+
+    return json.embeddings.map((e) => new Float32Array(e.values))
+  }
+
+  // ─── Utilities ────────────────────────────────────────────────────────────
 
   /**
    * Utility: sleep for a given duration.

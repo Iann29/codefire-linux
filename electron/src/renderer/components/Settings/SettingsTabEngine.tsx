@@ -770,13 +770,25 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
       <Section title="Models">
         <Select
           label="Embedding model"
+          hint="Model used for semantic code search. Gemini Embedding 2 requires a Google AI API key. Changing model requires re-indexing projects."
           value={config.embeddingModel}
           onChange={(v) => onChange({ embeddingModel: v })}
           options={[
-            { value: 'openai/text-embedding-3-small', label: 'text-embedding-3-small' },
-            { value: 'openai/text-embedding-3-large', label: 'text-embedding-3-large' },
+            { value: 'openai/text-embedding-3-small', label: 'text-embedding-3-small (OpenAI via OpenRouter)' },
+            { value: 'openai/text-embedding-3-large', label: 'text-embedding-3-large (OpenAI via OpenRouter)' },
+            { value: 'google/gemini-embedding-2', label: 'Gemini Embedding 2 (Google)' },
           ]}
         />
+        {config.embeddingModel?.startsWith('google/') && (
+          <TextInput
+            label="Google AI API Key"
+            hint="Required for Gemini embedding models. Get one free at ai.google.dev"
+            placeholder="AIza..."
+            value={config.googleAiApiKey}
+            onChange={(v) => onChange({ googleAiApiKey: v })}
+            secret
+          />
+        )}
         <Select
           label="Chat model"
           hint="Model used for summaries and briefings"

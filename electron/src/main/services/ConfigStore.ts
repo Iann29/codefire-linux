@@ -21,6 +21,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // Engine
   aiProvider: 'openrouter' as const,
   openRouterKey: '',
+  googleAiApiKey: '',
   customEndpointUrl: '',
   customEndpointKey: '',
   contextSearchEnabled: true,

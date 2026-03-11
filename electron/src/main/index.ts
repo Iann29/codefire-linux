@@ -66,10 +66,14 @@ function initDeferredServices() {
     gmailService = new GmailService(db, oauth)
   }
 
-  // Search and context engines
-  const embeddingClient = new EmbeddingClient(config.openRouterKey || undefined)
+  // Search and context engines (model driven by config)
+  const embeddingClient = new EmbeddingClient({
+    model: config.embeddingModel,
+    openRouterKey: config.openRouterKey || undefined,
+    googleAiApiKey: config.googleAiApiKey || undefined,
+  })
   searchEngine = new SearchEngine(db, embeddingClient)
-  contextEngine = new ContextEngine(db)
+  contextEngine = new ContextEngine(db, embeddingClient)
 
   // File watcher for incremental index updates
   fileWatcher = new FileWatcher()
