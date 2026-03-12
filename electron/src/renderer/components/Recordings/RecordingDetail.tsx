@@ -1,4 +1,4 @@
-import { Mic, Play, Pause, Key, Loader2, ListTodo, Check } from 'lucide-react'
+import { Mic, Play, Pause, Languages, Loader2, ListTodo, Check, Copy } from 'lucide-react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Recording } from '@shared/models'
 import { api } from '@renderer/lib/api'
@@ -21,6 +21,7 @@ export default function RecordingDetail({
   const [waveformData, setWaveformData] = useState<number[]>([])
   const [extracting, setExtracting] = useState(false)
   const [extractResult, setExtractResult] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const animFrameRef = useRef<number>(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -209,7 +210,7 @@ export default function RecordingDetail({
             {isTranscribing ? (
               <Loader2 size={12} className="animate-spin" />
             ) : (
-              <Key size={12} />
+              <Languages size={12} />
             )}
             Transcribe
           </button>
@@ -255,7 +256,7 @@ export default function RecordingDetail({
         {recording.status === 'transcribing' && (
           <div className="flex items-center justify-center gap-2 py-8 text-neutral-500">
             <Loader2 size={16} className="animate-spin" />
-            <p className="text-sm">Transcribing with Whisper...</p>
+            <p className="text-sm">Transcribing with Soniox (pt-BR)...</p>
           </div>
         )}
 
@@ -267,9 +268,35 @@ export default function RecordingDetail({
 
         {recording.transcript ? (
           <div className="space-y-3">
-            <p className="text-[10px] text-neutral-600 uppercase tracking-wider">
-              Transcript
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-neutral-600 uppercase tracking-wider">
+                Transcript
+              </p>
+              <div className="flex items-center gap-2">
+                {recording.transcriptionLanguage && (
+                  <span className="text-[10px] text-neutral-600 bg-neutral-800 px-1.5 py-0.5 rounded">
+                    {recording.transcriptionLanguage.toUpperCase()}
+                  </span>
+                )}
+                {recording.transcribedAt && (
+                  <span className="text-[10px] text-neutral-600">
+                    {new Date(recording.transcribedAt).toLocaleString()}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(recording.transcript ?? '')
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors"
+                >
+                  {copied ? <Check size={10} /> : <Copy size={10} />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
             <p className="text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap">
               {recording.transcript}
             </p>
@@ -280,7 +307,7 @@ export default function RecordingDetail({
             <div className="flex flex-col items-center justify-center h-full text-neutral-500 gap-2">
               <p className="text-xs">No transcript yet</p>
               <p className="text-[10px] text-neutral-600">
-                Click &quot;Transcribe&quot; to generate one with OpenAI Whisper
+                Click &quot;Transcribe&quot; to generate with Soniox (pt-BR)
               </p>
             </div>
           )

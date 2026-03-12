@@ -345,6 +345,8 @@ export const api = {
         title?: string
         duration?: number
         transcript?: string
+        transcriptionLanguage?: string
+        transcribedAt?: string
         status?: string
         errorMessage?: string
       }
@@ -353,8 +355,8 @@ export const api = {
       invoke('recordings:delete', id) as Promise<boolean>,
     saveAudio: (id: string, audioData: ArrayBuffer) =>
       invoke('recordings:saveAudio', id, audioData) as Promise<boolean>,
-    transcribe: (id: string, apiKey: string) =>
-      invoke('recordings:transcribe', id, apiKey) as Promise<Recording>,
+    transcribe: (id: string) =>
+      invoke('recordings:transcribe', id) as Promise<Recording>,
   },
 
   git: {

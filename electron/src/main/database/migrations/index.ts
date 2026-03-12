@@ -621,4 +621,16 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 26: Add transcription metadata to recordings (Soniox integration)
+  {
+    version: 26,
+    name: 'v26_addTranscriptionMetadataToRecordings',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE recordings ADD COLUMN transcriptionLanguage TEXT;
+        ALTER TABLE recordings ADD COLUMN transcribedAt DATETIME;
+      `)
+    },
+  },
 ]

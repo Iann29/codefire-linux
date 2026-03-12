@@ -116,6 +116,12 @@ export type RecordingChannel =
   | 'recordings:delete'
   | 'recordings:saveAudio'
   | 'recordings:transcribe'
+  | 'recordings:startLiveTranscribe'
+  | 'recordings:sendAudioChunk'
+  | 'recordings:stopLiveTranscribe'
+  | 'recordings:liveTranscript'
+  | 'recordings:liveError'
+  | 'recordings:liveFinished'
 
 export type BriefingChannel =
   | 'briefing:listDigests'

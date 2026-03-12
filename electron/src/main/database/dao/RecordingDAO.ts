@@ -39,6 +39,8 @@ export class RecordingDAO {
       title?: string
       duration?: number
       transcript?: string
+      transcriptionLanguage?: string
+      transcribedAt?: string
       status?: string
       errorMessage?: string
     }
@@ -48,12 +50,14 @@ export class RecordingDAO {
 
     this.db
       .prepare(
-        `UPDATE recordings SET title = ?, duration = ?, transcript = ?, status = ?, errorMessage = ? WHERE id = ?`
+        `UPDATE recordings SET title = ?, duration = ?, transcript = ?, transcriptionLanguage = ?, transcribedAt = ?, status = ?, errorMessage = ? WHERE id = ?`
       )
       .run(
         data.title ?? existing.title,
         data.duration ?? existing.duration,
         data.transcript ?? existing.transcript,
+        data.transcriptionLanguage ?? existing.transcriptionLanguage,
+        data.transcribedAt ?? existing.transcribedAt,
         data.status ?? existing.status,
         data.errorMessage ?? existing.errorMessage,
         id

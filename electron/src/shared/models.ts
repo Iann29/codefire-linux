@@ -362,7 +362,9 @@ export interface Recording {
   audioPath: string
   duration: number
   transcript: string | null
-  status: string // 'recording' | 'transcribing' | 'done' | 'error'
+  transcriptionLanguage: string | null
+  transcribedAt: string | null
+  status: string // 'recording' | 'recorded' | 'transcribing' | 'done' | 'error'
   errorMessage: string | null
   createdAt: string
 }
@@ -468,6 +470,9 @@ export interface AppConfig {
   supabaseUrl: string
   supabaseAnonKey: string
   autoShareSessions: boolean
+
+  // API Keys
+  sonioxApiKey: string
 
   // Prompt overrides (empty string = use default)
   promptAgentSystem?: string
