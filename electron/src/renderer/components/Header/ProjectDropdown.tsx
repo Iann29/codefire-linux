@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Folder, FolderOpen, Settings, Plus, ChevronDown, ChevronRight, Check, X } from 'lucide-react'
+import { Folder, FolderOpen, Settings, Plus, ChevronDown, ChevronRight, Check, X, Search } from 'lucide-react'
 import type { Project, Client } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import { useNavigation } from '@renderer/App'
@@ -25,8 +25,10 @@ export default function ProjectDropdown() {
   const [newGroupName, setNewGroupName] = useState('')
   const [newGroupColor, setNewGroupColor] = useState('#F97316')
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
   const addGroupInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     try {
@@ -47,9 +49,13 @@ export default function ProjectDropdown() {
     load()
   }, [load])
 
-  // Reload when dropdown opens
+  // Reload when dropdown opens and reset search
   useEffect(() => {
-    if (open) load()
+    if (open) {
+      load()
+      setSearchQuery('')
+      setTimeout(() => searchInputRef.current?.focus(), 50)
+    }
   }, [open, load])
 
   // Close on outside click
@@ -77,9 +83,13 @@ export default function ProjectDropdown() {
 
   const displayProjects = projects.filter((p) => p.id !== '__global__')
 
+  const filteredProjects = searchQuery
+    ? displayProjects.filter((p) => displayName(p).toLowerCase().includes(searchQuery.toLowerCase()))
+    : displayProjects
+
   const clientProjectMap = new Map<string, Project[]>()
   const ungrouped: Project[] = []
-  for (const project of displayProjects) {
+  for (const project of filteredProjects) {
     if (project.clientId) {
       const list = clientProjectMap.get(project.clientId) ?? []
       list.push(project)
@@ -150,6 +160,34 @@ export default function ProjectDropdown() {
       {/* Dropdown panel */}
       {open && (
         <div className="absolute top-full left-0 mt-1 w-72 bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50 overflow-hidden">
+          {/* Search input */}
+          <div className="px-2 pt-2 pb-1">
+            <div className="relative">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-600" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && searchQuery) {
+                    e.stopPropagation()
+                    setSearchQuery('')
+                  }
+                }}
+                placeholder="Search projects..."
+                className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 pl-7 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-codefire-orange"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-neutral-500 hover:text-neutral-300"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          </div>
           {/* Scrollable project list */}
           <div className="max-h-80 overflow-y-auto py-1">
             {loading ? (
@@ -162,7 +200,7 @@ export default function ProjectDropdown() {
                 {clients.map((client) => {
                   const clientProjects = clientProjectMap.get(client.id) ?? []
                   if (clientProjects.length === 0) return null
-                  const isExpanded = expandedClients.has(client.id)
+                  const isExpanded = expandedClients.has(client.id) || !!searchQuery
                   return (
                     <div key={client.id}>
                       <button
@@ -216,6 +254,11 @@ export default function ProjectDropdown() {
                 {displayProjects.length === 0 && (
                   <div className="px-3 py-4 text-center">
                     <p className="text-xs text-neutral-600">No projects yet</p>
+                  </div>
+                )}
+                {displayProjects.length > 0 && filteredProjects.length === 0 && (
+                  <div className="px-3 py-4 text-center">
+                    <p className="text-xs text-neutral-600">No projects found</p>
                   </div>
                 )}
               </>
