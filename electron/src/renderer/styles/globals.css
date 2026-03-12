@@ -56,3 +56,12 @@ body {
 /* Drag region for frameless window */
 .drag-region { -webkit-app-region: drag; }
 .no-drag { -webkit-app-region: no-drag; }
+
+/* Floating record button pulse animation */
+@keyframes recording-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+}
+.animate-recording-pulse {
+  animation: recording-pulse 2s ease-in-out infinite;
+}

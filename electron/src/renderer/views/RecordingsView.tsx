@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '@renderer/lib/api'
 import type { Recording } from '@shared/models'
+import { useGlobalRecording } from '@renderer/hooks/useGlobalRecording'
 import RecordingBar from '@renderer/components/Recordings/RecordingBar'
 import RecordingsList from '@renderer/components/Recordings/RecordingsList'
 import RecordingDetail from '@renderer/components/Recordings/RecordingDetail'
@@ -10,6 +11,7 @@ interface RecordingsViewProps {
 }
 
 export default function RecordingsView({ projectId }: RecordingsViewProps) {
+  const { registerStopCallback } = useGlobalRecording()
   const [recordings, setRecordings] = useState<Recording[]>([])
   const [selected, setSelected] = useState<Recording | null>(null)
   const [isTranscribing, setIsTranscribing] = useState(false)
@@ -20,12 +22,23 @@ export default function RecordingsView({ projectId }: RecordingsViewProps) {
   const liveSessionActive = useRef(false)
   const liveCleanups = useRef<Array<() => void>>([])
 
-  useEffect(() => {
+  const loadRecordings = useCallback(() => {
     api.recordings.list(projectId).then((recs) => {
       setRecordings(recs)
-      if (recs.length > 0) setSelected(recs[0])
+      if (recs.length > 0) setSelected((prev) => prev ?? recs[0])
     })
   }, [projectId])
+
+  useEffect(() => {
+    loadRecordings()
+  }, [loadRecordings])
+
+  // Refresh recordings list when FAB saves a recording
+  useEffect(() => {
+    const handler = () => loadRecordings()
+    window.addEventListener('recording-saved', handler)
+    return () => window.removeEventListener('recording-saved', handler)
+  }, [loadRecordings])
 
   // Cleanup live transcription listeners on unmount
   useEffect(() => {
@@ -34,6 +47,27 @@ export default function RecordingsView({ projectId }: RecordingsViewProps) {
       liveCleanups.current = []
     }
   }, [])
+
+  // Stop live transcription cleanup — runs before any stopRecording() call
+  const stopLiveTranscription = useCallback(async () => {
+    if (!liveSessionActive.current) return
+
+    try {
+      await window.api.invoke('recordings:stopLiveTranscribe' as never)
+    } catch (err) {
+      console.error('Failed to stop live transcription:', err)
+    }
+
+    for (const cleanup of liveCleanups.current) cleanup()
+    liveCleanups.current = []
+    liveSessionActive.current = false
+  }, [])
+
+  // Register live transcription cleanup as a stop callback on the global context
+  // so it runs regardless of whether recording is stopped from RecordingBar or FAB
+  useEffect(() => {
+    return registerStopCallback(stopLiveTranscription)
+  }, [registerStopCallback, stopLiveTranscription])
 
   const handleRecordingStart = useCallback(async (enableLive: boolean) => {
     if (!enableLive) return
@@ -64,21 +98,6 @@ export default function RecordingsView({ projectId }: RecordingsViewProps) {
       console.error('Failed to start live transcription:', err)
       liveSessionActive.current = false
     }
-  }, [])
-
-  const handleRecordingStop = useCallback(async () => {
-    if (!liveSessionActive.current) return
-
-    try {
-      await window.api.invoke('recordings:stopLiveTranscribe' as never)
-    } catch (err) {
-      console.error('Failed to stop live transcription:', err)
-    }
-
-    // Clean up event listeners
-    for (const cleanup of liveCleanups.current) cleanup()
-    liveCleanups.current = []
-    liveSessionActive.current = false
   }, [])
 
   async function handleRecordingComplete(blob: Blob, title: string) {
@@ -152,7 +171,6 @@ export default function RecordingsView({ projectId }: RecordingsViewProps) {
       <RecordingBar
         onRecordingComplete={handleRecordingComplete}
         onRecordingStart={handleRecordingStart}
-        onRecordingStop={handleRecordingStop}
         liveTranscript={liveTranscript}
         liveEnabled={liveEnabled}
         onLiveToggle={setLiveEnabled}

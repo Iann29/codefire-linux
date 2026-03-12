@@ -1,11 +1,10 @@
 import { Mic, Square, Loader2, Radio } from 'lucide-react'
 import { useState } from 'react'
-import { useRecorder } from '@renderer/hooks/useRecorder'
+import { useGlobalRecording } from '@renderer/hooks/useGlobalRecording'
 
 interface RecordingBarProps {
   onRecordingComplete: (blob: Blob, title: string) => void
   onRecordingStart?: (enableLive: boolean) => void
-  onRecordingStop?: () => void
   liveTranscript?: string
   liveEnabled?: boolean
   onLiveToggle?: (enabled: boolean) => void
@@ -20,12 +19,11 @@ function formatDuration(seconds: number): string {
 export default function RecordingBar({
   onRecordingComplete,
   onRecordingStart,
-  onRecordingStop,
   liveTranscript,
   liveEnabled = false,
   onLiveToggle,
 }: RecordingBarProps) {
-  const { isRecording, duration, startRecording, stopRecording } = useRecorder()
+  const { isRecording, duration, startRecording, stopRecording } = useGlobalRecording()
   const [title, setTitle] = useState('')
   const [starting, setStarting] = useState(false)
 
@@ -41,7 +39,6 @@ export default function RecordingBar({
   }
 
   async function handleStop() {
-    onRecordingStop?.()
     const blob = await stopRecording()
     if (blob) {
       const recordingTitle = title.trim() || `Recording ${new Date().toLocaleString()}`

@@ -9,6 +9,8 @@ import BriefingDrawer from '@renderer/components/Dashboard/BriefingDrawer'
 import AgentStatusBar from '@renderer/components/StatusBar/AgentStatusBar'
 import { ProjectHeaderLeft, ProjectHeaderRight } from '@renderer/components/Header/ProjectHeaderBar'
 import ProjectDropdown from '@renderer/components/Header/ProjectDropdown'
+import { RecordingProvider } from '@renderer/hooks/useGlobalRecording'
+import FloatingRecordButton from '@renderer/components/Recordings/FloatingRecordButton'
 import logoIcon from '../../../resources/icon.png'
 import { chatComposerStore } from '@renderer/stores/chatComposerStore'
 
@@ -195,86 +197,91 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-neutral-900">
-      <div className="flex flex-col h-screen">
-        {/* Top bar with project indicators */}
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 bg-neutral-950 shrink-0">
-          <button
-            onClick={navigateHome}
-            className="flex items-center gap-1 px-1.5 py-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.06] transition-colors"
-            title="Back to home"
-          >
-            <ArrowLeft size={14} />
-          </button>
-          <img src={logoIcon} alt="Pinyino" className="w-4 h-4" />
-          <span className="text-sm font-semibold text-neutral-200 tracking-tight">Pinyino</span>
-          <ProjectDropdown />
-          <div className="w-px h-4 bg-neutral-700" />
-          <ProjectHeaderLeft projectName={project.name} projectPath={project.path} />
-          <div className="flex-1" />
-          <button
-            onClick={() => setShowChat(v => !v)}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-              showChat
-                ? 'text-codefire-orange bg-codefire-orange/10 hover:bg-codefire-orange/20'
-                : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'
-            }`}
-            title={showChat ? 'Hide Chat' : 'Show Chat'}
-          >
-            <MessageSquare size={13} />
-            <span className="hidden sm:inline">Chat</span>
-          </button>
-          <div className="w-px h-4 bg-neutral-700" />
-          <ProjectHeaderRight
+    <RecordingProvider>
+      <div className="h-screen w-screen overflow-hidden bg-neutral-900">
+        <div className="flex flex-col h-screen">
+          {/* Top bar with project indicators */}
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 bg-neutral-950 shrink-0">
+            <button
+              onClick={navigateHome}
+              className="flex items-center gap-1 px-1.5 py-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.06] transition-colors"
+              title="Back to home"
+            >
+              <ArrowLeft size={14} />
+            </button>
+            <img src={logoIcon} alt="Pinyino" className="w-4 h-4" />
+            <span className="text-sm font-semibold text-neutral-200 tracking-tight">Pinyino</span>
+            <ProjectDropdown />
+            <div className="w-px h-4 bg-neutral-700" />
+            <ProjectHeaderLeft projectName={project.name} projectPath={project.path} />
+            <div className="flex-1" />
+            <button
+              onClick={() => setShowChat(v => !v)}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                showChat
+                  ? 'text-codefire-orange bg-codefire-orange/10 hover:bg-codefire-orange/20'
+                  : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'
+              }`}
+              title={showChat ? 'Hide Chat' : 'Show Chat'}
+            >
+              <MessageSquare size={13} />
+              <span className="hidden sm:inline">Chat</span>
+            </button>
+            <div className="w-px h-4 bg-neutral-700" />
+            <ProjectHeaderRight
+              indexStatus={indexStatus}
+              indexLastError={indexLastError}
+              onRequestIndex={handleRequestIndex}
+              onBriefingClick={() => { setShowBriefing((v) => !v) }}
+            />
+          </div>
+
+          {/* Tab bar */}
+          <TabBar activeTab={activeTab} onTabChange={handleTabChange} />
+
+          {/* Content area */}
+          <div className="flex-1 overflow-hidden relative">
+            <div
+              className="h-full overflow-hidden flex flex-col min-w-0 transition-[padding-right] duration-200"
+              style={{ paddingRight: showChat ? 400 : 0 }}
+            >
+              {renderContentWithPersistentViews(activeTab)}
+            </div>
+
+            {/* Chat drawer overlay */}
+            {showChat && (
+              <div className="absolute right-0 top-0 bottom-0 z-30 border-l border-neutral-800 bg-neutral-900 flex flex-col" style={{ width: 400 }}>
+                <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
+                  <span className="text-xs text-neutral-400 font-medium">Chat</span>
+                  <button onClick={() => setShowChat(false)} className="text-neutral-600 hover:text-neutral-300">
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <CodeFireChat projectId={projectId} projectName={project!.name} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Briefing Drawer */}
+          {showBriefing && (
+            <BriefingDrawer projectId={projectId} onClose={() => setShowBriefing(false)} />
+          )}
+
+          {/* Status bar */}
+          <AgentStatusBar
+            projectId={projectId}
+            projectPath={project.path}
             indexStatus={indexStatus}
             indexLastError={indexLastError}
             onRequestIndex={handleRequestIndex}
-            onBriefingClick={() => { setShowBriefing((v) => !v) }}
           />
         </div>
 
-        {/* Tab bar */}
-        <TabBar activeTab={activeTab} onTabChange={handleTabChange} />
-
-        {/* Content area */}
-        <div className="flex-1 overflow-hidden relative">
-          <div
-            className="h-full overflow-hidden flex flex-col min-w-0 transition-[padding-right] duration-200"
-            style={{ paddingRight: showChat ? 400 : 0 }}
-          >
-            {renderContentWithPersistentViews(activeTab)}
-          </div>
-
-          {/* Chat drawer overlay */}
-          {showChat && (
-            <div className="absolute right-0 top-0 bottom-0 z-30 border-l border-neutral-800 bg-neutral-900 flex flex-col" style={{ width: 400 }}>
-              <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
-                <span className="text-xs text-neutral-400 font-medium">Chat</span>
-                <button onClick={() => setShowChat(false)} className="text-neutral-600 hover:text-neutral-300">
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <CodeFireChat projectId={projectId} projectName={project!.name} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Briefing Drawer */}
-        {showBriefing && (
-          <BriefingDrawer projectId={projectId} onClose={() => setShowBriefing(false)} />
-        )}
-
-        {/* Status bar */}
-        <AgentStatusBar
-          projectId={projectId}
-          projectPath={project.path}
-          indexStatus={indexStatus}
-          indexLastError={indexLastError}
-          onRequestIndex={handleRequestIndex}
-        />
+        {/* Global floating record button — visible on all tabs */}
+        <FloatingRecordButton projectId={projectId} />
       </div>
-    </div>
+    </RecordingProvider>
   )
 }
