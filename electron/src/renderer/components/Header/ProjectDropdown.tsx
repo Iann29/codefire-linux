@@ -26,6 +26,7 @@ export default function ProjectDropdown() {
   const [newGroupColor, setNewGroupColor] = useState('#F97316')
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
+  const [highlightedIndex, setHighlightedIndex] = useState(0)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const addGroupInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -54,9 +55,17 @@ export default function ProjectDropdown() {
     if (open) {
       load()
       setSearchQuery('')
+      setHighlightedIndex(0)
       setTimeout(() => searchInputRef.current?.focus(), 50)
     }
   }, [open, load])
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (!open) return
+    const el = dropdownRef.current?.querySelector('[data-highlighted="true"]')
+    if (el) el.scrollIntoView({ block: 'nearest' })
+  }, [highlightedIndex, open])
 
   // Close on outside click
   useEffect(() => {
@@ -98,6 +107,17 @@ export default function ProjectDropdown() {
       ungrouped.push(project)
     }
   }
+
+  // Flat list of navigable projects in render order (for keyboard nav)
+  const navigableProjects: Project[] = []
+  for (const client of clients) {
+    const cp = clientProjectMap.get(client.id) ?? []
+    if (cp.length > 0 && (expandedClients.has(client.id) || !!searchQuery)) {
+      navigableProjects.push(...cp)
+    }
+  }
+  navigableProjects.push(...ungrouped)
+  const highlightedProjectId = navigableProjects[highlightedIndex]?.id
 
   const toggleClient = (clientId: string) => {
     setExpandedClients((prev) => {
@@ -168,11 +188,26 @@ export default function ProjectDropdown() {
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); setHighlightedIndex(0) }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape' && searchQuery) {
                     e.stopPropagation()
                     setSearchQuery('')
+                  } else if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    if (navigableProjects.length > 0) {
+                      setHighlightedIndex((i) => Math.min(i + 1, navigableProjects.length - 1))
+                    }
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    if (navigableProjects.length > 0) {
+                      setHighlightedIndex((i) => Math.max(i - 1, 0))
+                    }
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (navigableProjects[highlightedIndex]) {
+                      handleOpenProject(navigableProjects[highlightedIndex].id)
+                    }
                   }
                 }}
                 placeholder="Search projects..."
@@ -180,7 +215,7 @@ export default function ProjectDropdown() {
               />
               {searchQuery && (
                 <button
-                  onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }}
+                  onClick={() => { setSearchQuery(''); setHighlightedIndex(0); searchInputRef.current?.focus() }}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-neutral-500 hover:text-neutral-300"
                 >
                   <X size={11} />
@@ -220,7 +255,9 @@ export default function ProjectDropdown() {
                         <button
                           key={project.id}
                           onClick={() => handleOpenProject(project.id)}
-                          className="w-full flex items-center gap-2 pl-7 pr-3 py-1.5 text-[12px] transition-colors text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+                          onMouseEnter={() => { const idx = navigableProjects.findIndex((p) => p.id === project.id); if (idx >= 0) setHighlightedIndex(idx) }}
+                          data-highlighted={project.id === highlightedProjectId ? 'true' : undefined}
+                          className={`w-full flex items-center gap-2 pl-7 pr-3 py-1.5 text-[12px] transition-colors ${project.id === highlightedProjectId ? 'bg-white/[0.08] text-neutral-200' : 'text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200'}`}
                         >
                           <Folder size={12} className="flex-shrink-0 text-neutral-600" />
                           <span className="truncate">{displayName(project)}</span>
@@ -242,7 +279,9 @@ export default function ProjectDropdown() {
                       <button
                         key={project.id}
                         onClick={() => handleOpenProject(project.id)}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200"
+                        onMouseEnter={() => { const idx = navigableProjects.findIndex((p) => p.id === project.id); if (idx >= 0) setHighlightedIndex(idx) }}
+                        data-highlighted={project.id === highlightedProjectId ? 'true' : undefined}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors ${project.id === highlightedProjectId ? 'bg-white/[0.08] text-neutral-200' : 'text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-200'}`}
                       >
                         <Folder size={12} className="flex-shrink-0 text-neutral-600" />
                         <span className="truncate">{displayName(project)}</span>
