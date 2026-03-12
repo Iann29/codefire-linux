@@ -1,20 +1,7 @@
 import { useState, useCallback } from 'react'
 import { api } from '@renderer/lib/api'
 import type { ProjectContext } from '@shared/models'
-
-interface ClarificationData {
-  understanding: string
-  objective: string[]
-  context: string[]
-  constraints: string[]
-  assumptions: string[]
-  confirmationPrompt: string
-  questions: string[]
-}
-
-interface GenerationData {
-  finalPrompt: string
-}
+import type { PromptClarificationResult, PromptGenerationResult } from '@shared/promptCompiler'
 
 export interface ContextToggles {
   techStack: boolean
@@ -47,8 +34,8 @@ function filterContext(
 }
 
 export function usePromptCompiler() {
-  const [clarification, setClarification] = useState<ClarificationData | null>(null)
-  const [generation, setGeneration] = useState<GenerationData | null>(null)
+  const [clarification, setClarification] = useState<PromptClarificationResult | null>(null)
+  const [generation, setGeneration] = useState<PromptGenerationResult | null>(null)
   const [clarifying, setClarifying] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [warning, setWarning] = useState<string | null>(null)
@@ -111,7 +98,7 @@ export function usePromptCompiler() {
     async (
       originalBrief: string,
       userCorrections: string,
-      currentClarification: ClarificationData,
+      currentClarification: PromptClarificationResult,
       model?: string,
       toggles?: ContextToggles
     ) => {
@@ -156,6 +143,10 @@ export function usePromptCompiler() {
     setMode(null)
   }, [])
 
+  const clearGeneration = useCallback(() => {
+    setGeneration(null)
+  }, [])
+
   return {
     clarification,
     generation,
@@ -167,6 +158,7 @@ export function usePromptCompiler() {
     contextLoading,
     clarify,
     generate,
+    clearGeneration,
     reset,
     fetchContext,
   }

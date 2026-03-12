@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Loader2,
   Copy,
@@ -14,11 +14,19 @@ import {
   Cpu,
   BookOpen,
 } from 'lucide-react'
-import { api } from '@renderer/lib/api'
 import { usePromptCompiler } from '@renderer/hooks/usePromptCompiler'
 import { useAvailableModels } from '@renderer/hooks/useAvailableModels'
+import { InteractiveQuestionFlow } from '@renderer/components/PromptCompiler/InteractiveQuestionFlow'
+import {
+  buildAutoFilledAdjustments,
+  composeUserCorrections,
+  createInitialAnswerMap,
+  isQuestionComplete,
+  type PromptAnswerMap,
+} from '@renderer/lib/promptCompilerFlow'
 import type { ContextToggles } from '@renderer/hooks/usePromptCompiler'
 import type { ProjectContext } from '@shared/models'
+import type { PromptInteractiveAnswer } from '@shared/promptCompiler'
 
 interface PromptViewProps {
   projectId: string
@@ -48,11 +56,13 @@ const DEFAULT_TOGGLES: ContextToggles = {
 
 export default function PromptView({ projectId }: PromptViewProps) {
   const [brief, setBrief] = useState('')
-  const [corrections, setCorrections] = useState('')
+  const [manualAdjustments, setManualAdjustments] = useState('')
+  const [guidedAnswers, setGuidedAnswers] = useState<PromptAnswerMap>({})
   const [selectedModel, setSelectedModel] = useState('')
   const [copied, setCopied] = useState(false)
   const [contextOpen, setContextOpen] = useState(true)
   const [toggles, setToggles] = useState<ContextToggles>(DEFAULT_TOGGLES)
+  const lastGeneratedCorrectionsRef = useRef('')
 
   const {
     clarification,
@@ -65,6 +75,7 @@ export default function PromptView({ projectId }: PromptViewProps) {
     contextLoading,
     clarify,
     generate,
+    clearGeneration,
     reset,
     fetchContext,
   } = usePromptCompiler()
@@ -86,17 +97,55 @@ export default function PromptView({ projectId }: PromptViewProps) {
     }
   }, [projectId, fetchContext])
 
+  useEffect(() => {
+    const questions = clarification?.interactiveQuestions ?? []
+    setGuidedAnswers(createInitialAnswerMap(questions))
+    setManualAdjustments('')
+    setCopied(false)
+    lastGeneratedCorrectionsRef.current = ''
+  }, [clarification])
+
+  const interactiveQuestions = clarification?.interactiveQuestions ?? []
+
+  const guidedAdjustments = useMemo(
+    () => buildAutoFilledAdjustments(interactiveQuestions, guidedAnswers),
+    [interactiveQuestions, guidedAnswers]
+  )
+
+  const combinedCorrections = useMemo(
+    () => composeUserCorrections(guidedAdjustments, manualAdjustments),
+    [guidedAdjustments, manualAdjustments]
+  )
+
+  const allRequiredQuestionsAnswered = useMemo(
+    () =>
+      interactiveQuestions.every((question) => isQuestionComplete(question, guidedAnswers[question.id])),
+    [interactiveQuestions, guidedAnswers]
+  )
+
+  useEffect(() => {
+    if (generation && combinedCorrections !== lastGeneratedCorrectionsRef.current) {
+      clearGeneration()
+      setCopied(false)
+    }
+  }, [combinedCorrections, generation, clearGeneration])
+
   const handleClarify = useCallback(async () => {
     if (!brief.trim()) return
+    setManualAdjustments('')
+    setGuidedAnswers({})
+    setCopied(false)
+    lastGeneratedCorrectionsRef.current = ''
     await clarify(brief, selectedModel || undefined, toggles).catch(() => {})
   }, [brief, selectedModel, clarify, toggles])
 
   const handleGenerate = useCallback(async () => {
     if (!clarification) return
-    await generate(brief, corrections, clarification, selectedModel || undefined, toggles).catch(
+    lastGeneratedCorrectionsRef.current = combinedCorrections
+    await generate(brief, combinedCorrections, clarification, selectedModel || undefined, toggles).catch(
       () => {}
     )
-  }, [brief, corrections, clarification, selectedModel, generate, toggles])
+  }, [brief, combinedCorrections, clarification, selectedModel, generate, toggles])
 
   const handleCopy = useCallback(async () => {
     if (!generation?.finalPrompt) return
@@ -107,7 +156,10 @@ export default function PromptView({ projectId }: PromptViewProps) {
 
   const handleReset = useCallback(() => {
     setBrief('')
-    setCorrections('')
+    setManualAdjustments('')
+    setGuidedAnswers({})
+    setCopied(false)
+    lastGeneratedCorrectionsRef.current = ''
     reset()
   }, [reset])
 
@@ -123,6 +175,13 @@ export default function PromptView({ projectId }: PromptViewProps) {
   const handleRefreshContext = useCallback(() => {
     if (projectId) fetchContext(projectId)
   }, [projectId, fetchContext])
+
+  const handleGuidedAnswerChange = useCallback((answer: PromptInteractiveAnswer) => {
+    setGuidedAnswers((prev) => ({
+      ...prev,
+      [answer.questionId]: answer,
+    }))
+  }, [])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -280,41 +339,84 @@ export default function PromptView({ projectId }: PromptViewProps) {
               <BulletList items={clarification.assumptions} empty="Sem suposicoes." />
             </InfoCard>
 
-            {clarification.questions.length > 0 && (
-              <InfoCard title="Perguntas">
-                <BulletList items={clarification.questions} empty="" />
+            {interactiveQuestions.length > 0 ? (
+              <InteractiveQuestionFlow
+                questions={interactiveQuestions}
+                answers={guidedAnswers}
+                onAnswerChange={handleGuidedAnswerChange}
+              />
+            ) : (
+              <InfoCard title="Perguntas guiadas">
+                <p className="text-xs text-neutral-500 leading-relaxed">
+                  Nao apareceu nenhuma lacuna critica nessa rodada. Se quiser, pode seguir direto
+                  para os ajustes finais e complementar manualmente.
+                </p>
               </InfoCard>
             )}
 
             {/* Confirmation block */}
-            <div className="bg-neutral-800/50 border border-neutral-700 rounded-cf p-3 space-y-2">
-              <p className="text-xs text-neutral-300">{clarification.confirmationPrompt}</p>
+            <div className="bg-neutral-800/50 border border-neutral-700 rounded-cf p-3 space-y-3">
+              <div className="space-y-1">
+                <p className="text-xs text-neutral-300">{clarification.confirmationPrompt}</p>
+                <p className="text-tiny text-neutral-600">
+                  Essa etapa junta as respostas guiadas e qualquer ajuste livre antes de montar o
+                  prompt final.
+                </p>
+              </div>
 
-              <label className="block">
-                <span className="text-xs font-medium text-neutral-400">Ajustes ou respostas</span>
-                <textarea
-                  value={corrections}
-                  onChange={(e) => setCorrections(e.target.value)}
-                  rows={3}
-                  placeholder="Ex.: pode assumir Next.js 15 e TypeScript. O comportamento tambem precisa continuar igual."
-                  className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-cf px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 resize-y focus:outline-none focus:border-codefire-orange/50 focus:ring-1 focus:ring-codefire-orange/20"
-                />
-              </label>
+              {!allRequiredQuestionsAnswered ? (
+                <div className="rounded-cf border border-dashed border-codefire-orange/25 bg-codefire-orange/5 px-3 py-2 text-xs text-neutral-400 leading-relaxed">
+                  Responda as perguntas obrigatorias para liberar o rascunho consolidado desta fase.
+                </div>
+              ) : (
+                <>
+                  <label className="block">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-neutral-400">
+                        Ajustes e respostas compilados
+                      </span>
+                      <span className="text-tiny px-1.5 py-0.5 rounded-cf bg-green-500/10 text-green-400">
+                        Atualiza sozinho
+                      </span>
+                    </div>
+                    <textarea
+                      value={
+                        guidedAdjustments ||
+                        'Nenhuma resposta guiada foi necessaria nesta rodada. Pode complementar manualmente abaixo se quiser.'
+                      }
+                      readOnly
+                      rows={Math.max(4, guidedAdjustments.split('\n').length || 4)}
+                      className="mt-1 w-full bg-neutral-900/70 border border-neutral-700 rounded-cf px-3 py-2 text-sm text-neutral-300 resize-y focus:outline-none"
+                    />
+                  </label>
 
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-cf text-sm font-medium bg-neutral-700 border border-neutral-600 text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-neutral-600 transition-colors"
-              >
-                {generating ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    Gerando...
-                  </>
-                ) : (
-                  'Confirmar e gerar prompt final'
-                )}
-              </button>
+                  <label className="block">
+                    <span className="text-xs font-medium text-neutral-400">Complementos manuais</span>
+                    <textarea
+                      value={manualAdjustments}
+                      onChange={(e) => setManualAdjustments(e.target.value)}
+                      rows={3}
+                      placeholder="Ex.: reforcar que o layout precisa ficar identico e que a validacao final deve incluir testes especificos."
+                      className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-cf px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 resize-y focus:outline-none focus:border-codefire-orange/50 focus:ring-1 focus:ring-codefire-orange/20"
+                    />
+                  </label>
+
+                  <button
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-cf text-sm font-medium bg-neutral-700 border border-neutral-600 text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-neutral-600 transition-colors"
+                  >
+                    {generating ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Gerando...
+                      </>
+                    ) : (
+                      'Confirmar e gerar prompt final'
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           </section>
         )}

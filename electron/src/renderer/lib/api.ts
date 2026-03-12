@@ -1,4 +1,5 @@
 import type {
+  ProjectContext,
   Project,
   TaskItem,
   TaskNote,
@@ -27,6 +28,7 @@ import type {
   ProviderModelGroup,
   IndexState,
 } from '@shared/models'
+import type { PromptClarificationResult, PromptGenerationResult } from '@shared/promptCompiler'
 const invoke = window.api.invoke
 
 export const api = {
@@ -739,39 +741,17 @@ export const api = {
 
   promptCompiler: {
     gatherContext: (projectId: string) =>
-      invoke('prompt:gatherContext', projectId) as Promise<{
-        projectName: string
-        projectPath: string
-        techStack: string[]
-        gitBranch: string | null
-        openTasks: Array<{ title: string; status: string; priority: string }>
-        memories: Array<{ name: string; snippet: string }>
-      }>,
+      invoke('prompt:gatherContext', projectId) as Promise<ProjectContext>,
     clarify: (payload: {
       originalBrief: string
       taskMode?: string
       userCorrections?: string
       model?: string
-      projectContext?: {
-        projectName: string
-        projectPath: string
-        techStack: string[]
-        gitBranch: string | null
-        openTasks: Array<{ title: string; status: string; priority: string }>
-        memories: Array<{ name: string; snippet: string }>
-      }
+      projectContext?: ProjectContext
     }) =>
       invoke('prompt:clarify', payload) as Promise<{
         mode: 'ai' | 'demo'
-        data: {
-          understanding: string
-          objective: string[]
-          context: string[]
-          constraints: string[]
-          assumptions: string[]
-          confirmationPrompt: string
-          questions: string[]
-        }
+        data: PromptClarificationResult
         warning?: string
       }>,
     generate: (payload: {
@@ -780,20 +760,11 @@ export const api = {
       userCorrections?: string
       clarification?: unknown
       model?: string
-      projectContext?: {
-        projectName: string
-        projectPath: string
-        techStack: string[]
-        gitBranch: string | null
-        openTasks: Array<{ title: string; status: string; priority: string }>
-        memories: Array<{ name: string; snippet: string }>
-      }
+      projectContext?: ProjectContext
     }) =>
       invoke('prompt:generate', payload) as Promise<{
         mode: 'ai' | 'demo'
-        data: {
-          finalPrompt: string
-        }
+        data: PromptGenerationResult
         warning?: string
       }>,
   },

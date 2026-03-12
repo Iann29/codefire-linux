@@ -5,6 +5,13 @@
 //   Phase 2 (generate): produce one strong final prompt in EN
 
 import type { ProjectContext } from '@shared/models'
+import type {
+  PromptClarificationResult,
+  PromptGenerationResult,
+  PromptInteractiveQuestion,
+  PromptQuestionOption,
+  PromptQuestionResponseType,
+} from '@shared/promptCompiler'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,19 +25,9 @@ export interface PromptPayload {
   projectContext?: ProjectContext
 }
 
-export interface ClarificationResult {
-  understanding: string
-  objective: string[]
-  context: string[]
-  constraints: string[]
-  assumptions: string[]
-  confirmationPrompt: string
-  questions: string[]
-}
+export type ClarificationResult = PromptClarificationResult
 
-export interface GenerationResult {
-  finalPrompt: string
-}
+export type GenerationResult = PromptGenerationResult
 
 export interface PromptRequest {
   instructions: string
@@ -114,8 +111,31 @@ export function buildClarifyRequest(payload: PromptPayload): PromptRequest {
     '  "constraints": ["string"],',
     '  "assumptions": ["string"],',
     '  "confirmationPrompt": "string",',
-    '  "questions": ["string"]',
+    '  "questions": ["string"],',
+    '  "interactiveQuestions": [',
+    '    {',
+    '      "id": "string",',
+    '      "label": "string",',
+    '      "helperText": "string",',
+    '      "responseType": "single | multi | text",',
+    '      "options": [{ "id": "string", "label": "string", "description": "string" }],',
+    '      "allowsOther": true,',
+    '      "otherPlaceholder": "string",',
+    '      "inputPlaceholder": "string",',
+    '      "required": true',
+    '    }',
+    '  ]',
     '}',
+    'For interactiveQuestions:',
+    '- Generate 0 to 4 questions only when they materially improve the final prompt.',
+    '- Choose the responseType that best fits each question.',
+    '- Use single when one answer should be chosen, multi when multiple answers may apply, and text when custom wording is better.',
+    '- When responseType is single or multi, provide 2 to 6 concise, context-aware options.',
+    '- Do not include an explicit Other option inside options. The UI will add it automatically. Set allowsOther to true for every question.',
+    '- Use helperText to explain why the question matters.',
+    '- Use inputPlaceholder for text questions and for the custom Other path when a hint would help.',
+    '- Keep questions grounded in the brief and project context instead of generic discovery forms.',
+    '- The plain questions array must mirror the interactive question labels for backward compatibility.',
   ]
 
   if (payload.projectContext) {
@@ -149,6 +169,7 @@ export function buildGenerateRequest(payload: PromptPayload): PromptRequest {
     'Generate only one final prompt, not multiple versions.',
     'The final prompt should be detailed, execution-ready, and optimized for the best possible output by another AI.',
     'The final prompt must read like a direct brief to another AI worker.',
+    'Treat userCorrections as the latest authoritative answers from the clarification flow. They override earlier assumptions or open questions.',
     'It must describe the actual task to be done, not the act of rewriting or understanding the user\'s request.',
     "Do not use meta language such as 'Transform the user's rough intent', 'the user wants', 'prompt compiler', or similar phrasing.",
     "Bad output: a prompt about clarifying, organizing, or improving the user's request.",
@@ -180,6 +201,16 @@ export function sanitizeClarifyResponse(
   payload: PromptPayload
 ): ClarificationResult {
   const fallback = buildClarificationFallback(payload)
+  const interactiveQuestions = sanitizeInteractiveQuestions(
+    parsed.interactiveQuestions,
+    payload,
+    parsed.questions,
+    fallback.interactiveQuestions
+  )
+  const questionLabels = uniqueList([
+    ...cleanList(parsed.questions),
+    ...interactiveQuestions.map((question) => question.label),
+  ])
 
   return {
     understanding: cleanString(parsed.understanding as string) || fallback.understanding,
@@ -190,7 +221,8 @@ export function sanitizeClarifyResponse(
     confirmationPrompt:
       cleanString(parsed.confirmationPrompt as string) ||
       'Confirma esse entendimento antes de eu gerar o prompt final?',
-    questions: preferList(parsed.questions as string[], fallback.questions),
+    questions: questionLabels.length ? questionLabels : fallback.questions,
+    interactiveQuestions,
   }
 }
 
@@ -266,6 +298,8 @@ export function buildClarificationFallback(payload: PromptPayload): Clarificatio
     )
   }
 
+  const interactiveQuestions = buildInteractiveQuestionsFromLegacy(questions, payload)
+
   return {
     understanding: `Entendi que voce quer transformar um pedido ainda informal em um prompt final muito mais claro, estruturado e executavel para uma ${modeLabel}.`,
     objective: [
@@ -277,7 +311,8 @@ export function buildClarificationFallback(payload: PromptPayload): Clarificatio
     assumptions,
     confirmationPrompt:
       'Confirma esse entendimento ou quer corrigir algum ponto antes de gerar o prompt final em ingles?',
-    questions,
+    questions: interactiveQuestions.length ? interactiveQuestions.map((question) => question.label) : questions,
+    interactiveQuestions,
   }
 }
 
@@ -373,6 +408,290 @@ export function extractJson(rawContent: string): Record<string, unknown> {
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
+
+function sanitizeInteractiveQuestions(
+  value: unknown,
+  payload: PromptPayload,
+  legacyQuestions: unknown,
+  fallbackQuestions: PromptInteractiveQuestion[]
+): PromptInteractiveQuestion[] {
+  const normalized = Array.isArray(value)
+    ? value
+        .map((question, index) => normalizeInteractiveQuestion(question, index, payload))
+        .filter((question): question is PromptInteractiveQuestion => question !== null)
+    : []
+
+  if (normalized.length) {
+    return normalized.slice(0, 4)
+  }
+
+  const fromLegacy = buildInteractiveQuestionsFromLegacy(cleanList(legacyQuestions), payload)
+  if (fromLegacy.length) {
+    return fromLegacy.slice(0, 4)
+  }
+
+  return fallbackQuestions.slice(0, 4)
+}
+
+function normalizeInteractiveQuestion(
+  value: unknown,
+  index: number,
+  payload: PromptPayload
+): PromptInteractiveQuestion | null {
+  if (!value || typeof value !== 'object') return null
+
+  const question = value as Record<string, unknown>
+  const label =
+    cleanString(question.label) ||
+    cleanString(question.title) ||
+    cleanString(question.question) ||
+    cleanString(question.prompt)
+
+  if (!label) return null
+
+  const initialOptions = sanitizeQuestionOptions(question.options)
+  const responseType = inferQuestionResponseType(question.responseType, initialOptions, label)
+  const inferredOptions =
+    responseType === 'text' || initialOptions.length
+      ? initialOptions
+      : inferOptionsFromQuestion(label, payload, responseType)
+  const normalizedType =
+    responseType !== 'text' && inferredOptions.length === 0 ? 'text' : responseType
+
+  return {
+    id: cleanId(cleanString(question.id)) || buildQuestionId(label, index),
+    label,
+    helperText: cleanString(question.helperText) || inferHelperText(label, normalizedType),
+    responseType: normalizedType,
+    options: normalizedType === 'text' ? [] : inferredOptions,
+    allowsOther: true,
+    otherPlaceholder:
+      cleanString(question.otherPlaceholder) || inferOtherPlaceholder(label, normalizedType),
+    inputPlaceholder:
+      cleanString(question.inputPlaceholder) || inferInputPlaceholder(label, normalizedType),
+    required: typeof question.required === 'boolean' ? question.required : true,
+  }
+}
+
+function sanitizeQuestionOptions(value: unknown): PromptQuestionOption[] {
+  if (!Array.isArray(value)) return []
+
+  const seen = new Set<string>()
+  const options: PromptQuestionOption[] = []
+
+  for (const [index, item] of value.entries()) {
+    const option = normalizeQuestionOption(item, index)
+    if (!option) continue
+
+    const key = option.id || option.label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    options.push(option)
+  }
+
+  return options.slice(0, 6)
+}
+
+function normalizeQuestionOption(value: unknown, index: number): PromptQuestionOption | null {
+  if (typeof value === 'string') {
+    const label = cleanString(value)
+    return label
+      ? {
+          id: cleanId(label) || `option-${index + 1}`,
+          label,
+        }
+      : null
+  }
+
+  if (!value || typeof value !== 'object') return null
+
+  const option = value as Record<string, unknown>
+  const label =
+    cleanString(option.label) ||
+    cleanString(option.title) ||
+    cleanString(option.value) ||
+    cleanString(option.name)
+
+  if (!label) return null
+
+  return {
+    id: cleanId(cleanString(option.id)) || cleanId(label) || `option-${index + 1}`,
+    label,
+    description:
+      cleanString(option.description) || cleanString(option.helperText) || cleanString(option.note),
+  }
+}
+
+function buildInteractiveQuestionsFromLegacy(
+  questions: string[],
+  payload: PromptPayload
+): PromptInteractiveQuestion[] {
+  return uniqueList(questions)
+    .slice(0, 4)
+    .map((label, index) => {
+      const responseType = inferQuestionResponseType('', [], label)
+      const options =
+        responseType === 'text' ? [] : inferOptionsFromQuestion(label, payload, responseType)
+      const normalizedType = responseType !== 'text' && options.length === 0 ? 'text' : responseType
+
+      return {
+        id: buildQuestionId(label, index),
+        label,
+        helperText: inferHelperText(label, normalizedType),
+        responseType: normalizedType,
+        options: normalizedType === 'text' ? [] : options,
+        allowsOther: true,
+        otherPlaceholder: inferOtherPlaceholder(label, normalizedType),
+        inputPlaceholder: inferInputPlaceholder(label, normalizedType),
+        required: true,
+      }
+    })
+}
+
+function inferQuestionResponseType(
+  candidate: unknown,
+  options: PromptQuestionOption[],
+  label: string
+): PromptQuestionResponseType {
+  const normalized = cleanString(candidate).toLowerCase()
+  if (normalized === 'single' || normalized === 'multi' || normalized === 'text') {
+    if (normalized === 'text') return normalized
+    return options.length ? normalized : inferQuestionResponseType('', options, label)
+  }
+
+  if (!options.length) {
+    if (/(restri|escopo|prioridade|criterio|preserv|comportamento|resultado|entreg)/i.test(label)) {
+      return 'multi'
+    }
+
+    if (/(qual|em que|contexto maior|tipo de iniciativa|tipo de projeto|ambiente)/i.test(label)) {
+      return 'single'
+    }
+
+    if (/(stack|tecnolog|framework|linguagem)/i.test(label)) {
+      return 'multi'
+    }
+
+    return 'text'
+  }
+
+  if (/(quais|mais de uma|marque|selecione|restri|criterio|prioridade)/i.test(label)) {
+    return 'multi'
+  }
+
+  return 'single'
+}
+
+function inferOptionsFromQuestion(
+  label: string,
+  payload: PromptPayload,
+  responseType: PromptQuestionResponseType
+): PromptQuestionOption[] {
+  if (responseType === 'text') return []
+
+  if (/(contexto maior|tipo de iniciativa|tipo de projeto|ambiente)/i.test(label)) {
+    return [
+      makeOption('existing-product', 'Produto existente', 'Ha um sistema ou fluxo real para respeitar.'),
+      makeOption('new-feature', 'Nova funcionalidade', 'Evolucao de algo que ja existe.'),
+      makeOption('internal-tool', 'Ferramenta interna', 'Uso interno, menos foco comercial.'),
+      makeOption('exploration', 'Exploracao', 'Ainda estou validando direcao e escopo.'),
+    ]
+  }
+
+  if (/(stack|tecnolog|framework|linguagem)/i.test(label)) {
+    const stackOptions = payload.projectContext?.techStack.length
+      ? payload.projectContext.techStack.map((tech) => makeOption(tech, tech))
+      : [
+          makeOption('react', 'React'),
+          makeOption('nextjs', 'Next.js'),
+          makeOption('typescript', 'TypeScript'),
+          makeOption('node', 'Node.js'),
+          makeOption('python', 'Python'),
+        ]
+
+    return stackOptions.slice(0, 6)
+  }
+
+  if (/(restri|preserv|comportamento|escopo|criterio|prioridade)/i.test(label)) {
+    return [
+      makeOption('preserve-layout', 'Manter layout', 'Nao mexer no visual principal.'),
+      makeOption('preserve-behavior', 'Preservar comportamento', 'Evitar mudancas funcionais.'),
+      makeOption('limit-scope', 'Escopo contido', 'Resolver sem abrir frentes paralelas.'),
+      makeOption('avoid-dependencies', 'Sem novas dependencias', 'Preferir a stack atual.'),
+      makeOption('explicit-validation', 'Validacao clara', 'Incluir testes ou verificacoes objetivas.'),
+    ]
+  }
+
+  if (/(entreg|saida|formato)/i.test(label)) {
+    return [
+      makeOption('implementation', 'Implementacao pronta'),
+      makeOption('plan', 'Plano detalhado'),
+      makeOption('diagnosis', 'Diagnostico guiado'),
+      makeOption('checklist', 'Checklist executavel'),
+    ]
+  }
+
+  return []
+}
+
+function inferHelperText(label: string, responseType: PromptQuestionResponseType): string {
+  if (responseType === 'multi') {
+    return 'Marque o que realmente precisa entrar no prompt final. Pode combinar opcoes.'
+  }
+
+  if (responseType === 'single') {
+    return 'Escolha o caminho que melhor representa essa lacuna do briefing.'
+  }
+
+  if (/(stack|tecnolog|framework|linguagem)/i.test(label)) {
+    return 'Se tiver algo especifico em mente, escreva do jeito mais concreto possivel.'
+  }
+
+  return 'Responda com o contexto minimo que deixaria o prompt final mais confiavel.'
+}
+
+function inferOtherPlaceholder(label: string, responseType: PromptQuestionResponseType): string {
+  if (responseType === 'multi') {
+    return `Algo fora da lista sobre "${label}"`
+  }
+
+  return `Escreva uma resposta customizada para "${label}"`
+}
+
+function inferInputPlaceholder(label: string, responseType: PromptQuestionResponseType): string {
+  if (responseType === 'text') {
+    return `Responda aqui: ${label}`
+  }
+
+  if (/(stack|tecnolog|framework|linguagem)/i.test(label)) {
+    return 'Ex.: Next.js 15, TypeScript, Electron, API Node...'
+  }
+
+  return responseType === 'multi'
+    ? 'Descreva algo importante que nao entrou nas opcoes.'
+    : 'Escreva a resposta que faz mais sentido para este caso.'
+}
+
+function buildQuestionId(label: string, index: number): string {
+  return cleanId(label) || `question-${index + 1}`
+}
+
+function cleanId(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function makeOption(id: string, label: string, description?: string): PromptQuestionOption {
+  return {
+    id: cleanId(id) || cleanId(label) || 'option',
+    label,
+    description,
+  }
+}
 
 function inferTaskModeFromBrief(brief: string): TaskMode {
   const text = cleanString(brief).toLowerCase()
