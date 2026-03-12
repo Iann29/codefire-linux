@@ -28,7 +28,11 @@ import type {
   ProviderModelGroup,
   IndexState,
 } from '@shared/models'
-import type { PromptClarificationResult, PromptGenerationResult } from '@shared/promptCompiler'
+import type {
+  PromptClarificationResult,
+  PromptCompilerJobSnapshot,
+  PromptGenerationResult,
+} from '@shared/promptCompiler'
 const invoke = window.api.invoke
 
 export const api = {
@@ -767,6 +771,22 @@ export const api = {
         data: PromptGenerationResult
         warning?: string
       }>,
+    startClarify: (payload: {
+      originalBrief: string
+      taskMode?: string
+      userCorrections?: string
+      model?: string
+      projectContext?: ProjectContext
+    }) => invoke('prompt:startClarify', payload) as Promise<PromptCompilerJobSnapshot>,
+    startGenerate: (payload: {
+      originalBrief: string
+      taskMode?: string
+      userCorrections?: string
+      clarification?: unknown
+      model?: string
+      projectContext?: ProjectContext
+    }) => invoke('prompt:startGenerate', payload) as Promise<PromptCompilerJobSnapshot>,
+    getJob: (jobId: string) => invoke('prompt:getJob', jobId) as Promise<PromptCompilerJobSnapshot | null>,
   },
 
   visualBaselines: {

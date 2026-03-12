@@ -22,6 +22,24 @@ import {
   extractJson,
 } from '../services/PromptCompilerService'
 import type { ClarificationResult, GenerationResult } from '../services/PromptCompilerService'
+import { promptCompilerJobStore } from '../services/PromptCompilerJobStore'
+
+type PromptClarifyPayload = {
+  originalBrief: string
+  taskMode?: string
+  userCorrections?: string
+  model?: string
+  projectContext?: ProjectContext
+}
+
+type PromptGeneratePayload = {
+  originalBrief: string
+  taskMode?: string
+  userCorrections?: string
+  clarification?: unknown
+  model?: string
+  projectContext?: ProjectContext
+}
 
 // ── Service detection (lightweight inline, mirrors service-handlers.ts) ──────
 
@@ -117,6 +135,104 @@ export function registerPromptHandlers(db: Database.Database) {
   const projectDAO = new ProjectDAO(db)
   const taskDAO = new TaskDAO(db)
 
+  async function runClarify(payload: PromptClarifyPayload): Promise<{
+    mode: 'ai' | 'demo'
+    data: ClarificationResult
+    warning?: string
+  }> {
+    const normalized = normalizePromptPayload(payload)
+
+    if (!payload.model) {
+      return {
+        mode: 'demo',
+        data: buildClarificationFallback(normalized),
+      }
+    }
+
+    try {
+      const config = readConfig()
+      const promptReq = buildClarifyRequest(normalized)
+
+      const request: ChatCompletionRequest = {
+        model: payload.model,
+        messages: [
+          { role: 'system', content: promptReq.instructions },
+          { role: 'user', content: promptReq.input },
+        ],
+        maxTokens: 4096,
+      }
+
+      const response = await providerRouter.chatCompletion(config, request)
+      const content = String(response.choices?.[0]?.message?.content ?? '')
+
+      if (!content) {
+        throw new Error('Provider returned an empty completion.')
+      }
+
+      const parsed = extractJson(content)
+      return {
+        mode: 'ai' as const,
+        data: sanitizeClarifyResponse(parsed, normalized),
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        mode: 'demo' as const,
+        data: buildClarificationFallback(normalized),
+        warning: `AI request failed, using local fallback. ${message}`,
+      }
+    }
+  }
+
+  async function runGenerate(payload: PromptGeneratePayload): Promise<{
+    mode: 'ai' | 'demo'
+    data: GenerationResult
+    warning?: string
+  }> {
+    const normalized = normalizePromptPayload(payload)
+
+    if (!payload.model) {
+      return {
+        mode: 'demo',
+        data: buildGenerationFallback(normalized),
+      }
+    }
+
+    try {
+      const config = readConfig()
+      const promptReq = buildGenerateRequest(normalized)
+
+      const request: ChatCompletionRequest = {
+        model: payload.model,
+        messages: [
+          { role: 'system', content: promptReq.instructions },
+          { role: 'user', content: promptReq.input },
+        ],
+        maxTokens: 8192,
+      }
+
+      const response = await providerRouter.chatCompletion(config, request)
+      const content = String(response.choices?.[0]?.message?.content ?? '')
+
+      if (!content) {
+        throw new Error('Provider returned an empty completion.')
+      }
+
+      const parsed = extractJson(content)
+      return {
+        mode: 'ai' as const,
+        data: sanitizeGenerateResponse(parsed, normalized),
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        mode: 'demo' as const,
+        data: buildGenerationFallback(normalized),
+        warning: `AI request failed, using local fallback. ${message}`,
+      }
+    }
+  }
+
   // ── Gather project context ──────────────────────────────────────────────
 
   ipcMain.handle(
@@ -165,130 +281,23 @@ export function registerPromptHandlers(db: Database.Database) {
 
   ipcMain.handle(
     'prompt:clarify',
-    async (
-      _event,
-      payload: {
-        originalBrief: string
-        taskMode?: string
-        userCorrections?: string
-        model?: string
-        projectContext?: ProjectContext
-      }
-    ): Promise<{
-      mode: 'ai' | 'demo'
-      data: ClarificationResult
-      warning?: string
-    }> => {
-      const normalized = normalizePromptPayload(payload)
+    async (_event, payload: PromptClarifyPayload) => runClarify(payload)
+  )
 
-      // If no model specified, use demo fallback
-      if (!payload.model) {
-        return {
-          mode: 'demo',
-          data: buildClarificationFallback(normalized),
-        }
-      }
-
-      // Try AI path via ProviderRouter
-      try {
-        const config = readConfig()
-        const promptReq = buildClarifyRequest(normalized)
-
-        const request: ChatCompletionRequest = {
-          model: payload.model,
-          messages: [
-            { role: 'system', content: promptReq.instructions },
-            { role: 'user', content: promptReq.input },
-          ],
-          maxTokens: 4096,
-        }
-
-        const response = await providerRouter.chatCompletion(config, request)
-        const content = String(response.choices?.[0]?.message?.content ?? '')
-
-        if (!content) {
-          throw new Error('Provider returned an empty completion.')
-        }
-
-        const parsed = extractJson(content)
-        return {
-          mode: 'ai' as const,
-          data: sanitizeClarifyResponse(parsed, normalized),
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return {
-          mode: 'demo' as const,
-          data: buildClarificationFallback(normalized),
-          warning: `AI request failed, using local fallback. ${message}`,
-        }
-      }
-    }
+  ipcMain.handle('prompt:startClarify', async (_event, payload: PromptClarifyPayload) =>
+    promptCompilerJobStore.startJob('clarify', () => runClarify(payload))
   )
 
   // ── Phase 2: Generate ──────────────────────────────────────────────────
 
   ipcMain.handle(
     'prompt:generate',
-    async (
-      _event,
-      payload: {
-        originalBrief: string
-        taskMode?: string
-        userCorrections?: string
-        clarification?: unknown
-        model?: string
-        projectContext?: ProjectContext
-      }
-    ): Promise<{
-      mode: 'ai' | 'demo'
-      data: GenerationResult
-      warning?: string
-    }> => {
-      const normalized = normalizePromptPayload(payload)
-
-      // If no model specified, use demo fallback
-      if (!payload.model) {
-        return {
-          mode: 'demo',
-          data: buildGenerationFallback(normalized),
-        }
-      }
-
-      // Try AI path via ProviderRouter
-      try {
-        const config = readConfig()
-        const promptReq = buildGenerateRequest(normalized)
-
-        const request: ChatCompletionRequest = {
-          model: payload.model,
-          messages: [
-            { role: 'system', content: promptReq.instructions },
-            { role: 'user', content: promptReq.input },
-          ],
-          maxTokens: 8192,
-        }
-
-        const response = await providerRouter.chatCompletion(config, request)
-        const content = String(response.choices?.[0]?.message?.content ?? '')
-
-        if (!content) {
-          throw new Error('Provider returned an empty completion.')
-        }
-
-        const parsed = extractJson(content)
-        return {
-          mode: 'ai' as const,
-          data: sanitizeGenerateResponse(parsed, normalized),
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return {
-          mode: 'demo' as const,
-          data: buildGenerationFallback(normalized),
-          warning: `AI request failed, using local fallback. ${message}`,
-        }
-      }
-    }
+    async (_event, payload: PromptGeneratePayload) => runGenerate(payload)
   )
+
+  ipcMain.handle('prompt:startGenerate', async (_event, payload: PromptGeneratePayload) =>
+    promptCompilerJobStore.startJob('generate', () => runGenerate(payload))
+  )
+
+  ipcMain.handle('prompt:getJob', (_event, jobId: string) => promptCompilerJobStore.getJob(jobId))
 }

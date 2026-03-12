@@ -33,6 +33,35 @@ export interface PromptGenerationResult {
   finalPrompt: string
 }
 
+export type PromptCompilerJobKind = 'clarify' | 'generate'
+
+export type PromptCompilerJobStatus = 'running' | 'completed' | 'failed'
+
+interface PromptCompilerJobBase {
+  id: string
+  kind: PromptCompilerJobKind
+  status: PromptCompilerJobStatus
+  mode: 'ai' | 'demo' | null
+  warning?: string
+  error?: string
+  startedAt: number
+  updatedAt: number
+}
+
+export interface PromptCompilerClarifyJobSnapshot extends PromptCompilerJobBase {
+  kind: 'clarify'
+  result: PromptClarificationResult | null
+}
+
+export interface PromptCompilerGenerateJobSnapshot extends PromptCompilerJobBase {
+  kind: 'generate'
+  result: PromptGenerationResult | null
+}
+
+export type PromptCompilerJobSnapshot =
+  | PromptCompilerClarifyJobSnapshot
+  | PromptCompilerGenerateJobSnapshot
+
 export interface PromptInteractiveAnswer {
   questionId: string
   selectedOptionIds: string[]

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Loader2,
   Copy,
@@ -20,9 +20,7 @@ import { InteractiveQuestionFlow } from '@renderer/components/PromptCompiler/Int
 import {
   buildAutoFilledAdjustments,
   composeUserCorrections,
-  createInitialAnswerMap,
   isQuestionComplete,
-  type PromptAnswerMap,
 } from '@renderer/lib/promptCompilerFlow'
 import type { ContextToggles } from '@renderer/hooks/usePromptCompiler'
 import type { ProjectContext } from '@shared/models'
@@ -47,24 +45,17 @@ const SAMPLE_BRIEFS: Record<string, { label: string; brief: string }> = {
   },
 }
 
-const DEFAULT_TOGGLES: ContextToggles = {
-  techStack: true,
-  gitBranch: true,
-  tasks: true,
-  memories: true,
-}
-
 export default function PromptView({ projectId }: PromptViewProps) {
-  const [brief, setBrief] = useState('')
-  const [manualAdjustments, setManualAdjustments] = useState('')
-  const [guidedAnswers, setGuidedAnswers] = useState<PromptAnswerMap>({})
-  const [selectedModel, setSelectedModel] = useState('')
   const [copied, setCopied] = useState(false)
-  const [contextOpen, setContextOpen] = useState(true)
-  const [toggles, setToggles] = useState<ContextToggles>(DEFAULT_TOGGLES)
-  const lastGeneratedCorrectionsRef = useRef('')
 
   const {
+    brief,
+    manualAdjustments,
+    guidedAnswers,
+    selectedModel,
+    contextOpen,
+    toggles,
+    lastGeneratedCorrections,
     clarification,
     generation,
     clarifying,
@@ -73,12 +64,18 @@ export default function PromptView({ projectId }: PromptViewProps) {
     mode,
     projectContext,
     contextLoading,
+    setBrief,
+    setManualAdjustments,
+    setGuidedAnswer,
+    setSelectedModel,
+    setContextOpen,
+    toggleContextSetting,
     clarify,
     generate,
     clearGeneration,
     reset,
     fetchContext,
-  } = usePromptCompiler()
+  } = usePromptCompiler(projectId)
 
   // Dynamic model list from all connected providers
   const { groups: modelGroups, allModels, loading: modelsLoading } = useAvailableModels()
@@ -88,22 +85,13 @@ export default function PromptView({ projectId }: PromptViewProps) {
     if (allModels.length > 0 && !selectedModel) {
       setSelectedModel(allModels[0].id)
     }
-  }, [allModels, selectedModel])
+  }, [allModels, selectedModel, setSelectedModel])
 
-  // Fetch project context on mount
   useEffect(() => {
-    if (projectId) {
-      fetchContext(projectId)
+    if (projectId && !projectContext && !contextLoading) {
+      void fetchContext()
     }
-  }, [projectId, fetchContext])
-
-  useEffect(() => {
-    const questions = clarification?.interactiveQuestions ?? []
-    setGuidedAnswers(createInitialAnswerMap(questions))
-    setManualAdjustments('')
-    setCopied(false)
-    lastGeneratedCorrectionsRef.current = ''
-  }, [clarification])
+  }, [projectId, projectContext, contextLoading, fetchContext])
 
   const interactiveQuestions = clarification?.interactiveQuestions ?? []
 
@@ -124,28 +112,22 @@ export default function PromptView({ projectId }: PromptViewProps) {
   )
 
   useEffect(() => {
-    if (generation && combinedCorrections !== lastGeneratedCorrectionsRef.current) {
+    if (generation && combinedCorrections !== lastGeneratedCorrections) {
       clearGeneration()
       setCopied(false)
     }
-  }, [combinedCorrections, generation, clearGeneration])
+  }, [combinedCorrections, generation, lastGeneratedCorrections, clearGeneration])
 
   const handleClarify = useCallback(async () => {
     if (!brief.trim()) return
-    setManualAdjustments('')
-    setGuidedAnswers({})
     setCopied(false)
-    lastGeneratedCorrectionsRef.current = ''
-    await clarify(brief, selectedModel || undefined, toggles).catch(() => {})
-  }, [brief, selectedModel, clarify, toggles])
+    await clarify().catch(() => {})
+  }, [brief, clarify])
 
   const handleGenerate = useCallback(async () => {
     if (!clarification) return
-    lastGeneratedCorrectionsRef.current = combinedCorrections
-    await generate(brief, combinedCorrections, clarification, selectedModel || undefined, toggles).catch(
-      () => {}
-    )
-  }, [brief, combinedCorrections, clarification, selectedModel, generate, toggles])
+    await generate(combinedCorrections).catch(() => {})
+  }, [combinedCorrections, clarification, generate])
 
   const handleCopy = useCallback(async () => {
     if (!generation?.finalPrompt) return
@@ -155,33 +137,26 @@ export default function PromptView({ projectId }: PromptViewProps) {
   }, [generation])
 
   const handleReset = useCallback(() => {
-    setBrief('')
-    setManualAdjustments('')
-    setGuidedAnswers({})
     setCopied(false)
-    lastGeneratedCorrectionsRef.current = ''
     reset()
   }, [reset])
 
   const handleSampleClick = useCallback((key: string) => {
     const sample = SAMPLE_BRIEFS[key]
     if (sample) setBrief(sample.brief)
-  }, [])
+  }, [setBrief])
 
   const handleToggle = useCallback((key: keyof ContextToggles) => {
-    setToggles((prev) => ({ ...prev, [key]: !prev[key] }))
-  }, [])
+    toggleContextSetting(key)
+  }, [toggleContextSetting])
 
   const handleRefreshContext = useCallback(() => {
-    if (projectId) fetchContext(projectId)
+    if (projectId) void fetchContext()
   }, [projectId, fetchContext])
 
   const handleGuidedAnswerChange = useCallback((answer: PromptInteractiveAnswer) => {
-    setGuidedAnswers((prev) => ({
-      ...prev,
-      [answer.questionId]: answer,
-    }))
-  }, [])
+    setGuidedAnswer(answer)
+  }, [setGuidedAnswer])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -204,7 +179,8 @@ export default function PromptView({ projectId }: PromptViewProps) {
         </div>
         <button
           onClick={handleReset}
-          className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+          disabled={clarifying || generating}
+          className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <RotateCcw size={12} />
           Limpar
@@ -228,7 +204,7 @@ export default function PromptView({ projectId }: PromptViewProps) {
             loading={contextLoading}
             open={contextOpen}
             toggles={toggles}
-            onToggleOpen={() => setContextOpen((o) => !o)}
+            onToggleOpen={() => setContextOpen(!contextOpen)}
             onToggle={handleToggle}
             onRefresh={handleRefreshContext}
           />
