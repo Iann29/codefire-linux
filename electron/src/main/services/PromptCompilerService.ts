@@ -101,6 +101,10 @@ export function buildClarifyRequest(payload: PromptPayload): PromptRequest {
     'Your current task is Phase 1 only: interpret intent and prepare a confirmation summary in Portuguese.',
     'The user may provide all context, constraints, stack, and goals inside a single freeform block.',
     'Infer the likely task type, relevant context, and missing information from the brief itself.',
+    'Assume the user may not know the project stack, libraries, UI framework, architecture, or internal conventions.',
+    'Before asking technical follow-up questions, infer as much as possible from the brief, project context, and repository signals that the eventual worker can verify.',
+    'When technical details are likely discoverable from the repository or relevant documentation, prefer assumptions for the worker to validate instead of asking the user.',
+    'Reserve user questions for product intent, preferences, business context, or ambiguity that cannot be resolved from the brief, project context, repository investigation, or relevant documentation.',
     'Return JSON only. No markdown fences.',
     'Never invent facts. Unknown data must be placed in assumptions or questions.',
     'Use this JSON shape exactly:',
@@ -135,6 +139,8 @@ export function buildClarifyRequest(payload: PromptPayload): PromptRequest {
     '- Use helperText to explain why the question matters.',
     '- Use inputPlaceholder for text questions and for the custom Other path when a hint would help.',
     '- Keep questions grounded in the brief and project context instead of generic discovery forms.',
+    '- Do not ask what stack, library, framework, UI system, or architecture the project uses when that is discoverable from repository evidence or project context.',
+    '- Prefer product, preference, business-rule, or unresolved-ambiguity questions over technical stack discovery.',
     '- The plain questions array must mirror the interactive question labels for backward compatibility.',
   ]
 
@@ -145,7 +151,7 @@ export function buildClarifyRequest(payload: PromptPayload): PromptRequest {
       '',
       'Use the project context above to better understand the user\'s intent.',
       'Reference the project\'s tech stack, current branch, and open tasks when relevant.',
-      'Skip questions that are already answered by the project context (e.g. do not ask about the stack if it is listed above).',
+      'Skip questions that are already answered by the project context or are normally discoverable from the repository and relevant docs (e.g. do not ask about the stack if it is listed above or can be inferred there).',
     )
   }
 
@@ -185,6 +191,11 @@ export function buildGenerateRequest(payload: PromptPayload): PromptRequest {
     "Bad output: a prompt about clarifying, organizing, or improving the user's request.",
     'Good output: a prompt that directly tells another AI what to build, debug, refactor, write, or plan, with concrete context, constraints, and deliverables.',
     'If the request is software-related, assume the target AI can inspect a codebase, compare existing implementations, and make changes.',
+    'When the request is software-related, make repository investigation the default technical discovery path: codebase first, documentation second, user questions last.',
+    'When the request is software-related, assume the user may not know the project stack, libraries, UI framework, architecture, or internal conventions.',
+    'When the request is software-related, the final prompt should tell the worker to inspect relevant manifests, lockfiles, build or framework config, app entrypoints, component structure, routing, API clients, styles, tests, and docs when those sources matter.',
+    'When the request is software-related, the final prompt should reserve user questions for product intent, preferences, business context, or ambiguity that remains unresolved after repository and documentation research.',
+    'Do not generate prompts that ask the user which technology the project uses when the repository can answer it.',
     'When repo names, product names, file paths, or existing systems are mentioned, include them concretely in the final prompt.',
     'Include the sections Role, Objective, Context, Constraints, Technical Details, Expected Output, Acceptance Criteria, Avoid, and Clarification Rule when they apply.',
   ]
@@ -204,7 +215,7 @@ export function buildGenerateRequest(payload: PromptPayload): PromptRequest {
       'The user is not asking for prompt engineering in the abstract. They want a coding agent to update prompt or instruction artifacts that live inside the repository.',
       'Treat this as a normal repository implementation task focused on prompt-related files, templates, config, or system-instruction artifacts.',
       'Do not frame the final prompt as "write a prompt about" or "create a prompt that" when the real task is to inspect the repo and modify the relevant files directly.',
-      'The final prompt should tell the worker agent to inspect the codebase, locate the current prompt/instruction artifact, edit it in place, validate the change, and report the touched files.'
+      'The final prompt should tell the worker agent to inspect the codebase, locate the current prompt/instruction artifact, consult relevant documentation if repository evidence is incomplete, edit it in place, validate the change, and report the touched files.'
     )
   }
 
@@ -230,16 +241,22 @@ export function sanitizeClarifyResponse(
   payload: PromptPayload
 ): ClarificationResult {
   const fallback = buildClarificationFallback(payload)
-  const interactiveQuestions = sanitizeInteractiveQuestions(
+  const sanitizedInteractiveQuestions = sanitizeInteractiveQuestions(
     parsed.interactiveQuestions,
     payload,
     parsed.questions,
     fallback.interactiveQuestions
   )
-  const questionLabels = uniqueList([
-    ...cleanList(parsed.questions),
-    ...interactiveQuestions.map((question) => question.label),
-  ])
+  const interactiveQuestions = applyTechnicalDiscoveryQuestionPolicy(
+    sanitizedInteractiveQuestions,
+    fallback.interactiveQuestions,
+    payload
+  )
+  const questionLabels = applyTechnicalDiscoveryLabelPolicy(
+    [...cleanList(parsed.questions), ...interactiveQuestions.map((question) => question.label)],
+    fallback.questions,
+    payload
+  )
 
   return {
     understanding: cleanString(parsed.understanding as string) || fallback.understanding,
@@ -300,7 +317,7 @@ export function buildClarificationFallback(payload: PromptPayload): Clarificatio
     payload.taskMode === 'debug'
   ) {
     assumptions.push(
-      'Se houver impacto em codigo, o sistema deve priorizar seguranca contra regressao e pedir detalhes ausentes quando necessario.'
+      'Se houver impacto em codigo, o sistema deve priorizar seguranca contra regressao, investigar a codebase antes de pedir detalhes tecnicos e consultar documentacao relevante quando necessario.'
     )
   }
 
@@ -310,15 +327,6 @@ export function buildClarificationFallback(payload: PromptPayload): Clarificatio
     questions.push(
       'Qual e o contexto maior dessa tarefa? Projeto existente, ideia nova, produto interno ou outro?'
     )
-  }
-
-  if (
-    (payload.taskMode === 'coding' ||
-      payload.taskMode === 'refactor' ||
-      payload.taskMode === 'debug') &&
-    !hasTechnicalSignals(payload.originalBrief)
-  ) {
-    questions.push('Qual stack ou tecnologias devo assumir para gerar um prompt tecnico melhor?')
   }
 
   if (!hasConstraintSignals(payload.originalBrief)) {
@@ -423,7 +431,7 @@ export function buildGenerationFallback(payload: PromptPayload): GenerationResul
     `Expected Output\n${toBulletBlock(expectedOutput)}`,
     `Acceptance Criteria\n${toBulletBlock(acceptanceCriteria)}`,
     `Avoid\n${toBulletBlock(avoid)}`,
-    'Clarification Rule\nIf a critical detail is missing, ask concise clarification questions before acting. Do not invent concrete facts.',
+    'Clarification Rule\nIf a critical detail is missing, inspect the relevant codebase first and consult project or official documentation next. Ask concise clarification questions only for product decisions, preferences, business context, or ambiguities that remain unresolved after that research. Do not invent concrete facts.',
   ].join('\n\n')
 
   return { finalPrompt }
@@ -462,19 +470,23 @@ function buildDirectPromptDeliverableFallback(
     const directives = [
       'Entregue diretamente o prompt ou bloco de instrucoes final, pronto para uso, sem explicar como ele foi construido.',
       'Transforme o pedido em instrucoes operacionais para o agente final, e nao em um prompt que pede para outro modelo escrever esse prompt.',
+      'Assuma que o usuario pode nao saber stack, bibliotecas, framework de UI, arquitetura ou convencoes internas do projeto.',
       project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
         ? 'Antes de assumir detalhes tecnicos, inspecione a codebase, os arquivos relevantes e as implementacoes existentes.'
         : 'Antes de assumir detalhes, use primeiro o contexto confirmado neste briefing e preserve a intencao original do usuario.',
       project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
         ? 'Use o repositorio como fonte principal de verdade para stack, arquitetura, bibliotecas, convencoes, fluxos e restricoes tecnicas.'
         : 'Nao invente fatos que nao estejam sustentados pelo contexto fornecido.',
+      project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
+        ? 'Investigue manifestos, lockfiles, configs de build ou framework, entrypoints, estrutura de componentes, rotas, clientes de API, estilos, testes e docs do projeto quando isso ajudar a resolver a tarefa.'
+        : 'Apoie-se no contexto confirmado e em sinais concretos do pedido antes de preencher lacunas.',
       'Trate as respostas confirmadas pelo usuario como instrucoes prioritarias.',
       project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
         ? 'Quando a analise local nao bastar, pesquise documentacao oficial e fontes confiaveis antes de depender do usuario.'
         : 'Quando faltar contexto essencial, preserve a melhor interpretacao possivel sem perder a direcao pedida pelo usuario.',
       avoidQuestions
-        ? 'Nao faca perguntas de descoberta tecnica ao usuario quando isso puder ser resolvido pela analise do repositorio, pelo contexto ja confirmado ou por pesquisa objetiva.'
-        : 'So faca perguntas curtas se um detalhe critico realmente nao puder ser inferido do contexto disponivel.',
+        ? 'Nao faca perguntas de descoberta tecnica ao usuario quando isso puder ser resolvido pela analise do repositorio, pelo contexto ja confirmado ou por pesquisa objetiva. So considere perguntar algo se restar uma decisao de produto, preferencia ou ambiguidade genuinamente irresolvida.'
+        : 'Reserve perguntas ao usuario para decisoes de produto, preferencias, contexto de negocio ou ambiguidades que permanecam irresolvidas apos analisar repositorio e documentacao.',
     ]
 
     for (const item of uniqueList(directives)) {
@@ -510,7 +522,7 @@ function buildDirectPromptDeliverableFallback(
     lines.push(
       avoidQuestions
         ? 'Se ainda restar alguma ambiguidade, resolva primeiro pelo melhor caminho baseado em evidencia antes de considerar qualquer pergunta ao usuario.'
-        : 'Se ainda restar alguma ambiguidade critica, valide pelo caminho mais curto possivel antes de agir.'
+        : 'Se ainda restar alguma ambiguidade critica, valide apenas o ponto de produto, preferencia ou contexto que nao deu para resolver pela codebase e pela documentacao.'
     )
 
     return lines.join('\n')
@@ -530,19 +542,23 @@ function buildDirectPromptDeliverableFallback(
   const directives = [
     'Deliver the final prompt or instruction block itself, ready to use, without explaining how it was created.',
     'Flatten the nesting level and write the actual instructions for the end worker instead of asking another model to write them.',
+    'Assume the user may not know the project stack, libraries, UI framework, architecture, or internal conventions.',
     project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
       ? 'Inspect the codebase, relevant files, and existing implementations before assuming technical details.'
       : 'Use the confirmed context first and preserve the user\'s original intent.',
     project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
       ? 'Use the repository as the main source of truth for stack, architecture, libraries, conventions, flows, and constraints.'
       : 'Do not invent unsupported facts.',
+    project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
+      ? 'Investigate manifests, lockfiles, build or framework config, entrypoints, component structure, routing, API clients, styles, tests, and project docs when those sources help answer the task.'
+      : 'Rely on the confirmed context and concrete signals from the brief before filling any gaps.',
     'Treat the user\'s confirmed answers as authoritative instructions.',
     project || payload.taskMode === 'coding' || payload.taskMode === 'refactor' || payload.taskMode === 'debug'
       ? 'If repository evidence is not enough, research official documentation and reliable sources before depending on the user.'
       : 'If essential context is still missing, preserve the strongest reasonable interpretation without drifting away from the requested outcome.',
     avoidQuestions
-      ? 'Do not ask the user technical discovery questions when the answer can be inferred from the repository, the confirmed context, or focused research.'
-      : 'Ask short clarification questions only if a critical detail truly cannot be inferred from the available context.',
+      ? 'Do not ask the user technical discovery questions when the answer can be inferred from the repository, the confirmed context, or focused research. Only consider asking if a product decision, preference, or genuine ambiguity remains unresolved.'
+      : 'Reserve user questions for product decisions, preferences, business context, or ambiguities that remain unresolved after repository and documentation research.',
   ]
 
   for (const item of uniqueList(directives)) {
@@ -569,7 +585,7 @@ function buildDirectPromptDeliverableFallback(
   lines.push(
     avoidQuestions
       ? 'If any ambiguity remains, resolve it through the strongest evidence-based path before considering a user question.'
-      : 'If a critical ambiguity remains, validate it through the shortest possible clarification before acting.'
+      : 'If a critical ambiguity remains, validate only the product, preference, or business-context gap that could not be resolved from the codebase and documentation before acting.'
   )
 
   return lines.join('\n')
@@ -656,6 +672,50 @@ function collectPayloadText(payload: PromptPayload): string {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+function applyTechnicalDiscoveryQuestionPolicy(
+  questions: PromptInteractiveQuestion[],
+  fallbackQuestions: PromptInteractiveQuestion[],
+  payload: PromptPayload
+): PromptInteractiveQuestion[] {
+  const filterQuestions = (items: PromptInteractiveQuestion[]) =>
+    items.filter((question) => !shouldSuppressTechnicalDiscoveryQuestion(question.label, payload))
+
+  const filtered = filterQuestions(questions)
+  if (filtered.length) return filtered.slice(0, 4)
+
+  return filterQuestions(fallbackQuestions).slice(0, 4)
+}
+
+function applyTechnicalDiscoveryLabelPolicy(
+  labels: string[],
+  fallbackLabels: string[],
+  payload: PromptPayload
+): string[] {
+  const filterLabels = (items: string[]) =>
+    uniqueList(items).filter((label) => !shouldSuppressTechnicalDiscoveryQuestion(label, payload))
+
+  const filtered = filterLabels(labels)
+  if (filtered.length) return filtered
+
+  return filterLabels(fallbackLabels)
+}
+
+function shouldSuppressTechnicalDiscoveryQuestion(label: string, payload: PromptPayload): boolean {
+  if (!shouldPreferRepositoryDiscovery(payload)) return false
+
+  return /(stack|tecnolog|technology|framework|frameworks|linguagem|language|biblioteca|bibliotecas|library|libraries|arquitetura|architecture|ui\b|design system|sistema de design|frontend|backend|css framework)/i.test(
+    cleanString(label)
+  )
+}
+
+function shouldPreferRepositoryDiscovery(payload: PromptPayload): boolean {
+  if (payload.projectContext) return true
+
+  return /(repo|repositorio|repositório|codebase|monorepo|arquivo|arquivos|path|caminho|branch|projeto existente|existing project|existing product|existing system|sistema existente)/i.test(
+    collectPayloadText(payload)
+  )
 }
 
 function looksLikePortuguese(text: string): boolean {
@@ -1009,6 +1069,15 @@ function inferExecutionGuidance(
   if (taskMode === 'coding' || taskMode === 'refactor' || taskMode === 'debug') {
     items.push('Inspect the existing codebase and relevant files before proposing changes.')
     items.push(
+      'Assume the user may not know the stack, libraries, UI framework, architecture, or internal conventions, so discover them from the repository first.'
+    )
+    items.push(
+      'Inspect manifests, lockfiles, build or framework config, entrypoints, routing, components, API clients, styles, tests, and docs whenever they help answer the implementation question.'
+    )
+    items.push(
+      'If repository evidence is incomplete, consult relevant project or official documentation before escalating unresolved technical ambiguity to the user.'
+    )
+    items.push(
       "Keep the solution aligned with the product's existing architecture, naming, routing, and UI patterns."
     )
   }
@@ -1156,12 +1225,6 @@ function extractReferencedPaths(text: string): string[] {
 function looksLikeSelfContainedBrief(text: string): boolean {
   const normalized = cleanString(text)
   return normalized.length >= 120 || /\n/.test(normalized)
-}
-
-function hasTechnicalSignals(text: string): boolean {
-  return /(\/home\/|\.tsx\b|\.ts\b|\.jsx\b|\.js\b|react|next|typescript|javascript|node|python|java|go|tailwind|api|backend|frontend|sql|css|html|repo|codebase|aba|tab|pagina|page|rota|route|interface|ui|screen|tela|dashboard|painel)/i.test(
-    cleanString(text)
-  )
 }
 
 function hasConstraintSignals(text: string): boolean {

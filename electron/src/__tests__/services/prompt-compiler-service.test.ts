@@ -106,6 +106,27 @@ describe('PromptCompilerService clarification schema', () => {
     expect(result.questions.length).toBeGreaterThan(0)
     expect(result.interactiveQuestions.length).toBeGreaterThan(0)
     expect(result.interactiveQuestions.every((question) => question.allowsOther)).toBe(true)
+    expect(result.questions.some((question) => /stack|tecnolog/i.test(question))).toBe(false)
+  })
+
+  it('filters generic technical discovery questions when repository context already exists', () => {
+    const result = sanitizeClarifyResponse(
+      {
+        understanding: 'Entendimento ok',
+        objective: ['Objetivo 1'],
+        context: ['Contexto 1'],
+        constraints: ['Restricao 1'],
+        assumptions: ['Suposicao 1'],
+        confirmationPrompt: 'Confere?',
+        questions: ['Qual stack ou tecnologias devo assumir para gerar um prompt tecnico melhor?'],
+      },
+      basePayload
+    )
+
+    expect(result.questions.some((question) => /stack|tecnolog/i.test(question))).toBe(false)
+    expect(
+      result.interactiveQuestions.some((question) => /stack|tecnolog/i.test(question.label))
+    ).toBe(false)
   })
 
   it('tells phase 2 to flatten prompt-authoring requests into the final direct prompt', () => {
@@ -152,7 +173,10 @@ describe('PromptCompilerService clarification schema', () => {
       'The user is not asking for prompt engineering in the abstract. They want a coding agent to update prompt or instruction artifacts that live inside the repository.'
     )
     expect(request.instructions).toContain(
-      'The final prompt should tell the worker agent to inspect the codebase, locate the current prompt/instruction artifact, edit it in place, validate the change, and report the touched files.'
+      'make repository investigation the default technical discovery path: codebase first, documentation second, user questions last.'
+    )
+    expect(request.instructions).toContain(
+      'The final prompt should tell the worker agent to inspect the codebase, locate the current prompt/instruction artifact, consult relevant documentation if repository evidence is incomplete, edit it in place, validate the change, and report the touched files.'
     )
     expect(request.instructions).not.toContain(
       'generate the final deliverable prompt itself, ready to paste into the target agent'
@@ -170,6 +194,8 @@ describe('PromptCompilerService clarification schema', () => {
 
     expect(result.finalPrompt).toContain('Voce esta trabalhando no projeto CodeFire')
     expect(result.finalPrompt).toContain('Entregue diretamente o prompt ou bloco de instrucoes final')
+    expect(result.finalPrompt).toContain('Assuma que o usuario pode nao saber stack')
+    expect(result.finalPrompt).toContain('Investigue manifestos, lockfiles, configs de build ou framework')
     expect(result.finalPrompt).not.toContain('Role\nYou are')
     expect(result.finalPrompt).not.toContain('Create a prompt')
   })

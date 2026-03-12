@@ -205,6 +205,54 @@ export function validateBrowserUrl(
   return null
 }
 
+export function buildAgentSystemPrompt(params: {
+  projectName: string
+  planEnforcement: boolean
+  projectPath?: string | null
+  browserIntentDetected?: boolean
+}): string {
+  const {
+    projectName,
+    planEnforcement,
+    projectPath,
+    browserIntentDetected = false,
+  } = params
+
+  const base = [`You are the Pinyino agent for "${projectName}".`]
+
+  if (projectPath) {
+    base.push(`The project directory is: ${projectPath}`)
+    base.push('IMPORTANT: Always use this project path as the base for file operations (read_file, read_file_range, read_many_files, list_files, get_directory_tree, glob_files, grep_files, get_file_info, write_file, apply_file_patch, move_path, git_status, etc). Never assume or use a different directory.')
+  }
+
+  base.push('You can use tools to manage tasks, notes, sessions, git, files, semantic code discovery, web-project analysis, search, and browser actions.')
+  base.push('Be concise and action-oriented.')
+  base.push('Assume the user may not know the project stack, libraries, UI framework, architecture, or internal conventions.')
+  base.push('Before asking technical questions, investigate the repository first. Inspect the most relevant manifests, lockfiles, build and framework config, entrypoints, routing, components, API clients, styles, tests, and docs to infer how the project works.')
+  base.push('Treat the codebase as the primary source of truth for stack, dependencies, architecture, conventions, and implementation details. If repository evidence is incomplete, consult relevant project or official documentation next.')
+  base.push('Ask the user only about product intent, preferences, business rules, or ambiguities that remain unresolved after codebase and documentation research. Do not ask which stack, library, framework, UI system, or architecture the project uses when the repository can reveal it.')
+
+  // Tool routing preferences
+  base.push('Tool selection guidance: prefer find_symbol over grep_files for definition lookup. Prefer find_references/find_importers over brute-force text search for usage questions. Prefer find_related_files over list_files for companion discovery. Use list_changed_files before broad exploration for review/refactor tasks. For route/design/env/component/deploy questions, prefer bridge tools (discover_routes, inspect_design_system, env_doctor, component_usage, launch_guard_summary, discover_previews) over raw file reads. For existing-file edits, prefer apply_file_patch over write_file. Use write_file mainly for new files or intentional full rewrites.')
+  base.push('Avoid search loops. Do not chain multiple grep_files/glob_files/list_files/get_directory_tree calls with tiny variations. Do one discovery pass, then read the most likely files with read_file/read_file_range/read_many_files.')
+  base.push('Keep tool usage tight. If you already have enough evidence, stop using tools and answer or edit directly.')
+
+  if (planEnforcement) {
+    base.push('Do not call set_plan unless you are about to use browser tools.')
+    base.push('For code reading, search, git, notes, tasks, and file work, skip set_plan and update_plan.')
+    if (browserIntentDetected) {
+      base.push('This request likely needs browser work. Call set_plan immediately before the first browser action, not earlier.')
+    } else {
+      base.push('If browser work becomes necessary later, call set_plan immediately before the first browser action.')
+    }
+    base.push('After each meaningful browser action, verify it with browser_dom_map, browser_get_element_info, browser_snapshot, or browser_console_logs, then call update_plan.')
+  } else {
+    base.push('Plan tools are browser-specific. Ignore them unless you are about to use browser tools.')
+  }
+
+  return base.join(' ')
+}
+
 export class AgentService {
   private readonly taskDAO: TaskDAO
   private readonly noteDAO: NoteDAO
@@ -840,37 +888,12 @@ export class AgentService {
     projectPath?: string | null,
     browserIntentDetected: boolean = false,
   ): string {
-    const base = [
-      `You are the Pinyino agent for "${projectName}".`,
-    ]
-
-    if (projectPath) {
-      base.push(`The project directory is: ${projectPath}`)
-      base.push('IMPORTANT: Always use this project path as the base for file operations (read_file, read_file_range, read_many_files, list_files, get_directory_tree, glob_files, grep_files, get_file_info, write_file, apply_file_patch, move_path, git_status, etc). Never assume or use a different directory.')
-    }
-
-    base.push('You can use tools to manage tasks, notes, sessions, git, files, semantic code discovery, web-project analysis, search, and browser actions.')
-    base.push('Be concise and action-oriented.')
-
-    // Tool routing preferences
-    base.push('Tool selection guidance: prefer find_symbol over grep_files for definition lookup. Prefer find_references/find_importers over brute-force text search for usage questions. Prefer find_related_files over list_files for companion discovery. Use list_changed_files before broad exploration for review/refactor tasks. For route/design/env/component/deploy questions, prefer bridge tools (discover_routes, inspect_design_system, env_doctor, component_usage, launch_guard_summary, discover_previews) over raw file reads. For existing-file edits, prefer apply_file_patch over write_file. Use write_file mainly for new files or intentional full rewrites.')
-    base.push('Avoid search loops. Do not chain multiple grep_files/glob_files/list_files/get_directory_tree calls with tiny variations. Do one discovery pass, then read the most likely files with read_file/read_file_range/read_many_files.')
-    base.push('Keep tool usage tight. If you already have enough evidence, stop using tools and answer or edit directly.')
-
-    if (planEnforcement) {
-      base.push('Do not call set_plan unless you are about to use browser tools.')
-      base.push('For code reading, search, git, notes, tasks, and file work, skip set_plan and update_plan.')
-      if (browserIntentDetected) {
-        base.push('This request likely needs browser work. Call set_plan immediately before the first browser action, not earlier.')
-      } else {
-        base.push('If browser work becomes necessary later, call set_plan immediately before the first browser action.')
-      }
-      base.push('After each meaningful browser action, verify it with browser_dom_map, browser_get_element_info, browser_snapshot, or browser_console_logs, then call update_plan.')
-    } else {
-      base.push('Plan tools are browser-specific. Ignore them unless you are about to use browser tools.')
-    }
-
-    return base.join(' ')
+    return buildAgentSystemPrompt({
+      projectName,
+      planEnforcement,
+      projectPath,
+      browserIntentDetected,
+    })
   }
 
   private sendEvent(run: ActiveRun, channel: AgentEventChannel, payload: Record<string, unknown>): void {
