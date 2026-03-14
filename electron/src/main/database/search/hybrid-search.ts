@@ -3,7 +3,9 @@
  * Adaptive weighting based on query classification.
  */
 import Database from 'better-sqlite3'
+import type { CodeChunk } from '@shared/models'
 import { ChunkDAO } from '../dao/ChunkDAO'
+import { EmbeddingCache } from './embedding-cache'
 import { preprocessQuery, type ProcessedQuery } from './query-preprocessor'
 import { vectorSearch } from './vector-search'
 
@@ -22,9 +24,11 @@ export interface SearchResult {
 
 export class HybridSearchEngine {
   private chunkDAO: ChunkDAO
+  private embeddingCache: EmbeddingCache
 
-  constructor(private db: Database.Database) {
+  constructor(private db: Database.Database, embeddingCache?: EmbeddingCache) {
     this.chunkDAO = new ChunkDAO(db)
+    this.embeddingCache = embeddingCache ?? new EmbeddingCache()
   }
 
   search(
@@ -38,26 +42,27 @@ export class HybridSearchEngine {
     // 1. FTS keyword search
     const ftsResults = this.chunkDAO.searchFTS(projectId, query, limit * 2)
     const keywordScores = new Map<string, number>()
+    const chunkMap = new Map<string, CodeChunk>()
     if (ftsResults.length > 0) {
       const maxRank = Math.max(...ftsResults.map((r) => r.rank))
       for (const result of ftsResults) {
         keywordScores.set(result.id, maxRank > 0 ? result.rank / maxRank : 0)
+        chunkMap.set(result.id, result)
       }
     }
 
     // 2. Vector search (if embedding provided)
     const semanticScores = new Map<string, number>()
     if (queryEmbedding) {
-      const chunksWithEmbeddings =
-        this.chunkDAO.getChunksWithEmbeddings(projectId)
-      if (chunksWithEmbeddings.length > 0) {
-        const vectorResults = vectorSearch(
-          queryEmbedding,
-          chunksWithEmbeddings,
-          limit * 2
-        )
-        for (const result of vectorResults) {
-          semanticScores.set(result.id, result.score)
+      const vectorResults = this.vectorSearchOptimized(
+        projectId,
+        queryEmbedding,
+        limit * 2
+      )
+      for (const result of vectorResults) {
+        semanticScores.set(result.id, result.score)
+        if (!chunkMap.has(result.id)) {
+          chunkMap.set(result.id, result.chunk)
         }
       }
     }
@@ -68,10 +73,6 @@ export class HybridSearchEngine {
       ...semanticScores.keys(),
     ])
     const merged: SearchResult[] = []
-
-    // Pre-fetch all chunks for the project (avoids repeated queries per chunk)
-    const allChunks = this.chunkDAO.listByProject(projectId)
-    const chunkMap = new Map(allChunks.map((c) => [c.id, c]))
 
     for (const chunkId of allChunkIds) {
       const kScore = keywordScores.get(chunkId) ?? 0
@@ -117,5 +118,49 @@ export class HybridSearchEngine {
       results: consolidated.slice(0, limit),
       processedQuery: processed,
     }
+  }
+
+  invalidateProjectCache(projectId: string): void {
+    this.embeddingCache.invalidate(projectId)
+  }
+
+  invalidateAllCaches(): void {
+    this.embeddingCache.invalidateAll()
+  }
+
+  private vectorSearchOptimized(
+    projectId: string,
+    queryEmbedding: Float32Array,
+    topN: number
+  ): Array<{ id: string; score: number; chunk: CodeChunk }> {
+    let embeddings = this.embeddingCache.get(projectId)
+
+    if (!embeddings) {
+      embeddings = this.chunkDAO.getEmbeddingsOnly(projectId).map((item) => ({
+        id: item.id,
+        embedding: new Float32Array(
+          item.embedding.buffer,
+          item.embedding.byteOffset,
+          item.embedding.byteLength / 4
+        ),
+      }))
+      this.embeddingCache.set(projectId, embeddings)
+    }
+
+    if (embeddings.length === 0) return []
+
+    const ranked = vectorSearch(queryEmbedding, embeddings, topN)
+    if (ranked.length === 0) return []
+
+    const chunks = this.chunkDAO.getByIds(ranked.map((item) => item.id))
+    const chunkMap = new Map(chunks.map((chunk) => [chunk.id, chunk]))
+
+    return ranked
+      .map((item) => ({
+        id: item.id,
+        score: item.score,
+        chunk: chunkMap.get(item.id) ?? null,
+      }))
+      .filter((item): item is { id: string; score: number; chunk: CodeChunk } => item.chunk !== null)
   }
 }

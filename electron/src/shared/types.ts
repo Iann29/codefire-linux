@@ -228,7 +228,15 @@ export type PromptCompilerChannel =
   | 'prompt:startGenerate'
   | 'prompt:getJob'
 
-export type SearchChannel = 'search:query' | 'search:reindex' | 'search:getIndexState' | 'search:clearIndex' | 'embedding:test'
+export type SearchChannel =
+  | 'search:query'
+  | 'search:reindex'
+  | 'search:getIndexState'
+  | 'search:clearIndex'
+  | 'search:cancelIndex'
+  | 'search:ensureWatcher'
+  | 'search:indexProgress'
+  | 'embedding:test'
 
 export type GmailChannel =
   | 'gmail:listAccounts'

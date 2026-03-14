@@ -15,6 +15,7 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_DIMENSIONS = 1536
 const CACHE_MAX_SIZE = 50
 const RATE_LIMIT_DELAY_MS = 1000
+const MAX_RATE_LIMIT_RETRIES = 3
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -229,23 +230,23 @@ export class EmbeddingClient {
   private async callAPI(
     input: string[],
     taskType: EmbeddingTaskType,
-    isRetry = false
+    retryCount = 0
   ): Promise<Float32Array[]> {
     if (this.provider === 'gemini') {
-      return this.callGeminiAPI(input, taskType, isRetry)
+      return this.callGeminiAPI(input, taskType, retryCount)
     }
-    return this.callOpenRouterAPI(input, isRetry)
+    return this.callOpenRouterAPI(input, retryCount)
   }
 
   // ─── OpenRouter (OpenAI models) ───────────────────────────────────────────
 
   /**
    * Call the OpenRouter embeddings API.
-   * Retries once on 429 (rate limit) after a 1-second delay.
+   * Retries up to 3 times on 429 with exponential backoff.
    */
   private async callOpenRouterAPI(
     input: string[],
-    isRetry = false
+    retryCount = 0
   ): Promise<Float32Array[]> {
     if (!this.openRouterKey) {
       throw new Error(
@@ -267,9 +268,13 @@ export class EmbeddingClient {
     })
 
     if (!response.ok) {
-      if (response.status === 429 && !isRetry) {
-        await this.delay(RATE_LIMIT_DELAY_MS)
-        return this.callOpenRouterAPI(input, true)
+      if (response.status === 429 && retryCount < MAX_RATE_LIMIT_RETRIES) {
+        const delayMs = this.getRetryDelayMs(
+          response.headers.get('retry-after'),
+          retryCount
+        )
+        await this.delay(delayMs)
+        return this.callOpenRouterAPI(input, retryCount + 1)
       }
       throw new Error(
         `OpenRouter API error: ${response.status} ${response.statusText}`
@@ -287,7 +292,7 @@ export class EmbeddingClient {
 
   /**
    * Call the Gemini batchEmbedContents API.
-   * Retries once on 429 (rate limit) after a 1-second delay.
+   * Retries up to 3 times on 429 with exponential backoff.
    *
    * Uses task type hints for better retrieval quality:
    * - RETRIEVAL_DOCUMENT for indexing content
@@ -296,7 +301,7 @@ export class EmbeddingClient {
   private async callGeminiAPI(
     input: string[],
     taskType: EmbeddingTaskType,
-    isRetry = false
+    retryCount = 0
   ): Promise<Float32Array[]> {
     if (!this.googleAiApiKey) {
       throw new Error(
@@ -328,9 +333,13 @@ export class EmbeddingClient {
     })
 
     if (!response.ok) {
-      if (response.status === 429 && !isRetry) {
-        await this.delay(RATE_LIMIT_DELAY_MS)
-        return this.callGeminiAPI(input, taskType, true)
+      if (response.status === 429 && retryCount < MAX_RATE_LIMIT_RETRIES) {
+        const delayMs = this.getRetryDelayMs(
+          response.headers.get('retry-after'),
+          retryCount
+        )
+        await this.delay(delayMs)
+        return this.callGeminiAPI(input, taskType, retryCount + 1)
       }
       throw new Error(
         `Gemini API error: ${response.status} ${response.statusText}`
@@ -351,5 +360,21 @@ export class EmbeddingClient {
    */
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  private getRetryDelayMs(retryAfterHeader: string | null, retryCount: number): number {
+    if (retryAfterHeader) {
+      const seconds = Number.parseInt(retryAfterHeader, 10)
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        return seconds * 1000
+      }
+
+      const retryAt = Date.parse(retryAfterHeader)
+      if (!Number.isNaN(retryAt)) {
+        return Math.max(0, retryAt - Date.now())
+      }
+    }
+
+    return Math.min(RATE_LIMIT_DELAY_MS * Math.pow(2, retryCount), 30_000)
   }
 }

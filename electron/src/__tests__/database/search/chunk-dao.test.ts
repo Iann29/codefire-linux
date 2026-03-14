@@ -256,17 +256,50 @@ describe('ChunkDAO', () => {
     })
   })
 
+  describe('getEmbeddingsOnly', () => {
+    it('returns only id and embedding columns', () => {
+      const embedding = float32ArrayToBlob(new Float32Array([0.1, 0.2, 0.3]))
+      insertChunk({ id: 'c1', content: 'alpha', embedding })
+      insertChunk({ id: 'c2', content: 'beta', embedding: null })
+
+      const results = dao.getEmbeddingsOnly(projectId)
+
+      expect(results).toHaveLength(1)
+      expect(results[0].id).toBe('c1')
+      expect(results[0].embedding).toBeInstanceOf(Buffer)
+      expect(Object.keys(results[0]).sort()).toEqual(['embedding', 'id'])
+    })
+  })
+
+  describe('getByIds', () => {
+    it('returns only requested chunks', () => {
+      insertChunk({ id: 'c1', content: 'alpha' })
+      insertChunk({ id: 'c2', content: 'beta' })
+      insertChunk({ id: 'c3', content: 'gamma' })
+
+      const results = dao.getByIds(['c1', 'c3'])
+      const ids = results.map((chunk) => chunk.id).sort()
+
+      expect(ids).toEqual(['c1', 'c3'])
+    })
+
+    it('returns empty array for empty input', () => {
+      expect(dao.getByIds([])).toEqual([])
+    })
+  })
+
   describe('updateEmbedding', () => {
     it('updates the embedding for a chunk', () => {
       insertChunk({ id: 'c1', embedding: null })
       expect(dao.getChunksWithEmbeddings(projectId)).toHaveLength(0)
 
       const embedding = float32ArrayToBlob(new Float32Array([0.5, 0.6, 0.7]))
-      dao.updateEmbedding('c1', embedding)
+      dao.updateEmbedding('c1', embedding, 'openai/text-embedding-3-large')
 
       const results = dao.getChunksWithEmbeddings(projectId)
       expect(results).toHaveLength(1)
       expect(results[0].id).toBe('c1')
+      expect(results[0].embeddingModel).toBe('openai/text-embedding-3-large')
     })
 
     it('overwrites existing embedding', () => {

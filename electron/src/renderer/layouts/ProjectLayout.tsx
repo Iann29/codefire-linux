@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { MessageSquare, ArrowLeft, X } from 'lucide-react'
-import type { Project } from '@shared/models'
+import type { IndexProgress, IndexState, Project } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import { useNavigation } from '@renderer/App'
 import TabBar from '@renderer/components/TabBar/TabBar'
@@ -37,6 +37,35 @@ interface ProjectLayoutProps {
   projectId: string
 }
 
+const RECENT_REINDEX_WINDOW_MS = 5 * 60 * 1000
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function getProgressPercent(progress: IndexProgress | null): number | undefined {
+  if (!progress) return undefined
+
+  switch (progress.phase) {
+    case 'enumerating':
+      return progress.filesTotal > 0 ? 5 : 0
+    case 'indexing':
+      return progress.filesTotal > 0
+        ? Math.min(85, Math.round((progress.filesProcessed / progress.filesTotal) * 85))
+        : 10
+    case 'embedding':
+      if (progress.embeddingsTotal === 0) return 90
+      return Math.min(
+        98,
+        85 + Math.round((progress.embeddingsGenerated / progress.embeddingsTotal) * 13)
+      )
+    case 'finalizing':
+      return 100
+    default:
+      return undefined
+  }
+}
+
 export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const { navigateHome } = useNavigation()
   const [project, setProject] = useState<Project | null>(null)
@@ -44,23 +73,66 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
   const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [indexStatus, setIndexStatus] = useState<'idle' | 'indexing' | 'ready' | 'error'>('idle')
+  const [indexTotalChunks, setIndexTotalChunks] = useState<number | undefined>()
+  const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null)
   const [indexLastError, setIndexLastError] = useState<string | undefined>()
   const [showBriefing, setShowBriefing] = useState(false)
   const [showChat, setShowChat] = useState(false)
+
+  const syncIndexState = useCallback((state: IndexState | null) => {
+    if (!state) {
+      setIndexStatus('idle')
+      setIndexTotalChunks(undefined)
+      setIndexLastError(undefined)
+      setIndexProgress(null)
+      return
+    }
+
+    const nextStatus = ['idle', 'indexing', 'ready', 'error'].includes(state.status)
+      ? state.status as 'idle' | 'indexing' | 'ready' | 'error'
+      : 'idle'
+
+    setIndexStatus(nextStatus)
+    setIndexTotalChunks(state.totalChunks)
+    setIndexLastError(state.lastError ?? undefined)
+
+    if (nextStatus !== 'indexing') {
+      setIndexProgress(null)
+    }
+  }, [])
+
+  const refreshIndexState = useCallback(async () => {
+    const state = await api.search.getIndexState(projectId).catch(() => null)
+    syncIndexState(state)
+    return state
+  }, [projectId, syncIndexState])
 
   const handleRequestIndex = useCallback(async () => {
     setIndexStatus('indexing')
     setIndexLastError(undefined)
     try {
-      await api.search.reindex(projectId)
-      setIndexStatus('ready')
+      const result = await api.search.reindex(projectId)
+      if (result.skipped) {
+        setIndexStatus('indexing')
+        return
+      }
+
+      const state = await refreshIndexState()
+      if (!state) {
+        setIndexStatus('ready')
+      }
     } catch (err) {
+      if (isAbortError(err)) {
+        await refreshIndexState()
+        return
+      }
+
       const message = err instanceof Error ? err.message : String(err)
       console.error('Failed to index project:', err)
       setIndexLastError(message)
       setIndexStatus('error')
     }
-  }, [projectId])
+  }, [projectId, refreshIndexState])
 
   // Listen for chat open requests from the store (e.g., screenshot -> chat)
   useEffect(() => {
@@ -98,8 +170,21 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           console.warn('Failed to update lastOpened:', err)
         })
 
-        // Always trigger indexing when a project is opened
-        handleRequestIndex()
+        await api.search.ensureWatcher(projectId).catch((err) => {
+          console.warn('Failed to ensure watcher:', err)
+        })
+
+        const state = await refreshIndexState()
+        if (cancelled) return
+
+        const indexedRecently =
+          state?.status === 'ready' &&
+          state.lastFullIndexAt &&
+          Date.now() - new Date(state.lastFullIndexAt).getTime() < RECENT_REINDEX_WINDOW_MS
+
+        if (state?.status !== 'indexing' && !indexedRecently) {
+          void handleRequestIndex()
+        }
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to load project:', err)
@@ -112,7 +197,48 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     return () => {
       cancelled = true
     }
-  }, [projectId, handleRequestIndex])
+  }, [projectId, handleRequestIndex, refreshIndexState])
+
+  useEffect(() => {
+    const cleanup = api.search.onIndexProgress((progress) => {
+      if (progress.projectId !== projectId) return
+
+      setIndexStatus('indexing')
+      setIndexLastError(undefined)
+      setIndexProgress(progress)
+
+      if (progress.phase === 'finalizing') {
+        void refreshIndexState()
+      }
+    })
+
+    return cleanup
+  }, [projectId, refreshIndexState])
+
+  useEffect(() => {
+    if (indexStatus !== 'indexing') return
+
+    let disposed = false
+
+    const poll = async () => {
+      const state = await api.search.getIndexState(projectId).catch(() => null)
+      if (!disposed) {
+        syncIndexState(state)
+      }
+    }
+
+    void poll()
+    const timer = window.setInterval(() => {
+      void poll()
+    }, 2000)
+
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [projectId, indexStatus, syncIndexState])
+
+  const indexProgressPercent = getProgressPercent(indexProgress)
 
   if (error) {
     return (
@@ -230,6 +356,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
             <div className="w-px h-4 bg-neutral-700" />
             <ProjectHeaderRight
               indexStatus={indexStatus}
+              indexTotalChunks={indexTotalChunks}
+              indexProgress={indexProgress}
               indexLastError={indexLastError}
               onRequestIndex={handleRequestIndex}
               onBriefingClick={() => { setShowBriefing((v) => !v) }}
@@ -274,6 +402,8 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
             projectId={projectId}
             projectPath={project.path}
             indexStatus={indexStatus}
+            indexTotalChunks={indexTotalChunks}
+            indexProgress={indexProgressPercent}
             indexLastError={indexLastError}
             onRequestIndex={handleRequestIndex}
           />

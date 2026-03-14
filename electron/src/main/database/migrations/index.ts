@@ -633,4 +633,23 @@ export const migrations: Migration[] = [
       `)
     },
   },
+
+  // Migration 27: Track which embedding model generated each chunk
+  {
+    version: 27,
+    name: 'v27_addEmbeddingModelToCodeChunks',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE codeChunks ADD COLUMN embeddingModel TEXT;
+
+        UPDATE codeChunks
+        SET embeddingModel = (
+          SELECT indexState.embeddingModel
+          FROM indexState
+          WHERE indexState.projectId = codeChunks.projectId
+        )
+        WHERE embedding IS NOT NULL;
+      `)
+    },
+  },
 ]

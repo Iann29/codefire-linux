@@ -81,10 +81,8 @@ export class SearchEngine {
     )
 
     // Build a map of fileId → relativePath for resolving file paths
-    const indexedFiles = this.indexDAO.listByProject(projectId)
-    const filePathMap = new Map(
-      indexedFiles.map((f) => [f.id, f.relativePath])
-    )
+    const fileIds = [...new Set(results.map((result) => result.fileId))]
+    const filePathMap = this.indexDAO.getPathsByIds(fileIds)
 
     // Map to SearchResult shape, resolve file paths, filter by type
     let mapped: SearchResult[] = results.map((r) => ({
@@ -110,5 +108,13 @@ export class SearchEngine {
     }
 
     return mapped.slice(0, limit)
+  }
+
+  invalidateProjectCache(projectId: string): void {
+    this.hybridEngine.invalidateProjectCache(projectId)
+  }
+
+  invalidateAllCaches(): void {
+    this.hybridEngine.invalidateAllCaches()
   }
 }

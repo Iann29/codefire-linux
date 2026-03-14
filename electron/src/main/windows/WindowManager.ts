@@ -18,6 +18,7 @@ export class WindowManager {
   private mainWindow: MainWindow
   private projectWindows: Map<string, ProjectWindow> = new Map()
   private stateStore: WindowStateStore
+  onProjectWindowClosed?: (projectId: string) => void
 
   constructor(stateStore?: WindowStateStore) {
     this.stateStore = stateStore ?? new WindowStateStore()
@@ -70,6 +71,7 @@ export class WindowManager {
 
     win.on('closed', () => {
       this.projectWindows.delete(projectId)
+      this.onProjectWindowClosed?.(projectId)
     })
 
     return win

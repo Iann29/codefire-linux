@@ -17,11 +17,12 @@ export class ChunkDAO {
     startLine: number | null
     endLine: number | null
     embedding: Buffer | null
+    embeddingModel?: string | null
   }): void {
     this.db
       .prepare(
-        `INSERT INTO codeChunks (id, fileId, projectId, chunkType, symbolName, content, startLine, endLine, embedding)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO codeChunks (id, fileId, projectId, chunkType, symbolName, content, startLine, endLine, embedding, embeddingModel)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         chunk.id,
@@ -32,7 +33,8 @@ export class ChunkDAO {
         chunk.content,
         chunk.startLine,
         chunk.endLine,
-        chunk.embedding
+        chunk.embedding,
+        chunk.embeddingModel ?? null
       )
   }
 
@@ -114,13 +116,53 @@ export class ChunkDAO {
       .all(projectId) as (CodeChunk & { embedding: Buffer })[]
   }
 
+  getEmbeddingsOnly(
+    projectId: string
+  ): Array<{ id: string; embedding: Buffer }> {
+    return this.db
+      .prepare(
+        'SELECT id, embedding FROM codeChunks WHERE projectId = ? AND embedding IS NOT NULL'
+      )
+      .all(projectId) as Array<{ id: string; embedding: Buffer }>
+  }
+
+  getByIds(ids: string[]): CodeChunk[] {
+    if (ids.length === 0) return []
+
+    const results: CodeChunk[] = []
+    const batchSize = 100
+
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize)
+      const placeholders = batch.map(() => '?').join(', ')
+      results.push(
+        ...(this.db
+          .prepare(`SELECT * FROM codeChunks WHERE id IN (${placeholders})`)
+          .all(...batch) as CodeChunk[])
+      )
+    }
+
+    return results
+  }
+
   /**
    * Update the embedding for a chunk.
    */
-  updateEmbedding(chunkId: string, embedding: Buffer): void {
+  updateEmbedding(
+    chunkId: string,
+    embedding: Buffer,
+    embeddingModel?: string | null
+  ): void {
+    if (embeddingModel === undefined) {
+      this.db
+        .prepare('UPDATE codeChunks SET embedding = ? WHERE id = ?')
+        .run(embedding, chunkId)
+      return
+    }
+
     this.db
-      .prepare('UPDATE codeChunks SET embedding = ? WHERE id = ?')
-      .run(embedding, chunkId)
+      .prepare('UPDATE codeChunks SET embedding = ?, embeddingModel = ? WHERE id = ?')
+      .run(embedding, embeddingModel, chunkId)
   }
 
   /**

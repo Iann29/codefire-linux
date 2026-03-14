@@ -25,8 +25,9 @@ import type {
   VisualComparison,
   ResolvePageContextInput,
   PageContextEvidence,
-  ProviderModelGroup,
-  IndexState,
+    ProviderModelGroup,
+    IndexState,
+    IndexProgress,
 } from '@shared/models'
 import type {
   PromptClarificationResult,
@@ -434,11 +435,24 @@ export const api = {
         }>
       >,
     reindex: (projectId: string) =>
-      invoke('search:reindex', projectId) as Promise<{ success: boolean }>,
+      invoke('search:reindex', projectId) as Promise<{
+        success: boolean
+        skipped?: boolean
+        reason?: 'already-indexing' | 'already-queued'
+      }>,
     getIndexState: (projectId: string) =>
       invoke('search:getIndexState', projectId) as Promise<IndexState | null>,
     clearIndex: (projectId: string) =>
       invoke('search:clearIndex', projectId) as Promise<{ success: boolean }>,
+    cancelIndex: (projectId: string) =>
+      invoke('search:cancelIndex', projectId) as Promise<{ success: boolean }>,
+    ensureWatcher: (projectId: string) =>
+      invoke('search:ensureWatcher', projectId) as Promise<{
+        success: boolean
+        watching: boolean
+      }>,
+    onIndexProgress: (callback: (progress: IndexProgress) => void) =>
+      window.api.on('search:indexProgress', (progress) => callback(progress as IndexProgress)),
     testEmbedding: (config: { model: string; openRouterKey?: string; googleAiApiKey?: string }) =>
       invoke('embedding:test', config) as Promise<{
         success: boolean

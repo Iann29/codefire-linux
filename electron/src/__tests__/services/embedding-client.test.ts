@@ -43,6 +43,24 @@ function mockErrorResponse(status: number, statusText: string): Response {
     ok: false,
     status,
     statusText,
+    headers: {
+      get: () => null,
+    },
+    json: async () => ({ error: { message: statusText } }),
+  } as unknown as Response
+}
+
+function mockRateLimitResponse(
+  statusText = 'Too Many Requests',
+  retryAfter: string | null = null
+): Response {
+  return {
+    ok: false,
+    status: 429,
+    statusText,
+    headers: {
+      get: (header: string) => (header.toLowerCase() === 'retry-after' ? retryAfter : null),
+    },
     json: async () => ({ error: { message: statusText } }),
   } as unknown as Response
 }
@@ -70,6 +88,7 @@ describe('EmbeddingClient (OpenRouter)', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -311,34 +330,57 @@ describe('EmbeddingClient (OpenRouter)', () => {
     })
 
     it('retries once on 429 rate limit, then succeeds', async () => {
+      vi.useFakeTimers()
+
       // First call: 429 rate limit
       mockFetch.mockResolvedValueOnce(
-        mockErrorResponse(429, 'Too Many Requests')
+        mockRateLimitResponse()
       )
       // Retry: success
       mockFetch.mockResolvedValueOnce(
         mockOpenRouterResponse([make1536Embedding(0.7)])
       )
 
-      const result = await client.getEmbedding('test')
+      const promise = client.getEmbedding('test')
+      await vi.runAllTimersAsync()
+      const result = await promise
 
       expect(result[0]).toBeCloseTo(0.7)
       expect(mockFetch).toHaveBeenCalledTimes(2)
     })
 
-    it('throws after second 429 (does not retry infinitely)', async () => {
-      // First call: 429
-      mockFetch.mockResolvedValueOnce(
-        mockErrorResponse(429, 'Too Many Requests')
-      )
-      // Retry: 429 again
-      mockFetch.mockResolvedValueOnce(
-        mockErrorResponse(429, 'Too Many Requests')
-      )
+    it('throws after exhausting the retry limit', async () => {
+      vi.useFakeTimers()
 
-      await expect(client.getEmbedding('test')).rejects.toThrow(
+      mockFetch.mockResolvedValue(mockRateLimitResponse())
+
+      const promise = client.getEmbedding('test')
+      const assertion = expect(promise).rejects.toThrow(
         'OpenRouter API error: 429 Too Many Requests'
       )
+      await vi.runAllTimersAsync()
+
+      await assertion
+      expect(mockFetch).toHaveBeenCalledTimes(4)
+    })
+
+    it('respects Retry-After header on 429 responses', async () => {
+      vi.useFakeTimers()
+
+      mockFetch.mockResolvedValueOnce(mockRateLimitResponse('Too Many Requests', '2'))
+      mockFetch.mockResolvedValueOnce(
+        mockOpenRouterResponse([make1536Embedding(0.33)])
+      )
+
+      const promise = client.getEmbedding('retry-after')
+
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await promise
+
+      expect(result[0]).toBeCloseTo(0.33)
       expect(mockFetch).toHaveBeenCalledTimes(2)
     })
   })
@@ -358,6 +400,7 @@ describe('EmbeddingClient (Gemini)', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -453,15 +496,39 @@ describe('EmbeddingClient (Gemini)', () => {
 
   describe('error handling', () => {
     it('retries once on 429, then succeeds', async () => {
+      vi.useFakeTimers()
+
       mockFetch.mockResolvedValueOnce(
-        mockErrorResponse(429, 'Too Many Requests')
+        mockRateLimitResponse()
       )
       mockFetch.mockResolvedValueOnce(
         mockGeminiResponse([make1536Embedding(0.5)])
       )
 
-      const result = await client.getEmbedding('test')
+      const promise = client.getEmbedding('test')
+      await vi.runAllTimersAsync()
+      const result = await promise
+
       expect(result[0]).toBeCloseTo(0.5)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('uses Retry-After header for Gemini rate limits', async () => {
+      vi.useFakeTimers()
+
+      mockFetch.mockResolvedValueOnce(mockRateLimitResponse('Too Many Requests', '3'))
+      mockFetch.mockResolvedValueOnce(
+        mockGeminiResponse([make1536Embedding(0.75)])
+      )
+
+      const promise = client.getEmbedding('test')
+      await vi.advanceTimersByTimeAsync(2999)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await promise
+
+      expect(result[0]).toBeCloseTo(0.75)
       expect(mockFetch).toHaveBeenCalledTimes(2)
     })
 

@@ -74,7 +74,11 @@ function initDeferredServices() {
     googleAiApiKey: config.googleAiApiKey || undefined,
   })
   searchEngine = new SearchEngine(db, embeddingClient)
-  contextEngine = new ContextEngine(db, embeddingClient)
+  contextEngine = new ContextEngine(db, embeddingClient, {
+    onProjectMutated: (projectId) => {
+      searchEngine.invalidateProjectCache(projectId)
+    },
+  })
 
   // Late-bind embedding client to settings handler so config changes
   // are reflected in real-time without requiring an app restart.
@@ -84,17 +88,46 @@ function initDeferredServices() {
   fileWatcher = new FileWatcher()
   const projectDAO = new ProjectDAO(db)
 
+  contextEngine.onProgress((progress) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('search:indexProgress', progress)
+    }
+  })
+
+  windowManager.onProjectWindowClosed = (projectId: string) => {
+    contextEngine.cancelIndexing(projectId)
+    if (fileWatcher.isWatching(projectId)) {
+      void fileWatcher.unwatch(projectId).catch((error) => {
+        console.error(`[FileWatcher] Failed to stop watcher for ${projectId}:`, error)
+      })
+    }
+  }
+
   fileWatcher.onFilesChanged = (projectId: string, changedPaths: string[]) => {
     const project = projectDAO.getById(projectId)
     if (!project) return
 
-    console.log(`[FileWatcher] Re-indexing ${changedPaths.length} changed file(s) in project ${projectId}`)
-    for (const absPath of changedPaths) {
-      const relativePath = path.relative(project.path, absPath)
-      contextEngine.indexFile(projectId, project.path, relativePath).catch((err) => {
-        console.error(`[FileWatcher] Failed to re-index ${relativePath}:`, err)
-      })
+    if (contextEngine.isIndexing(projectId)) {
+      console.log(`[FileWatcher] Skipping ${projectId} changes because indexing is already running`)
+      return
     }
+
+    const relativePaths = [...new Set(changedPaths.map((absPath) => path.relative(project.path, absPath)))]
+    if (relativePaths.length === 0) return
+
+    if (relativePaths.length <= 5) {
+      contextEngine.indexFiles(projectId, project.path, relativePaths).catch((err) => {
+        console.error(`[FileWatcher] Failed to batch re-index ${projectId}:`, err)
+      })
+      return
+    }
+
+    console.log(`[FileWatcher] ${relativePaths.length} files changed in ${projectId}; queueing full re-index`)
+    void contextEngine.requestProjectIndex(projectId, project.path, {
+      waitForCompletion: false,
+    }).catch((err) => {
+      console.error(`[FileWatcher] Failed to queue full re-index for ${projectId}:`, err)
+    })
   }
 
   // Browser command executor
@@ -114,7 +147,7 @@ function initDeferredServices() {
   liveWatcher.start()
 
   // Register deferred IPC handlers
-  registerSearchHandlers(db, searchEngine, contextEngine)
+  registerSearchHandlers(db, searchEngine, contextEngine, fileWatcher)
   if (gmailService) {
     ipcMain.removeHandler('gmail:listRecentEmails')
     registerGmailHandlers(gmailService)
@@ -327,6 +360,7 @@ app.on('before-quit', () => {
 
   // Each cleanup step is wrapped individually so a failure in one
   // does not prevent the remaining resources from being released.
+  try { if (contextEngine) contextEngine.cancelAll() } catch (e) { console.error('[Quit] contextEngine cleanup failed:', e) }
   try { if (fileWatcher) fileWatcher.unwatchAll() } catch (e) { console.error('[Quit] fileWatcher cleanup failed:', e) }
   try { if (liveWatcher) liveWatcher.stop() } catch (e) { console.error('[Quit] liveWatcher cleanup failed:', e) }
   try { if (browserExecutor) browserExecutor.stop() } catch (e) { console.error('[Quit] browserExecutor cleanup failed:', e) }

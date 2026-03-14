@@ -5,6 +5,7 @@ import { EmbeddingClient } from '../services/EmbeddingClient'
 import { ProjectDAO } from '../database/dao/ProjectDAO'
 import { IndexDAO } from '../database/dao/IndexDAO'
 import Database from 'better-sqlite3'
+import type { FileWatcher } from '../services/FileWatcher'
 
 /**
  * Register IPC handlers for search and re-indexing operations.
@@ -12,7 +13,8 @@ import Database from 'better-sqlite3'
 export function registerSearchHandlers(
   db: Database.Database,
   searchEngine: SearchEngine,
-  contextEngine: ContextEngine
+  contextEngine: ContextEngine,
+  fileWatcher?: FileWatcher
 ) {
   const projectDAO = new ProjectDAO(db)
   const indexDAO = new IndexDAO(db)
@@ -47,8 +49,7 @@ export function registerSearchHandlers(
         throw new Error(`Project not found: ${projectId}`)
       }
 
-      await contextEngine.indexProject(projectId, project.path)
-      return { success: true }
+      return contextEngine.requestProjectIndex(projectId, project.path)
     }
   )
 
@@ -69,16 +70,58 @@ export function registerSearchHandlers(
         throw new Error('projectId is required and must be a string')
       }
 
+      contextEngine.cancelIndexing(projectId)
+      await contextEngine.waitForIdle(projectId)
+
       // Delete all indexed files and code chunks for this project
       db.prepare('DELETE FROM codeChunks WHERE projectId = ?').run(projectId)
       db.prepare('DELETE FROM indexedFiles WHERE projectId = ?').run(projectId)
+      searchEngine.invalidateProjectCache(projectId)
       indexDAO.updateState(projectId, {
         status: 'idle',
         totalChunks: 0,
         lastFullIndexAt: null,
         lastError: null,
+        embeddingModel: null,
       })
       return { success: true }
+    }
+  )
+
+  ipcMain.handle(
+    'search:cancelIndex',
+    async (_event, projectId: string) => {
+      if (!projectId || typeof projectId !== 'string') {
+        throw new Error('projectId is required and must be a string')
+      }
+
+      contextEngine.cancelIndexing(projectId)
+      await contextEngine.waitForIdle(projectId)
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle(
+    'search:ensureWatcher',
+    async (_event, projectId: string) => {
+      if (!projectId || typeof projectId !== 'string') {
+        throw new Error('projectId is required and must be a string')
+      }
+
+      if (!fileWatcher) {
+        return { success: false, watching: false }
+      }
+
+      const project = projectDAO.getById(projectId)
+      if (!project) {
+        throw new Error(`Project not found: ${projectId}`)
+      }
+
+      if (!fileWatcher.isWatching(projectId)) {
+        fileWatcher.watch(projectId, project.path)
+      }
+
+      return { success: true, watching: fileWatcher.isWatching(projectId) }
     }
   )
 

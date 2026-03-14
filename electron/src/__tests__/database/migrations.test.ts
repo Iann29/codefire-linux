@@ -111,4 +111,14 @@ describe('all migrations', () => {
     expect(columnNames).toContain('effortLevel')
     expect(columnNames).toContain('usageCapturedAt')
   })
+
+  it('adds embeddingModel to codeChunks', () => {
+    const migrator = new Migrator(db, migrations)
+    migrator.migrate()
+
+    const columns = db.prepare('PRAGMA table_info(codeChunks)').all() as Array<{ name: string }>
+    const columnNames = columns.map((column) => column.name)
+
+    expect(columnNames).toContain('embeddingModel')
+  })
 })

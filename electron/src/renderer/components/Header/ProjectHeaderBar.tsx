@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Folder, Code, FolderOpen, Bell } from 'lucide-react'
+import type { IndexProgress } from '@shared/models'
 
 interface ProjectHeaderBarProps {
   projectName: string
   projectPath: string
   indexStatus: 'idle' | 'indexing' | 'ready' | 'error'
   indexTotalChunks?: number
-  indexProgress?: number
+  indexProgress?: IndexProgress | null
   indexLastError?: string
   onRequestIndex?: () => void
   onBriefingClick?: () => void
@@ -97,7 +98,7 @@ function HeaderIndexIndicator({
 }: {
   status: 'idle' | 'indexing' | 'ready' | 'error'
   totalChunks?: number
-  progress?: number
+  progress?: IndexProgress | null
   lastError?: string
   onRequestIndex?: () => void
 }) {
@@ -123,24 +124,27 @@ function HeaderIndexIndicator({
   const label = (() => {
     switch (status) {
       case 'idle': return 'Not Indexed'
-      case 'indexing': return progress !== undefined ? `Indexing ${progress}%` : 'Indexing...'
+      case 'indexing': return getProgressHeadline(progress)
       case 'ready': return totalChunks !== undefined ? `Indexed ${totalChunks}` : 'Indexed'
       case 'error': return 'Index Error'
     }
   })()
 
+  const progressCaption = status === 'indexing' ? getProgressCaption(progress) : null
+  const progressPercent = status === 'indexing' ? getProgressPercent(progress) : undefined
+
   const title = status === 'idle' && onRequestIndex
     ? 'Click to index project'
     : status === 'error'
       ? 'Click to see error details'
-      : label
+      : buildProgressTitle(label, progress)
 
   return (
     <div className="relative">
       <button
         onClick={isClickable ? handleClick : undefined}
         disabled={!isClickable}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-semibold border ${c.text} ${c.bg} ${c.border} ${isClickable ? 'cursor-pointer hover:brightness-125 transition-all' : 'cursor-default'}`}
+        className={`flex items-center gap-2 px-2 py-1 rounded-md text-[10px] font-semibold border ${c.text} ${c.bg} ${c.border} ${isClickable ? 'cursor-pointer hover:brightness-125 transition-all' : 'cursor-default'}`}
         title={title}
       >
         {status === 'indexing' ? (
@@ -148,7 +152,25 @@ function HeaderIndexIndicator({
         ) : (
           <Code className="w-3 h-3" />
         )}
-        <span>{label}</span>
+        <div className="flex flex-col items-start leading-none min-w-0">
+          <span className="truncate">{label}</span>
+          {progressCaption && (
+            <span className="text-[9px] font-medium text-neutral-500 truncate max-w-40">
+              {progressCaption}
+            </span>
+          )}
+        </div>
+        {progressPercent !== undefined && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-14 h-1 rounded-full bg-neutral-800/80 overflow-hidden">
+              <span
+                className="block h-full rounded-full bg-codefire-orange transition-[width] duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </span>
+            <span className="text-[9px] text-neutral-400">{progressPercent}%</span>
+          </span>
+        )}
       </button>
 
       {showError && status === 'error' && (
@@ -171,3 +193,83 @@ function HeaderFilesystemIndicator() {
   )
 }
 
+function getProgressPercent(progress?: IndexProgress | null): number | undefined {
+  if (!progress) return undefined
+
+  switch (progress.phase) {
+    case 'enumerating':
+      return progress.filesTotal > 0 ? 5 : 0
+    case 'indexing':
+      return progress.filesTotal > 0
+        ? Math.min(85, Math.round((progress.filesProcessed / progress.filesTotal) * 85))
+        : 10
+    case 'embedding':
+      if (progress.embeddingsTotal === 0) return 90
+      return Math.min(
+        98,
+        85 + Math.round((progress.embeddingsGenerated / progress.embeddingsTotal) * 13)
+      )
+    case 'finalizing':
+      return 100
+    default:
+      return undefined
+  }
+}
+
+function getProgressHeadline(progress?: IndexProgress | null): string {
+  if (!progress) return 'Indexing...'
+
+  switch (progress.phase) {
+    case 'enumerating':
+      return 'Scanning Files'
+    case 'indexing':
+      return `Indexing ${progress.filesProcessed}/${progress.filesTotal}`
+    case 'git-history':
+      return 'Reading Git History'
+    case 'embedding':
+      return progress.embeddingsTotal > 0
+        ? `Embedding ${progress.embeddingsGenerated}/${progress.embeddingsTotal}`
+        : 'Embedding Chunks'
+    case 'finalizing':
+      return 'Finalizing Index'
+  }
+}
+
+function getProgressCaption(progress?: IndexProgress | null): string | null {
+  if (!progress) return null
+
+  if (progress.phase === 'indexing') {
+    const parts = []
+    if (progress.filesSkipped > 0) {
+      parts.push(`${progress.filesSkipped} unchanged`)
+    }
+    if (progress.estimatedRemainingMs !== undefined && progress.estimatedRemainingMs > 0) {
+      parts.push(`~${formatDuration(progress.estimatedRemainingMs)} left`)
+    }
+    return parts.join(' • ') || 'Processing files'
+  }
+
+  if (progress.phase === 'embedding' && progress.embeddingsFailed > 0) {
+    return `${progress.embeddingsFailed} failed batch items`
+  }
+
+  return null
+}
+
+function buildProgressTitle(label: string, progress?: IndexProgress | null): string {
+  if (!progress) return label
+
+  const eta = progress.estimatedRemainingMs && progress.estimatedRemainingMs > 0
+    ? ` — ETA ${formatDuration(progress.estimatedRemainingMs)}`
+    : ''
+
+  return `${label}${eta}`
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000))
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+}

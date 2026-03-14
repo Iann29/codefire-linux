@@ -76,6 +76,9 @@ export class IndexDAO {
     if (currentPaths.length === 0) {
       // If there are no current paths, delete everything for this project
       this.db
+        .prepare('DELETE FROM codeChunks WHERE projectId = ?')
+        .run(projectId)
+      this.db
         .prepare('DELETE FROM indexedFiles WHERE projectId = ?')
         .run(projectId)
       return
@@ -94,11 +97,15 @@ export class IndexDAO {
     if (staleIds.length === 0) return
 
     // Delete stale files in batches
+    const deleteChunksStmt = this.db.prepare(
+      'DELETE FROM codeChunks WHERE fileId = ?'
+    )
     const deleteStmt = this.db.prepare(
       'DELETE FROM indexedFiles WHERE id = ?'
     )
     const deleteTransaction = this.db.transaction((ids: string[]) => {
       for (const id of ids) {
+        deleteChunksStmt.run(id)
         deleteStmt.run(id)
       }
     })
@@ -112,6 +119,27 @@ export class IndexDAO {
     return this.db
       .prepare('SELECT * FROM indexedFiles WHERE projectId = ?')
       .all(projectId) as IndexedFile[]
+  }
+
+  getPathsByIds(ids: string[]): Map<string, string> {
+    if (ids.length === 0) return new Map()
+
+    const results = new Map<string, string>()
+    const batchSize = 100
+
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize)
+      const placeholders = batch.map(() => '?').join(', ')
+      const rows = this.db
+        .prepare(`SELECT id, relativePath FROM indexedFiles WHERE id IN (${placeholders})`)
+        .all(...batch) as Array<{ id: string; relativePath: string }>
+
+      for (const row of rows) {
+        results.set(row.id, row.relativePath)
+      }
+    }
+
+    return results
   }
 
   // ─── IndexState ──────────────────────────────────────────────────────────
@@ -198,14 +226,28 @@ export class IndexDAO {
   /**
    * Create a new index request for a project.
    */
-  createRequest(projectId: string, projectPath: string): void {
+  createRequest(projectId: string, projectPath: string): number {
     const now = new Date().toISOString()
-    this.db
+    const result = this.db
       .prepare(
         `INSERT INTO indexRequests (projectId, projectPath, status, createdAt)
          VALUES (?, ?, 'pending', ?)`
       )
       .run(projectId, projectPath, now)
+    return Number(result.lastInsertRowid)
+  }
+
+  hasQueuedRequest(projectId: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1
+         FROM indexRequests
+         WHERE projectId = ?
+           AND status IN ('pending', 'processing')
+         LIMIT 1`
+      )
+      .get(projectId)
+    return Boolean(row)
   }
 
   /**
@@ -224,5 +266,30 @@ export class IndexDAO {
     this.db
       .prepare(`UPDATE indexRequests SET status = 'done' WHERE id = ?`)
       .run(id)
+  }
+
+  deletePendingRequests(projectId: string): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id
+         FROM indexRequests
+         WHERE projectId = ? AND status = 'pending'`
+      )
+      .all(projectId) as Array<{ id: number }>
+
+    if (rows.length === 0) return []
+
+    this.db
+      .prepare(
+        `DELETE FROM indexRequests
+         WHERE projectId = ? AND status = 'pending'`
+      )
+      .run(projectId)
+
+    return rows.map((row) => row.id)
+  }
+
+  clearRequests(): void {
+    this.db.prepare('DELETE FROM indexRequests').run()
   }
 }

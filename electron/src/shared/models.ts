@@ -114,6 +114,7 @@ export interface CodeChunk {
   startLine: number | null
   endLine: number | null
   embedding: Buffer | null
+  embeddingModel: string | null
 }
 
 export interface IndexedFile {
@@ -140,6 +141,27 @@ export interface IndexRequest {
   projectPath: string
   status: string // 'pending' | 'processing' | 'done'
   createdAt: string
+}
+
+export type IndexProgressPhase =
+  | 'enumerating'
+  | 'indexing'
+  | 'git-history'
+  | 'embedding'
+  | 'finalizing'
+
+export interface IndexProgress {
+  projectId: string
+  phase: IndexProgressPhase
+  filesTotal: number
+  filesProcessed: number
+  filesSkipped: number
+  chunksCreated: number
+  embeddingsTotal: number
+  embeddingsGenerated: number
+  embeddingsFailed: number
+  elapsedMs: number
+  estimatedRemainingMs?: number
 }
 
 // ─── Browser Models ───────────────────────────────────────────────────────────

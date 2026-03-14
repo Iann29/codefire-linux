@@ -34,7 +34,17 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron/main',
             rollupOptions: {
+              input: {
+                index: path.resolve(__dirname, 'src/main/index.ts'),
+                'workers/index-worker': path.resolve(
+                  __dirname,
+                  'src/main/services/IndexWorker.ts'
+                ),
+              },
               external: ['better-sqlite3', 'node-pty'],
+              output: {
+                entryFileNames: '[name].js',
+              },
             },
           },
         },
@@ -66,6 +76,7 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
       '@renderer': path.resolve(__dirname, 'src/renderer'),
+      '@main': path.resolve(__dirname, 'src/main'),
     },
   },
 })
