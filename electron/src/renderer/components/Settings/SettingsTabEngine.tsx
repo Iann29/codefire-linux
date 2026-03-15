@@ -972,6 +972,12 @@ export default function SettingsTabEngine({ config, onChange }: Props) {
       {/* ─── Automation ──────────────────────────────────────────────── */}
       <Section title="Automation">
         <Toggle
+          label="Auto-index projects on open"
+          hint="When disabled, projects only index when you explicitly click the index button. Recommended for huge repos, dumps, APK decompiles, and vendor-heavy folders."
+          value={config.autoIndexOnOpen}
+          onChange={(v) => onChange({ autoIndexOnOpen: v })}
+        />
+        <Toggle
           label="Semantic code search"
           hint="Enable vector-based code search across projects"
           value={config.contextSearchEnabled}

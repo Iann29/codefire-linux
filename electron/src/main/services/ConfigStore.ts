@@ -34,6 +34,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   agentTemperature: 0.7,
   agentPlanEnforcement: true,
   agentContextCompaction: false,
+  autoIndexOnOpen: false,
   autoSnapshotSessions: true,
   autoUpdateCodebaseTree: true,
   instructionInjection: true,

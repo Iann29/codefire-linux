@@ -460,6 +460,7 @@ export interface AppConfig {
   agentTemperature: number
   agentPlanEnforcement: boolean
   agentContextCompaction: boolean
+  autoIndexOnOpen: boolean
   autoSnapshotSessions: boolean
   autoUpdateCodebaseTree: boolean
   instructionInjection: boolean

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { MessageSquare, ArrowLeft, X } from 'lucide-react'
-import type { IndexProgress, IndexState, Project } from '@shared/models'
+import type { AppConfig, IndexProgress, IndexState, Project } from '@shared/models'
 import { api } from '@renderer/lib/api'
 import { useNavigation } from '@renderer/App'
 import TabBar from '@renderer/components/TabBar/TabBar'
@@ -170,6 +170,9 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           console.warn('Failed to update lastOpened:', err)
         })
 
+        const settings = await api.settings.get().catch(() => null as AppConfig | null)
+        const autoIndexOnOpen = settings?.autoIndexOnOpen ?? false
+
         await api.search.ensureWatcher(projectId).catch((err) => {
           console.warn('Failed to ensure watcher:', err)
         })
@@ -182,7 +185,7 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
           state.lastFullIndexAt &&
           Date.now() - new Date(state.lastFullIndexAt).getTime() < RECENT_REINDEX_WINDOW_MS
 
-        if (state?.status !== 'indexing' && !indexedRecently) {
+        if (autoIndexOnOpen && state?.status !== 'indexing' && !indexedRecently) {
           void handleRequestIndex()
         }
       } catch (err) {
