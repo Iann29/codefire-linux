@@ -292,12 +292,129 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
       })()`
     }
 
+    // Helper: imperatively create a webview for a tab (same lifecycle as
+    // the useEffect that creates webviews, but callable on-demand for
+    // auto-recovery when the active tab is about:blank and a browser
+    // tool needs a live webview).
+    function createWebviewForTab(tabId: string, url: string): HTMLElement | null {
+      const container = webviewContainerRef.current
+      if (!container) return null
+
+      // Don't duplicate if one already exists
+      const existing = webviewRefs.current.get(tabId)
+      if (existing) return existing
+
+      const wv = document.createElement('webview') as any
+      wv.setAttribute('src', url)
+      wv.setAttribute('allowpopups', 'true')
+      wv.setAttribute('partition', 'persist:browser')
+      const cw = container.clientWidth || 1920
+      const ch = container.clientHeight || 1080
+      const { w: vpW, h: vpH } = viewportRef.current
+      const scale = Math.min(cw / vpW, ch / vpH)
+      wv.setAttribute('style',
+        `display:inline-flex;width:${vpW}px;height:${vpH}px;border:none;` +
+        `transform:scale(${scale});transform-origin:top left;`
+      )
+
+      wv.addEventListener('page-title-updated', (e: any) => {
+        updateTab(tabId, { title: e.title })
+      })
+      wv.addEventListener('did-navigate', (e: any) => {
+        updateTab(tabId, { url: e.url })
+      })
+      wv.addEventListener('did-navigate-in-page', (e: any) => {
+        if (e.isMainFrame) updateTab(tabId, { url: e.url })
+      })
+      wv.addEventListener('did-start-loading', () => {
+        updateTab(tabId, { isLoading: true })
+      })
+      wv.addEventListener('did-stop-loading', () => {
+        updateTab(tabId, { isLoading: false })
+      })
+      wv.addEventListener('did-fail-load', (e: any) => {
+        if (e.errorCode !== -3) {
+          updateTab(tabId, {
+            isLoading: false,
+            title: `Error: ${e.errorDescription || 'Failed to load'}`,
+          })
+        }
+      })
+      wv.addEventListener('console-message', (e: any) => {
+        setConsoleEntries((prev) => [
+          ...prev.slice(-499),
+          {
+            level: ['verbose', 'info', 'warning', 'error'][e.level] ?? 'info',
+            message: e.message,
+            timestamp: Date.now(),
+          },
+        ])
+      })
+
+      container.appendChild(wv)
+      webviewRefs.current.set(tabId, wv)
+      return wv
+    }
+
     async function executeCommand(tool: string, args: Record<string, unknown>) {
-      const wv = webviewRefs.current.get(activeTabId) as any
+      let wv = webviewRefs.current.get(activeTabId) as any
+
+      // ─── Auto-recovery: ensure a webview is available ─────────────────
+      // Tools that never need a live webview (they operate on tab state or
+      // cached data only):
+      const noWebviewNeeded =
+        tool === 'browser_console_logs' ||
+        tool === 'browser_list_tabs' ||
+        tool === 'browser_open_tab' ||
+        tool === 'browser_close_tab' ||
+        tool === 'browser_switch_tab'
+
+      if (!wv && !noWebviewNeeded) {
+        // browser_navigate is the canonical entry-point: create a webview
+        // on-the-fly for the active tab and navigate to the requested URL.
+        if (tool === 'browser_navigate') {
+          const rawUrl = typeof args.url === 'string' ? args.url : ''
+          if (!rawUrl) throw new Error('browser_navigate requires a url argument')
+
+          const newWv = createWebviewForTab(activeTabId, rawUrl)
+          if (!newWv) throw new Error('Browser container not mounted')
+
+          // Sync React state so the tab is no longer about:blank
+          navigateTab(activeTabId, rawUrl)
+
+          // Wait for the page to finish loading (src attribute triggers nav)
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(
+              () => reject(new Error('Navigation timed out')),
+              45_000,
+            )
+            newWv.addEventListener(
+              'did-stop-loading',
+              () => { clearTimeout(timeout); resolve() },
+              { once: true },
+            )
+          })
+
+          return { success: true, url: rawUrl }
+        }
+
+        // For non-navigate tools: reuse any available webview (e.g. the
+        // active tab is about:blank but another tab has a loaded page).
+        for (const [tabId, existingWv] of webviewRefs.current) {
+          wv = existingWv as any
+          setActiveTabId(tabId)
+          break
+        }
+
+        if (!wv) {
+          throw new Error(
+            'No active webview. Use browser_navigate to load a page first.',
+          )
+        }
+      }
 
       switch (tool) {
         case 'browser_navigate': {
-          if (!wv) throw new Error('No active webview')
           const rawUrl = typeof args.url === 'string' ? args.url : ''
           await new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error('Navigation timed out')), 45_000)
@@ -311,18 +428,18 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           return { success: true, url: rawUrl }
         }
         case 'browser_snapshot': {
-          if (!wv) throw new Error('No active webview')
+
           const html = await wv.executeJavaScript('document.documentElement.outerHTML')
           const maxSize = typeof args.max_size === 'number' ? args.max_size : 50_000
           return { html: String(html).slice(0, maxSize) }
         }
         case 'browser_screenshot': {
-          if (!wv) throw new Error('No active webview')
+
           const img = await wv.capturePage()
           return { image: img.toDataURL() }
         }
         case 'browser_click': {
-          if (!wv) throw new Error('No active webview')
+
           const ref = String(args.ref ?? '')
           const clickResult = await wv.executeJavaScript(`
             (() => {
@@ -336,7 +453,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           return clickResult
         }
         case 'browser_type': {
-          if (!wv) throw new Error('No active webview')
+
           const ref = String(args.ref ?? '')
           const text = typeof args.text === 'string' ? args.text : ''
           const typeResult = await wv.executeJavaScript(`
@@ -358,7 +475,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           return typeResult
         }
         case 'browser_dom_map': {
-          if (!wv) throw new Error('No active webview')
+
           const maxElements = typeof args.max_elements === 'number' ? Math.min(Math.max(args.max_elements, 50), 1000) : 500
           return await wv.executeJavaScript(`
             (() => {
@@ -444,7 +561,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_click_element': {
-          if (!wv) throw new Error('No active webview')
+
           const index = Number(args.index)
           // Try simple click first; on failure, fall back to nuclear click
           const clickResult = await wv.executeJavaScript(`
@@ -460,12 +577,12 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           return clickResult
         }
         case 'browser_nuclear_click': {
-          if (!wv) throw new Error('No active webview')
+
           const nci = Number(args.index)
           return await wv.executeJavaScript(nuclearClickScript(nci))
         }
         case 'browser_type_element': {
-          if (!wv) throw new Error('No active webview')
+
           const tIndex = Number(args.index)
           const tText = typeof args.text === 'string' ? args.text : ''
           const tClearFirst = args.clearFirst !== false
@@ -497,7 +614,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_select_element': {
-          if (!wv) throw new Error('No active webview')
+
           const index = Number(args.index)
           const value = typeof args.value === 'string' ? args.value : ''
           return await wv.executeJavaScript(`
@@ -520,7 +637,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_hover_element': {
-          if (!wv) throw new Error('No active webview')
+
           const index = Number(args.index)
           return await wv.executeJavaScript(`
             (() => {
@@ -539,7 +656,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_scroll_to_element': {
-          if (!wv) throw new Error('No active webview')
+
           const index = Number(args.index)
           const block = typeof args.block === 'string' ? args.block : 'center'
           return await wv.executeJavaScript(`
@@ -553,7 +670,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_get_element_info': {
-          if (!wv) throw new Error('No active webview')
+
           const index = Number(args.index)
           return await wv.executeJavaScript(`
             (() => {
@@ -571,7 +688,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_eval': {
-          if (!wv) throw new Error('No active webview')
+
           const expression = typeof args.expression === 'string'
             ? args.expression
             : typeof args.code === 'string'
@@ -583,7 +700,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
         case 'browser_console_logs':
           return { entries: consoleEntries }
         case 'browser_wait_element': {
-          if (!wv) throw new Error('No active webview')
+
           const sel = typeof args.selector === 'string' ? args.selector : ''
           const state = typeof args.state === 'string' ? args.state : 'visible'
           const timeoutMs = typeof args.timeout === 'number' ? args.timeout : 5000
@@ -621,7 +738,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_wait_navigation': {
-          if (!wv) throw new Error('No active webview')
+
           const strategy = typeof args.strategy === 'string' ? args.strategy : 'load'
           const navTimeout = typeof args.timeout === 'number' ? args.timeout : 10000
           if (strategy === 'urlchange') {
@@ -650,7 +767,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           })
         }
         case 'browser_get_content': {
-          if (!wv) throw new Error('No active webview')
+
           const mode = typeof args.mode === 'string' ? args.mode : 'text'
           return await wv.executeJavaScript(`
             (() => {
@@ -675,7 +792,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_press_key': {
-          if (!wv) throw new Error('No active webview')
+
           const key = typeof args.key === 'string' ? args.key : ''
           const modifiers = Array.isArray(args.modifiers) ? args.modifiers as string[] : []
           return await wv.executeJavaScript(`
@@ -701,7 +818,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_extract_table': {
-          if (!wv) throw new Error('No active webview')
+
           const tableSel = typeof args.selector === 'string' ? args.selector : 'table'
           return await wv.executeJavaScript(`
             (() => {
@@ -719,7 +836,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           `)
         }
         case 'browser_fill_form': {
-          if (!wv) throw new Error('No active webview')
+
           const fields = Array.isArray(args.fields) ? args.fields as Array<{ index: number; value: string }> : []
           if (fields.length === 0) return { error: 'fields array is required and must not be empty' }
           const results = []
@@ -754,7 +871,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           return { success: true, filled: results.length, results }
         }
         case 'browser_drag_and_drop': {
-          if (!wv) throw new Error('No active webview')
+
           const srcIdx = Number(args.sourceIndex)
           const tgtIdx = Number(args.targetIndex)
           return await wv.executeJavaScript(`
@@ -821,7 +938,7 @@ export default function BrowserView({ projectId, projectPath }: BrowserViewProps
           return { success: true, activeTabId: switchTabId, url: found.url, title: found.title }
         }
         case 'browser_nuclear_type': {
-          if (!wv) throw new Error('No active webview')
+
           const nti = Number(args.index)
           const ntText = typeof args.text === 'string' ? args.text : ''
           const ntClear = args.clearFirst !== false

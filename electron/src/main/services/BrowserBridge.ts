@@ -15,6 +15,11 @@ export class BrowserBridge {
       throw new Error('No browser window available to execute command')
     }
 
+    // Signal the renderer to switch to the Browser view tab so the user
+    // sees the browser and, critically, so the BrowserView component is
+    // visible and can create/activate webviews as needed.
+    targetWindow.webContents.send('browser:ensureVisible')
+
     const requestId = randomUUID()
     const resultChannel = `browser:result:${requestId}`
     const timeoutMs = Math.max(1_000, Math.min(command.timeoutMs ?? 30_000, 120_000))

@@ -151,6 +151,13 @@ export default function ProjectLayout({ projectId }: ProjectLayoutProps) {
     }
   }, [])
 
+  // Switch to Browser tab when a browser tool is invoked (main → renderer signal)
+  useEffect(() => {
+    return window.api.on('browser:ensureVisible', () => {
+      handleTabChange('Browser')
+    })
+  }, [handleTabChange])
+
   useEffect(() => {
     let cancelled = false
 
