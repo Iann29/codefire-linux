@@ -1,4 +1,4 @@
-import { Mic, Play, Pause, Languages, Loader2, ListTodo, Check, Copy } from 'lucide-react'
+import { Mic, Play, Pause, Languages, Loader2, ListTodo, Check, Copy, PenLine, X } from 'lucide-react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Recording } from '@shared/models'
 import { api } from '@renderer/lib/api'
@@ -6,6 +6,7 @@ import { api } from '@renderer/lib/api'
 interface RecordingDetailProps {
   recording: Recording | null
   onTranscribe: (id: string) => void
+  onUpdate?: (updated: Recording) => void
   isTranscribing: boolean
   projectId?: string
 }
@@ -13,6 +14,7 @@ interface RecordingDetailProps {
 export default function RecordingDetail({
   recording,
   onTranscribe,
+  onUpdate,
   isTranscribing,
   projectId,
 }: RecordingDetailProps) {
@@ -22,9 +24,53 @@ export default function RecordingDetail({
   const [extracting, setExtracting] = useState(false)
   const [extractResult, setExtractResult] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editText, setEditText] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const animFrameRef = useRef<number>(0)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Exit edit mode when recording changes
+  useEffect(() => {
+    setIsEditing(false)
+    setEditText('')
+  }, [recording?.id])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px'
+      textareaRef.current.focus()
+    }
+  }, [isEditing, editText])
+
+  function startEditing() {
+    if (!recording?.transcript) return
+    setEditText(recording.transcript)
+    setIsEditing(true)
+  }
+
+  function cancelEditing() {
+    setIsEditing(false)
+    setEditText('')
+  }
+
+  async function saveTranscript() {
+    if (!recording || !onUpdate) return
+    setIsSaving(true)
+    try {
+      const updated = await api.recordings.update(recording.id, { transcript: editText })
+      if (updated) onUpdate(updated)
+      setIsEditing(false)
+    } catch (err) {
+      console.error('Failed to save transcript:', err)
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   // Load waveform data when recording changes
   useEffect(() => {
@@ -283,23 +329,78 @@ export default function RecordingDetail({
                     {new Date(recording.transcribedAt).toLocaleString()}
                   </span>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(recording.transcript ?? '')
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }}
-                  className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors"
-                >
-                  {copied ? <Check size={10} /> : <Copy size={10} />}
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
+                {!isEditing && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                      <PenLine size={10} />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(recording.transcript ?? '')
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 2000)
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                      {copied ? <Check size={10} /> : <Copy size={10} />}
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </>
+                )}
+                {isEditing && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={cancelEditing}
+                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-neutral-400 hover:text-neutral-200 bg-neutral-800 hover:bg-neutral-700 rounded transition-colors"
+                    >
+                      <X size={10} />
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveTranscript}
+                      disabled={isSaving || editText === recording.transcript}
+                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                      Save
+                      <kbd className="ml-0.5 text-[8px] opacity-60">⌘↵</kbd>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
-            <p className="text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap">
-              {recording.transcript}
-            </p>
+
+            {isEditing ? (
+              <textarea
+                ref={textareaRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') cancelEditing()
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault()
+                    saveTranscript()
+                  }
+                }}
+                className="w-full text-sm text-neutral-300 leading-relaxed bg-neutral-900/50 border border-neutral-700 focus:border-codefire-orange/50 rounded-lg p-3 resize-none outline-none transition-colors"
+                style={{ minHeight: '120px' }}
+              />
+            ) : (
+              <p
+                onClick={startEditing}
+                className="text-sm text-neutral-300 leading-relaxed whitespace-pre-wrap cursor-text rounded-lg p-3 -m-3 hover:bg-neutral-800/40 transition-colors"
+              >
+                {recording.transcript}
+              </p>
+            )}
           </div>
         ) : (
           recording.status !== 'transcribing' &&

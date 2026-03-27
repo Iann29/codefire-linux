@@ -188,6 +188,10 @@ export default function RecordingsView({ projectId }: RecordingsViewProps) {
           <RecordingDetail
             recording={selected}
             onTranscribe={handleTranscribe}
+            onUpdate={(updated) => {
+              setRecordings((prev) => prev.map((r) => r.id === updated.id ? updated : r))
+              setSelected(updated)
+            }}
             isTranscribing={isTranscribing}
             projectId={projectId}
           />
